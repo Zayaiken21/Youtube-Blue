@@ -11,6 +11,10 @@
    • When every line is done, the clips are decoded in the browser and
      stitched into one WAV in story order, with pauses between lines
      and at scene changes.
+   • The run is saved as it goes (job IDs in "voiceStoryRun", finished
+     clips in IndexedDB). Close the app mid-run and reopen Voice Studio:
+     it picks up the same jobs and finishes the track. With "All lines"
+     every job is on the server, so nothing waits for the app.
    Uses the shared core exposed by voice.js (window.YBVoice); never
    calls /tts.
    ========================================================= */
@@ -21,13 +25,16 @@
 
   var SAMPLE_RATE = 24000;                  // Chatterbox Turbo output rate
   var NARRATOR = { id: 'narrator', name: 'Narrator', color: '#7dd3fc' };
-  var opts = Object.assign({ pause: 400, scenePause: 800, parallel: 2, merge: true }, YB.store.get('voiceStoryOpts', {}));
+  var RUN_KEY = 'voiceStoryRun';
+  var opts = Object.assign({ pause: 400, scenePause: 800, parallel: 'all', merge: true }, YB.store.get('voiceStoryOpts', {}));
+  if (opts.v !== 2) { opts.parallel = 'all'; opts.v = 2; YB.store.set('voiceStoryOpts', opts); }   // send every line so runs survive closing the app
   var castMap = YB.store.get('voiceCast', {});          // { storyId: { charId: { mode, id } } }
   var st = {
     active: YB.store.get('voiceGenMode', 'single') === 'story',
     storyId: '',
     segs: [],        // [{ type:'scene'|'line', text, speaker, lines, status, jobId, blob, url, error, fails, mode, voice }]
-    run: null        // active run { token, queue:[i], inflight:[i], timer }
+    run: null,       // active run { token, queue:[i], inflight:[i], timer, posting, hold, cycle }
+    runId: ''        // names this run's saved clips in IndexedDB ("clip:<runId>:<i>")
   };
   var player = new Audio();
 
@@ -127,22 +134,39 @@
         '<select data-cv-mode="' + YB.esc(id) + '" aria-label="Voice type for ' + YB.esc(c.name) + '"><option value="predefined"' + (v.mode === 'predefined' ? ' selected' : '') + '>Built-in voice</option><option value="clone"' + (v.mode === 'clone' ? ' selected' : '') + '>Clone</option></select>' +
         '<select data-cv-voice="' + YB.esc(id) + '" aria-label="Voice for ' + YB.esc(c.name) + '">' + options + '</select>' +
         '</div>' + (problem && v.id ? '<div class="cv-warn">' + YB.esc(problem) + '</div>' : '') +
-        uploadHtml(id, c.name, cloneOk) + '</div>';
+        (v.mode === 'clone' ? uploadHtml(id, c.name, cloneOk) : '') + '</div>';
     }).join('');
   }
 
-  // Per-character "Upload reference" — same upload + checks as the single-narrator clone section.
+  // Per-character reference upload (Clone only) — same steps as the single
+  // narrator: choose a file, then Upload reference. Same upload + checks.
   var upNotes = {};   // charId → { text, level }
+  var picked = {};    // charId → File chosen but not uploaded yet
+  function sizeLabel(n) { return n < 1048576 ? Math.max(1, Math.round(n / 1024)) + ' KB' : (n / 1048576).toFixed(1) + ' MB'; }
   function uploadHtml(id, name, cloneOk) {
-    var busy = !!st.run || V.isBusy(), note = upNotes[id];
+    var off = !!st.run || V.isBusy() || !cloneOk, note = upNotes[id], f = picked[id];
     return '<div class="cv-upload">' +
-      '<label class="btn btn-ghost btn-sm cv-up-btn' + (busy || !cloneOk ? ' is-disabled' : '') + '">⬆️ Upload reference' +
-      '<input type="file" accept=".wav,.mp3,audio/wav,audio/x-wav,audio/mpeg" data-cv-file="' + YB.esc(id) + '" aria-label="Upload a reference voice for ' + YB.esc(name) + '"' + (busy || !cloneOk ? ' disabled' : '') + ' hidden></label>' +
-      (note ? '<span class="cv-up-note" data-level="' + YB.esc(note.level) + '">' + YB.esc(note.text) + '</span>' : '') +
+      '<div class="cv-up-row">' +
+      '<label class="btn btn-ghost btn-xs cv-pick' + (off ? ' is-disabled' : '') + '">📁 Choose file' +
+      '<input class="cv-file-input" type="file" accept=".wav,.mp3,audio/wav,audio/x-wav,audio/mpeg" data-cv-file="' + YB.esc(id) + '" aria-label="Choose a reference clip for ' + YB.esc(name) + '"' + (off ? ' disabled' : '') + '></label>' +
+      '<button type="button" class="btn btn-xs cv-send" data-cv-upload="' + YB.esc(id) + '" aria-label="Upload reference for ' + YB.esc(name) + '"' + (off || !f ? ' disabled' : '') + '>⬆️ Upload</button>' +
+      '</div>' +
+      '<div class="cv-file-name">Selected: <b>' + (f ? YB.esc(f.name) + ' (' + sizeLabel(f.size) + ')' : 'None') + '</b></div>' +
+      (note ? '<div class="cv-up-note" data-level="' + YB.esc(note.level) + '">' + YB.esc(note.text) + '</div>' : '') +
       '</div>';
   }
 
   function setUpNote(id, text, level) { upNotes[id] = { text: text, level: level || '' }; renderCast(); V.updateControls(); }
+
+  function pickFor(id, file) {
+    if (!file) return;
+    picked[id] = file;
+    setUpNote(id, 'Ready — tap Upload.', '');
+    V.clipLength(file).then(function (r) {
+      if (picked[id] !== file || !r.text) return;
+      setUpNote(id, 'Ready — tap Upload. ' + r.text, r.level === 'warn' ? 'warn' : '');
+    });
+  }
 
   function uploadFor(id, file) {
     if (!file || st.run || V.isBusy()) return;
@@ -154,6 +178,7 @@
       var map = castMap[st.storyId] || (castMap[st.storyId] = {});
       map[id] = { mode: 'clone', id: serverName };     // this character now uses the new clone
       saveCast();
+      if (picked[id] === file) delete picked[id];
       setUpNote(id, '✓ Uploaded and ready: ' + serverName + (lenText ? '  ' + lenText : ''), lenText.indexOf('⚠️') === 0 ? 'warn' : 'ok');
       renderAll();
     }, function (err) {
@@ -183,7 +208,96 @@
     if (st.run) return;               // never reshuffle lines mid-run
     resetRunData();
     st.segs = buildSegments();
+    adoptSaved();
     renderAll();
+  }
+
+  /* ---------- Saved run (survives reloads and closing the app) ---------- */
+  function clipKey(i) { return 'clip:' + st.runId + ':' + i; }
+  function signature(segs) {
+    var t = segs.map(function (g) { return g.type + '|' + (g.speaker || '') + '|' + g.text; }).join('\n'), h = 5381;
+    for (var i = 0; i < t.length; i++) h = ((h * 33) ^ t.charCodeAt(i)) >>> 0;
+    return t.length + ':' + h.toString(36);
+  }
+  function errLite(e) { return e ? { kind: e.kind || 'tts', message: e.message || String(e), raw: e.raw } : null; }
+
+  function saveRun(state) {
+    YB.store.set(RUN_KEY, {
+      state: state || (st.run ? 'running' : 'stopped'), runId: st.runId, storyId: st.storyId, backend: V.backend(),
+      startedAt: st.run ? st.run.startedAt : Date.now(), sig: signature(st.segs),
+      segs: st.segs.map(function (g) {
+        return g.type === 'scene' ? { type: 'scene', text: g.text }
+          : { type: 'line', speaker: g.speaker, text: g.text, lines: g.lines, status: g.status, jobId: g.jobId || null, voice: g.voice || null, error: errLite(g.error) };
+      })
+    });
+  }
+
+  // Same story, same lines as a finished/stopped run → show its clips and
+  // failed lines again (so Retry failed lines still works after a reload).
+  function adoptSaved() {
+    var rec = YB.store.get(RUN_KEY, null), segs = st.segs;
+    if (!rec || rec.state === 'running' || rec.storyId !== st.storyId || !rec.runId || rec.sig !== signature(segs)) return;
+    st.runId = rec.runId;
+    var keep = [];
+    rec.segs.forEach(function (r, i) {
+      var g = segs[i]; if (!g || g.type !== 'line') return;
+      if (r.status === 'failed') { g.status = 'failed'; g.error = r.error; g.voice = r.voice; }
+      else if (r.status === 'done') keep.push(i);
+    });
+    if (!keep.length) return;
+    Promise.all(keep.map(function (i) { return V.db.get(clipKey(i)); })).then(function (blobs) {
+      if (st.segs !== segs || st.run) return;
+      keep.forEach(function (i, k) {
+        if (!blobs[k]) return;
+        var g = segs[i]; g.blob = blobs[k]; g.url = URL.createObjectURL(blobs[k]); g.status = 'done';
+      });
+      renderSegments(); updateRetry();
+    });
+  }
+
+  // Called by voice.js once the backend address is known. Re-attaches to a
+  // run that was in progress when the page/app closed.
+  function resume(backend) {
+    var rec = YB.store.get(RUN_KEY, null);
+    if (!rec || rec.state !== 'running' || st.run) return false;
+    var storyOk = V.storiesList().some(function (s) { return s.id === rec.storyId; });
+    if (V.normalizeUrl(rec.backend) !== backend || !storyOk || !Array.isArray(rec.segs)) {
+      // New Colab session (old jobs are gone) or the story was deleted: keep finished clips, stop the run.
+      rec.state = 'stopped';
+      (rec.segs || []).forEach(function (r) { if (r.type === 'line' && r.status !== 'done' && r.status !== 'failed') { r.status = 'idle'; r.jobId = null; } });
+      YB.store.set(RUN_KEY, rec);
+      if (st.active && st.storyId === rec.storyId) rebuild();
+      return false;
+    }
+    if (!V.begin('Generating')) return false;
+    st.storyId = rec.storyId; st.runId = rec.runId;
+    YB.store.set('voiceStorySel', rec.storyId);
+    resetRunData();
+    st.segs = rec.segs.map(function (r) {
+      return r.type === 'scene' ? { type: 'scene', text: r.text }
+        : { type: 'line', speaker: r.speaker, text: r.text, lines: r.lines || 1, status: r.status || 'idle', jobId: r.jobId || null, voice: r.voice, error: r.error, fails: 0 };
+    });
+    var run = st.run = { token: Date.now(), queue: [], inflight: [], timer: null, total: lineSegs().length, posting: false, hold: 0, cycle: 0, startedAt: rec.startedAt || Date.now() };
+    if (!st.active) setActive(true); else { renderStoryPicker(); }
+    renderAll();
+    V.progress('Generating', 'Picking up your story where it left off…', 'Checking the lines that were sent to the server.');
+    var segs = st.segs;
+    var wanted = segs.map(function (g, i) { return g.type === 'line' && g.status === 'done' ? V.db.get(clipKey(i)) : Promise.resolve(null); });
+    Promise.all(wanted).then(function (blobs) {
+      if (st.run !== run) return;
+      segs.forEach(function (g, i) {
+        if (g.type !== 'line' || g.status === 'failed') return;
+        if (g.status === 'done' && blobs[i]) { g.blob = blobs[i]; g.url = URL.createObjectURL(blobs[i]); return; }
+        if (!g.voice) g.voice = Object.assign({}, voiceFor(g.speaker));
+        if (g.jobId) { g.status = g.status === 'queued' ? 'queued' : 'running'; run.inflight.push(i); }
+        else { g.status = 'idle'; run.queue.push(i); }
+      });
+      saveRun();
+      renderSegments(); progress();
+      clearTimeout(run.timer);
+      run.timer = setTimeout(pollAll, 300);
+    });
+    return true;
   }
 
   function renderStats() {
@@ -313,8 +427,14 @@
     });
     if (!queue.length) return;
     if (!V.begin('Queued')) return;
-    st.run = { token: Date.now(), queue: queue, inflight: [], timer: null, total: lineSegs().length };
+    if (!onlyFailed || !st.runId) {
+      var keepDone = onlyFailed ? st.segs.map(function (g, i) { return g.status === 'done' && g.blob ? i : -1; }).filter(function (i) { return i >= 0; }) : [];
+      st.runId = Date.now().toString(36);
+      V.db.delPrefix('clip:').then(function () { keepDone.forEach(function (i) { V.db.put(clipKey(i), st.segs[i].blob); }); });
+    }
+    st.run = { token: Date.now(), queue: queue, inflight: [], timer: null, total: lineSegs().length, posting: false, hold: 0, cycle: 0, startedAt: Date.now() };
     YB.store.set('voiceStorySel', st.storyId);
+    saveRun();
     renderSegments(); updateRetry();
     progress();
     pump();
@@ -331,10 +451,12 @@
     V.progress(running.length ? 'Generating' : 'Queued', title, detail);
   }
 
-  // Keep up to opts.parallel jobs in flight, in script order.
+  // Keep up to opts.parallel jobs on the server ("all" = every line), sent one
+  // POST at a time so the server queue stays in script order.
+  function limit() { return opts.parallel === 'all' ? Infinity : Math.max(1, Number(opts.parallel) || 2); }
   function pump() {
-    var run = st.run; if (!run) return;
-    while (run.inflight.length < Number(opts.parallel) && run.queue.length) submit(run.queue.shift());
+    var run = st.run; if (!run || run.finishing) return;
+    if (!run.posting && Date.now() >= run.hold && run.inflight.length < limit() && run.queue.length) submit(run.queue.shift());
     if (!run.inflight.length && !run.queue.length) { finish(); return; }
     schedulePoll();
   }
@@ -342,6 +464,7 @@
   function submit(i) {
     var run = st.run, g = st.segs[i];
     run.inflight.push(i);
+    run.posting = true;
     g.status = 'queued';
     renderSegments(); progress();
     V.call(V.route('jobs'), { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload(g)) }, V.SHORT_TIMEOUT_MS)
@@ -352,13 +475,26 @@
       .then(function (data) {
         if (st.run !== run) return;
         if (!data || !data.job_id) throw V.makeErr('tts', 'Backend did not return a job ID.');
-        g.jobId = data.job_id;
+        g.jobId = data.job_id; g.fails = 0;
         if (data.status === 'running') g.status = 'running';
+        run.posting = false;
+        saveRun();
         renderSegments(); progress();
+        pump();
       })
       .catch(function (err) {
         if (st.run !== run) return;
-        fail(i, V.networkError(err));
+        run.posting = false;
+        err = V.networkError(err);
+        // Tunnel hiccup or a busy server: put the line back and try again shortly.
+        var transient = err.status === 429 || /offline|timeout|unavailable|tunnel|cf-timeout/.test(err.kind || '');
+        if (transient && ++g.fails < 6) {
+          run.inflight = run.inflight.filter(function (x) { return x !== i; });
+          g.status = 'idle'; run.queue.unshift(i); run.hold = Date.now() + 5000;
+          renderSegments(); schedulePoll();
+          return;
+        }
+        fail(i, err);
       });
   }
 
@@ -369,12 +505,21 @@
   }
 
   // One status request per job in flight, every ~3 s.
+  // With every line on the server, most are waiting in its queue: check them
+  // in order and stop after two that are still queued (a full sweep every 5th time).
   function pollAll() {
-    var run = st.run; if (!run) return;
-    var ids = run.inflight.filter(function (i) { return st.segs[i].jobId && st.segs[i].status !== 'fetching'; });
+    var run = st.run; if (!run || run.finishing) return;
+    run.cycle++;
+    var full = run.cycle % 5 === 0, queuedSeen = 0;
+    var ids = run.inflight.filter(function (i) { return st.segs[i].jobId && st.segs[i].status !== 'fetching'; }).sort(function (a, b) { return a - b; });
     var chain = Promise.resolve();
-    ids.forEach(function (i) { chain = chain.then(function () { return pollOne(run, i); }); });
-    chain.then(function () { if (st.run === run) { progress(); if (run.inflight.length || run.queue.length) schedulePoll(); else finish(); } });
+    ids.forEach(function (i) {
+      chain = chain.then(function () {
+        if (st.run !== run || (!full && queuedSeen >= 2)) return;
+        return pollOne(run, i).then(function () { if (st.segs[i].status === 'queued') queuedSeen++; });
+      });
+    });
+    chain.then(function () { if (st.run === run) { progress(); pump(); } });
   }
 
   function pollOne(run, i) {
@@ -392,7 +537,8 @@
         if (st.run !== run) return;
         g.fails = 0;
         if (data.status === 'complete') { g.status = 'fetching'; return fetchAudio(run, i); }
-        if (data.status === 'failed') { fail(i, V.jobFailure(data.error, g.voice.mode)); return; }
+        if (data.status === 'failed') { fail(i, V.jobFailure(data.error, g.voice && g.voice.mode)); return; }
+        if (data.status === 'cancelled' || data.status === 'canceled') { fail(i, V.makeErr('http', 'The server cancelled this line.')); return; }
         g.status = data.status === 'queued' ? 'queued' : 'running';
         renderSegments();
       })
@@ -415,6 +561,7 @@
         if (st.run !== run) return;
         if (!blob || blob.size < 100) throw V.makeErr('tts', 'The server returned an empty audio file.');
         g.blob = blob; g.url = URL.createObjectURL(blob); g.status = 'done';
+        V.db.put(clipKey(i), blob);
         done(i);
       })
       .catch(function (err) {
@@ -427,6 +574,7 @@
   function done(i) {
     var run = st.run;
     run.inflight = run.inflight.filter(function (x) { return x !== i; });
+    saveRun();
     renderSegments();
     pump();
   }
@@ -435,16 +583,19 @@
     var run = st.run, g = st.segs[i];
     g.status = 'failed'; g.error = err;
     if (run) run.inflight = run.inflight.filter(function (x) { return x !== i; });
+    saveRun();
     renderSegments();
     if (run) pump();
   }
 
   function finish() {
-    var run = st.run; if (!run) return;
+    var run = st.run; if (!run || run.finishing) return;
+    run.finishing = true;
     clearTimeout(run.timer);
     var lines = lineSegs(), failed = lines.filter(function (g) { return g.status === 'failed'; });
     if (failed.length) {
       st.run = null;
+      saveRun('stopped');
       V.end();
       var first = failed[0].error || V.makeErr('tts', 'A line failed.');
       var who1 = who(story(), failed[0].speaker).name;
@@ -457,6 +608,7 @@
     V.progress('Generating', 'Processing audio…', 'Stitching ' + lines.length + ' clips into one track in story order.');
     stitch().then(function (wav) {
       st.run = null;
+      saveRun('finished');
       V.end();
       V.showAudio(wav, 'wav', fileBase());
       $('storyRunNote').textContent = 'Story track ready — ' + lines.length + ' lines in script order. Each line\'s clip can also be played or downloaded above.';
@@ -465,6 +617,7 @@
     }, function (err) {
       console.error('[Voice Studio] stitching failed', err);
       st.run = null;
+      saveRun('stopped');
       V.end();
       V.showNotice(V.errorBox(), V.makeErr('tts', 'Couldn\'t combine the clips in this browser.', { raw: String(err && err.message || err) }));
       $('storyRunNote').textContent = 'Every line finished — download the clips individually above.';
@@ -476,8 +629,9 @@
     var run = st.run; if (!run) return;
     clearTimeout(run.timer);
     var sent = run.inflight.filter(function (i) { return st.segs[i].jobId; }).length;
-    run.inflight.concat(run.queue).forEach(function (i) { var g = st.segs[i]; if (g.status !== 'done') g.status = 'idle'; });
+    run.inflight.concat(run.queue).forEach(function (i) { var g = st.segs[i]; if (g.status !== 'done') { g.status = 'idle'; g.jobId = null; } });
     st.run = null;
+    saveRun('stopped');
     V.end();
     var box = V.errorBox();
     box.className = 'notice warn'; box.hidden = false;
@@ -557,7 +711,7 @@
     });
     $('storyPause').addEventListener('change', function () { opts.pause = Number(this.value); saveOpts(); });
     $('storyScenePause').addEventListener('change', function () { opts.scenePause = Number(this.value); saveOpts(); });
-    $('storyParallel').addEventListener('change', function () { opts.parallel = Number(this.value); saveOpts(); });
+    $('storyParallel').addEventListener('change', function () { opts.parallel = this.value === 'all' ? 'all' : Number(this.value); saveOpts(); });
     $('storyMerge').addEventListener('change', function () { opts.merge = this.checked; saveOpts(); rebuild(); });
     $('storyRetryBtn').addEventListener('click', function () { generate(true); });
     $('castRefreshBtn').addEventListener('click', function () {
@@ -567,18 +721,23 @@
     var castHost = $('castRows');
     castHost.addEventListener('change', function (e) {
       var up = e.target.getAttribute('data-cv-file');
-      if (up) { var f = e.target.files && e.target.files[0]; e.target.value = ''; uploadFor(up, f); return; }
+      if (up) { var f = e.target.files && e.target.files[0]; e.target.value = ''; pickFor(up, f); return; }
       var m = e.target.getAttribute('data-cv-mode'), v = e.target.getAttribute('data-cv-voice');
       var map = castMap[st.storyId] || (castMap[st.storyId] = {});
       if (m) {
         var mode = e.target.value;
         var first = mode === 'clone' ? ((V.refFiles() || [])[0] || '') : ((V.voices() || [])[0] || {}).filename || '';
         map[m] = { mode: mode, id: first };
-        if (mode === 'clone') V.refreshListsIfStale('refs');
+        if (mode === 'clone') V.refreshListsIfStale('refs'); else { delete picked[m]; delete upNotes[m]; }
       } else if (v) {
         map[v] = { mode: (map[v] && map[v].mode) || 'predefined', id: e.target.value };
       } else return;
       saveCast(); renderAll();
+    });
+    castHost.addEventListener('click', function (e) {
+      var b = e.target.closest('[data-cv-upload]'); if (!b || b.disabled) return;
+      var id = b.getAttribute('data-cv-upload');
+      uploadFor(id, picked[id]);
     });
     castHost.addEventListener('focusin', function (e) {
       if (e.target.matches('[data-cv-voice]')) V.refreshListsIfStale('both');
@@ -590,7 +749,13 @@
       if (g && g.url) { player.src = g.url; player.play().catch(function () {}); }
     });
 
-    window.addEventListener('beforeunload', function (e) { if (st.run) { e.preventDefault(); e.returnValue = ''; } });
+    // Lines already on the server keep going when the page closes; only warn
+    // when some lines haven't been sent yet (they're sent when you come back).
+    window.addEventListener('beforeunload', function (e) { if (st.run && (st.run.queue.length || st.run.posting)) { e.preventDefault(); e.returnValue = ''; } });
+    // Back from the background: check the jobs right away.
+    document.addEventListener('visibilitychange', function () {
+      if (!document.hidden && st.run && !st.run.finishing) { clearTimeout(st.run.timer); st.run.timer = setTimeout(pollAll, 200); }
+    });
   }
 
   function init() {
@@ -606,7 +771,8 @@
       generate: function () { generate(false); },
       cancel: cancel,
       summary: summary,
-      listsChanged: function () { if (st.active && !st.run) renderAll(); }
+      listsChanged: function () { if (st.active && !st.run) renderAll(); },
+      resume: resume
     });
     setActive(st.active);
   }

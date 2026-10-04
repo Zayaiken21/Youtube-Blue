@@ -650,3 +650,14 @@ input[type="range"] { min-height: 32px; }            /* finger-friendly */
 .cv-up-note[data-level="warn"] { color: var(--warn); }
 .cv-up-note[data-level="error"] { color: #fecaca; }
 .cv-up-note[data-level="busy"] { color: var(--accent); }
+
+/* ---------- Story cast: compact clone-only upload (choose file → upload) ---------- */
+.btn-xs { min-height: 32px; padding: 4px 10px; font-size: .8rem; border-radius: 9px; }
+.cv-upload { display: grid; gap: 4px; }
+.cv-up-row { display: flex; flex-wrap: wrap; gap: 6px; }
+.cv-up-row .btn { flex: 0 1 auto; white-space: nowrap; }
+.cv-pick { position: relative; overflow: hidden; cursor: pointer; }
+.cv-pick .cv-file-input { position: absolute; inset: 0; width: 100%; height: 100%; opacity: 0; cursor: pointer; font-size: 16px; }
+.cv-pick.is-disabled { opacity: .5; pointer-events: none; }
+.cv-file-name { font-size: .76rem; color: var(--muted); overflow-wrap: anywhere; }
+.cv-upload .cv-up-note { flex: none; }

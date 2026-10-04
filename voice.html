@@ -15,10 +15,10 @@
   <meta name="mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
   <meta name="apple-mobile-web-app-title" content="YT Blue">
-  <link rel="stylesheet" href="css/style.css?v=7">
+  <link rel="stylesheet" href="css/style.css?v=8">
   <script src="js/core.js" defer></script>
-  <script src="js/voice.js?v=7" defer></script>
-  <script src="js/voice-story.js?v=7" defer></script>
+  <script src="js/voice.js?v=8" defer></script>
+  <script src="js/voice-story.js?v=8" defer></script>
 </head>
 <body data-page="voice">
   <header class="topbar">
@@ -188,16 +188,17 @@
               <option value="2500">2.5 s</option>
             </select>
           </label>
-          <label class="field"><span>Jobs sent at once</span>
+          <label class="field"><span>Lines sent to the server</span>
             <select id="storyParallel">
-              <option value="1">1 (one after another)</option>
-              <option value="2">2</option>
-              <option value="3">3</option>
+              <option value="all">All lines (keeps going if you close the app)</option>
+              <option value="1">1 at a time</option>
+              <option value="2">2 at a time</option>
+              <option value="3">3 at a time</option>
             </select>
           </label>
           <label class="field check-field"><input id="storyMerge" type="checkbox"><span>Join a speaker's back-to-back lines</span></label>
         </div>
-        <p class="muted small" style="margin:10px 0 0">Every line keeps its place in the script. Several voices are generated at the same time, then stitched into one track in story order. Your server has one CPU, so more jobs at once keeps it busy without gaps — it doesn't make each line faster.</p>
+        <p class="muted small" style="margin:10px 0 0">Every line keeps its place in the script. Several voices are generated at the same time, then stitched into one track in story order. Your server works through them one CPU job at a time. With <b>All lines</b> every line waits in the server's queue, so generation keeps going even if you close the app — reopen Voice Studio and it picks up where it left off and builds the track.</p>
         <div class="label" style="margin:16px 0 6px">Lines in order</div>
         <ol class="story-lines" id="storySegments"></ol>
         <div class="row" style="margin-top:10px">
@@ -249,7 +250,7 @@
             <h2 id="castTitle" style="margin:0">Cast voices</h2>
             <button class="btn btn-ghost btn-sm" type="button" id="castRefreshBtn">🔄 Refresh lists</button>
           </div>
-          <p class="muted small" style="margin:8px 0 6px">Pick a built-in voice or one of your clone references for each character, or upload a new reference for a character. Choices are saved per story.</p>
+          <p class="muted small" style="margin:8px 0 6px">Pick a built-in voice or a clone reference for each character. Set a character to <b>Clone</b> to upload a new reference for them (choose file, then Upload). Choices are saved per story.</p>
           <p class="small ref-tips-inline">Best results: 10–20 seconds of clean speech, one speaker, no music, no reverb, no background noise. Only clone voices you own or have permission to use.</p>
           <div class="cast-voices" id="castRows"></div>
         </section>

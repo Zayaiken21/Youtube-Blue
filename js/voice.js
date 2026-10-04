@@ -1480,6 +1480,7 @@
   function resumeOrCheck(opts) {
     if (!app.generating && !app.switching && resumeSwitch()) { app.preparing = false; return Promise.resolve(true); }
     if (!app.generating && resumeJob()) { app.preparing = false; return Promise.resolve(true); }
+    if (!app.generating && storyHooks && storyHooks.resume && storyHooks.resume(app.backend)) { app.preparing = false; return Promise.resolve(true); }
     return checkHealth(opts);
   }
 
@@ -1489,29 +1490,86 @@
     return d.getFullYear() + '-' + p(d.getMonth() + 1) + '-' + p(d.getDate()) + '-' + p(d.getHours()) + p(d.getMinutes()) + p(d.getSeconds());
   }
 
-  function showAudio(blob, ext, prefix) {
+  // The latest output is kept in this browser (IndexedDB) so it's still on the
+  // Voice screen after a reload or closing the app, until a new one replaces it
+  // or Clear Output is pressed. `saved` = { name, at } when restoring.
+  function showAudio(blob, ext, prefix, saved) {
     if (app.audioUrl) URL.revokeObjectURL(app.audioUrl);   // no Blob URL leaks
     app.audioUrl = URL.createObjectURL(blob);
+    app.audioSeq = (app.audioSeq || 0) + 1;
     var player = $('audioPreview');
     player.src = app.audioUrl;
     var dl = $('downloadAudioBtn');
+    var name = saved ? saved.name : (prefix || 'youtube-blue-voice') + '-' + fileStamp(new Date()) + '.' + ext;
     dl.href = app.audioUrl;
-    dl.download = (prefix || 'youtube-blue-voice') + '-' + fileStamp(new Date()) + '.' + ext;
-    $('audioInfo').textContent = ext.toUpperCase() + ' · ' + bytesLabel(blob.size);
+    dl.download = name;
+    var when = saved && saved.at ? ' · made ' + ago(new Date(saved.at)) : '';
+    $('audioInfo').textContent = ext.toUpperCase() + ' · ' + bytesLabel(blob.size) + when;
     player.onloadedmetadata = function () {
-      if (isFinite(player.duration)) $('audioInfo').textContent = ext.toUpperCase() + ' · ' + mmss(player.duration) + ' · ' + bytesLabel(blob.size);
+      if (isFinite(player.duration)) $('audioInfo').textContent = ext.toUpperCase() + ' · ' + mmss(player.duration) + ' · ' + bytesLabel(blob.size) + when;
     };
     $('audioOutputSection').hidden = false;
-    $('audioOutputSection').scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+    if (!saved) {
+      $('audioOutputSection').scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+      idb.put('lastAudio', { blob: blob, ext: ext, name: name, at: Date.now() });
+    }
   }
 
   function clearAudio() {
     var p = $('audioPreview');
     p.pause(); p.removeAttribute('src'); p.load();
     if (app.audioUrl) { URL.revokeObjectURL(app.audioUrl); app.audioUrl = null; }
+    app.audioSeq = (app.audioSeq || 0) + 1;
     $('downloadAudioBtn').href = '#';
     $('audioOutputSection').hidden = true;
+    idb.del('lastAudio');
   }
+
+  function restoreAudio() {
+    var seq = app.audioSeq || 0;
+    idb.get('lastAudio').then(function (rec) {
+      if (!rec || !rec.blob || (app.audioSeq || 0) !== seq) return;   // a newer result already showed
+      showAudio(rec.blob, rec.ext || 'wav', '', { name: rec.name || 'youtube-blue-voice.' + (rec.ext || 'wav'), at: rec.at });
+    });
+  }
+
+  /* ---------- Tiny IndexedDB store (audio blobs) ----------
+     Every call resolves (null / false on failure) so a browser without
+     IndexedDB — or private mode — just skips saving. */
+  var idb = (function () {
+    var dbp = null;
+    function open() {
+      if (dbp) return dbp;
+      dbp = new Promise(function (resolve) {
+        try {
+          var req = indexedDB.open('youtube-blue-voice', 1);
+          req.onupgradeneeded = function () { req.result.createObjectStore('kv'); };
+          req.onsuccess = function () { resolve(req.result); };
+          req.onerror = req.onblocked = function () { resolve(null); };
+        } catch (e) { resolve(null); }
+      });
+      return dbp;
+    }
+    function tx(mode, fn) {
+      return open().then(function (db) {
+        if (!db) return null;
+        return new Promise(function (resolve) {
+          try {
+            var t = db.transaction('kv', mode), store = t.objectStore('kv'), out = { v: null };
+            fn(store, out);
+            t.oncomplete = function () { resolve(out.v); };
+            t.onerror = t.onabort = function () { resolve(null); };
+          } catch (e) { resolve(null); }
+        });
+      });
+    }
+    return {
+      get: function (k) { return tx('readonly', function (s, out) { var r = s.get(k); r.onsuccess = function () { out.v = r.result || null; }; }); },
+      put: function (k, v) { return tx('readwrite', function (s, out) { s.put(v, k); out.v = true; }); },
+      del: function (k) { return tx('readwrite', function (s, out) { s.delete(k); out.v = true; }); },
+      delPrefix: function (p) { return tx('readwrite', function (s, out) { s.delete(IDBKeyRange.bound(p, p + '￿')); out.v = true; }); }
+    };
+  })();
 
   // Reads the chosen reference clip's length in the browser and warns when it's
   // outside what cloning handles well.
@@ -1570,6 +1628,7 @@
     progress: function (pill, title, detail) { setState('generating', pill); $('genStatusText').textContent = title; $('genDetail').textContent = detail; },
     end: function () { stopGenerating(); },
     showAudio: function (blob, ext, prefix) { showAudio(blob, ext, prefix); },
+    db: idb, normalizeUrl: function (u) { return normalizeUrl(u); },
     errorBox: function () { return $('genError'); },
     SHORT_TIMEOUT_MS: SHORT_TIMEOUT_MS, AUDIO_TIMEOUT_MS: AUDIO_TIMEOUT_MS, JOB_POLL_MS: JOB_POLL_MS, JOB_MAX_FAILS: JOB_MAX_FAILS
   };
@@ -1731,8 +1790,10 @@
     }
 
     updateScriptMeta();
-    if (YB.store.get('voiceJob', null)) app.preparing = true;   // lock Generate until the saved job is re-attached
+    var storyRun = YB.store.get('voiceStoryRun', null);
+    if (YB.store.get('voiceJob', null) || (storyRun && storyRun.state === 'running')) app.preparing = true;   // lock Generate until the saved job/run is re-attached
     updateControls();
+    restoreAudio();
     loadBackendConfig().then(function () {
       app.preparing = false; updateControls();
       if (!app.generating) startPolling();
