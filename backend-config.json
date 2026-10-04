@@ -1,11 +1,15 @@
 {
-  "backend_url": "https://push-autumn-raymond-amsterdam.trycloudflare.com",
-  "health_endpoint": "https://push-autumn-raymond-amsterdam.trycloudflare.com/health",
-  "model_info": "https://push-autumn-raymond-amsterdam.trycloudflare.com/model-info",
-  "job_endpoint": "https://push-autumn-raymond-amsterdam.trycloudflare.com/jobs",
-  "job_status_template": "https://push-autumn-raymond-amsterdam.trycloudflare.com/jobs/{job_id}",
-  "job_audio_template": "https://push-autumn-raymond-amsterdam.trycloudflare.com/jobs/{job_id}/audio",
+  "backend_url": "https://turner-brooklyn-sister-int.trycloudflare.com",
+  "health_endpoint": "https://turner-brooklyn-sister-int.trycloudflare.com/health",
+  "model_info": "https://turner-brooklyn-sister-int.trycloudflare.com/model-info",
+  "job_endpoint": "https://turner-brooklyn-sister-int.trycloudflare.com/jobs",
+  "job_status_template": "https://turner-brooklyn-sister-int.trycloudflare.com/jobs/{job_id}",
+  "job_audio_template": "https://turner-brooklyn-sister-int.trycloudflare.com/jobs/{job_id}/audio",
+  "reference_upload_endpoint": "https://turner-brooklyn-sister-int.trycloudflare.com/upload_reference",
+  "reference_files_endpoint": "https://turner-brooklyn-sister-int.trycloudflare.com/get_reference_files",
+  "predefined_voices_endpoint": "https://turner-brooklyn-sister-int.trycloudflare.com/get_predefined_voices",
   "tts_mode": "async-job",
+  "model_loaded": true,
   "model_type": "turbo",
   "device": "cpu",
   "sample_rate": 24000,
@@ -21,5 +25,5 @@
     "groan",
     "shush"
   ],
-  "updated_at": "2026-10-04T12:38:46.020440+00:00"
+  "updated_at": "2026-10-04T12:57:09.288087+00:00"
 }
