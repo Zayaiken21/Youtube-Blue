@@ -798,9 +798,13 @@
       .then(function (blob) {
         if (st.run !== run) return;
         if (!blob || blob.size < 100) throw V.makeErr('tts', 'The server returned an empty audio file.');
-        g.blob = blob; g.url = URL.createObjectURL(blob); g.status = 'done';
-        V.db.put(clipKey(i), blob);
-        done(i);
+        // Each line is levelled on its own, so every character comes out at the same volume.
+        return V.levelBlob(blob, 'wav').then(function (r) {
+          if (st.run !== run) return;
+          g.blob = r.blob; g.url = URL.createObjectURL(r.blob); g.status = 'done'; g.gainDb = r.gainDb;
+          V.db.put(clipKey(i), r.blob);
+          done(i);
+        });
       })
       .catch(function (err) {
         if (st.run !== run) return;
@@ -849,7 +853,7 @@
       st.run = null;
       saveRun('finished');
       V.end();
-      V.showAudio(wav, 'wav', fileBase());
+      V.showAudio(wav, 'wav', fileBase(), V.levelOn() ? 'every line levelled' : '');
       $('storyRunNote').textContent = 'Story track ready — ' + lines.length + ' lines in script order. Each line\'s clip can also be played or downloaded above.';
       YB.toast(run.resumed ? 'Your story finished in the background — audio ready' : 'Complete — story audio ready');
       updateRetry(); V.updateControls();

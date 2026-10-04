@@ -707,3 +707,7 @@ input[type="range"] { min-height: 32px; }            /* finger-friendly */
 .cv-import-toggle { justify-self: start; background: none; border: 0; padding: 2px 0; color: var(--accent); font: inherit; font-size: .8rem; font-weight: 700; cursor: pointer; text-align: left; }
 .cv-share { display: flex; align-items: flex-start; gap: 6px; font-size: .76rem; color: var(--muted); }
 .cv-share input { margin-top: 2px; }
+
+/* ---------- Loudness levelling toggle ---------- */
+.level-toggle { margin: 12px 0 0; }
+.level-toggle small { display: inline; font-weight: 500; }

@@ -15,11 +15,11 @@
   <meta name="mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
   <meta name="apple-mobile-web-app-title" content="YT Blue">
-  <link rel="stylesheet" href="css/style.css?v=11">
+  <link rel="stylesheet" href="css/style.css?v=12">
   <script src="js/core.js" defer></script>
-  <script src="js/voice.js?v=12" defer></script>
+  <script src="js/voice.js?v=13" defer></script>
   <script src="js/voice-library.js?v=2" defer></script>
-  <script src="js/voice-story.js?v=15" defer></script>
+  <script src="js/voice-story.js?v=16" defer></script>
 </head>
 <body data-page="voice">
   <header class="topbar">
@@ -345,6 +345,7 @@
         <span class="spacer"></span>
         <span class="muted small" id="genSummary"></span>
       </div>
+      <label class="field check-field level-toggle"><input id="levelLoudness" type="checkbox" checked><span>🔊 Level loudness (YouTube-ready)<small class="muted"> — brings every clip and character to the same clear volume. Volume only; WAV output.</small></span></label>
       <div class="notice warn remote-busy" id="remoteBusy" role="status" aria-live="polite" hidden></div>
       <div class="gen-progress" id="genProgress" hidden>
         <div class="progress indeterminate"><i></i></div>

@@ -20,7 +20,7 @@
   var SETTINGS_VERSION = 5;
   var DEFAULTS = {
     voiceKey: '',          // 'builtin:<file>' | 'preset:<file>' | 'shared:<file>' | 'mine:<id>' (js/voice-library.js)
-    format: 'wav', chunk: 400, temperature: 0.75, speed: 1, seed: 0, split: true,
+    format: 'wav', chunk: 400, temperature: 0.75, speed: 1, seed: 0, split: true, level: true,
     exaggeration: 0.5, cfg: 0.5, language: 'en', preferredModel: ''
   };
   var CHUNK_MIN = 200, CHUNK_MAX = 500;         // user-facing range (server accepts 50–500)
@@ -959,6 +959,7 @@
     $('speedFactor').value = settings.speed;
     $('generationSeed').value = settings.seed;
     $('splitText').checked = !!settings.split;
+    $('levelLoudness').checked = settings.level !== false;
     $('exaggeration').value = settings.exaggeration;
     $('cfgWeight').value = settings.cfg;
     $('tempVal').textContent = tempLabel(settings.temperature);
@@ -1431,9 +1432,13 @@
       .then(function (blob) {
         if (app.job !== job) return;
         if (!blob || blob.size < 100) throw makeErr('tts', 'The server returned an empty audio file.');
-        showAudio(blob, fmt || job.ext);
-        YB.toast('Complete — speech ready');
-        finishJob(null);
+        var ext = fmt || job.ext;
+        return levelBlob(blob, ext).then(function (r) {
+          if (app.job !== job) return;
+          showAudio(r.blob, ext, null, null, gainNote(r));
+          YB.toast('Complete — speech ready');
+          finishJob(null);
+        });
       })
       .catch(function (err) {
         if (app.job !== job) return;
@@ -1525,6 +1530,155 @@
     return checkHealth(opts);
   }
 
+  /* ---------- Loudness levelling (WAV) ----------
+     Brings every clip to one speaking level so it sounds right on YouTube and
+     every voice/character matches. Volume only: one gain for the whole clip,
+     plus a gentle look-ahead limiter on the rare loudest peaks (at most 3 dB,
+     never above -1 dBFS). Tuned on real output: tone stays within ~0.15 dB in
+     every band. If reaching the target would need more limiting, the clip is
+     raised less instead. Within 1 dB of the target → returned untouched.
+     Anything unexpected → original kept as is. */
+  var LEVEL_TARGET_DB = -16.5;      // speech level of the good reference story
+  var LEVEL_CEIL = Math.pow(10, -1 / 20), LEVEL_MAX_LIMIT_DB = 3, LEVEL_MIN_DB = -10, LEVEL_MAX_DB = 15, LEVEL_DEADBAND_DB = 1;
+
+  function parseWav(buf) {
+    var dv = new DataView(buf);
+    if (buf.byteLength < 44 || dv.getUint32(0, false) !== 0x52494646 || dv.getUint32(8, false) !== 0x57415645) return null;
+    var off = 12, fmt = null, data = null;
+    while (off + 8 <= buf.byteLength) {
+      var id = dv.getUint32(off, false), size = dv.getUint32(off + 4, true), body = off + 8;
+      if (id === 0x666d7420) {
+        var tag = dv.getUint16(body, true);
+        if (tag === 0xFFFE && size >= 40) tag = dv.getUint16(body + 24, true);   // WAVE_FORMAT_EXTENSIBLE
+        fmt = { tag: tag, ch: dv.getUint16(body + 2, true), rate: dv.getUint32(body + 4, true), bits: dv.getUint16(body + 14, true) };
+      } else if (id === 0x64617461) { data = { off: body, size: Math.min(size, buf.byteLength - body) }; break; }
+      off = body + size + (size & 1);
+    }
+    if (!fmt || !data || !fmt.ch || !fmt.rate) return null;
+    var B = fmt.bits / 8, ch = fmt.ch, n = Math.floor(data.size / (B * ch));
+    if (!((fmt.tag === 1 && (fmt.bits === 16 || fmt.bits === 24 || fmt.bits === 32)) || (fmt.tag === 3 && fmt.bits === 32))) return null;
+    var chans = [];
+    for (var c = 0; c < ch; c++) chans.push(new Float32Array(n));
+    for (var i = 0, o = data.off; i < n; i++) {
+      for (c = 0; c < ch; c++, o += B) {
+        var v;
+        if (fmt.tag === 3) v = dv.getFloat32(o, true);
+        else if (B === 2) v = dv.getInt16(o, true) / 32768;
+        else if (B === 3) { v = dv.getUint8(o) | (dv.getUint8(o + 1) << 8) | (dv.getInt8(o + 2) << 16); v /= 8388608; }
+        else v = dv.getInt32(o, true) / 2147483648;
+        chans[c][i] = v;
+      }
+    }
+    return { rate: fmt.rate, bits: fmt.tag === 3 ? 32 : fmt.bits, float: fmt.tag === 3, chans: chans };
+  }
+
+  function encodeWavPcm(chans, rate, bits, isFloat) {
+    var ch = chans.length, n = chans[0].length, B = isFloat ? 4 : (bits === 24 ? 3 : 2);
+    var buf = new ArrayBuffer(44 + n * ch * B), dv = new DataView(buf);
+    function str(o, t) { for (var i = 0; i < t.length; i++) dv.setUint8(o + i, t.charCodeAt(i)); }
+    str(0, 'RIFF'); dv.setUint32(4, 36 + n * ch * B, true); str(8, 'WAVE'); str(12, 'fmt ');
+    dv.setUint32(16, 16, true); dv.setUint16(20, isFloat ? 3 : 1, true); dv.setUint16(22, ch, true);
+    dv.setUint32(24, rate, true); dv.setUint32(28, rate * ch * B, true); dv.setUint16(32, ch * B, true); dv.setUint16(34, B * 8, true);
+    str(36, 'data'); dv.setUint32(40, n * ch * B, true);
+    for (var i = 0, o = 44; i < n; i++) {
+      for (var c = 0; c < ch; c++, o += B) {
+        var v = Math.max(-1, Math.min(1, chans[c][i]));
+        if (isFloat) dv.setFloat32(o, v, true);
+        else if (B === 2) dv.setInt16(o, Math.round(v < 0 ? v * 32768 : v * 32767), true);
+        else { var q = Math.round(v < 0 ? v * 8388608 : v * 8388607); dv.setUint8(o, q & 255); dv.setUint8(o + 1, (q >> 8) & 255); dv.setUint8(o + 2, (q >> 16) & 255); }
+      }
+    }
+    return new Blob([buf], { type: 'audio/wav' });
+  }
+
+  // Speech level: power mean of 20 ms frames that carry speech (ignores pauses).
+  function speechLevelDb(chans, rate) {
+    var n = chans[0].length, fl = Math.max(1, Math.round(rate * 0.02)), frames = [], loud = 0;
+    for (var s = 0; s + fl <= n; s += fl) {
+      var p = 0;
+      for (var i = s; i < s + fl; i++) { var m = 0; for (var c = 0; c < chans.length; c++) m += chans[c][i]; m /= chans.length; p += m * m; }
+      p /= fl; frames.push(p); if (p > loud) loud = p;
+    }
+    var gate = Math.max(Math.pow(10, -50 / 10), loud * Math.pow(10, -30 / 10)), sum = 0, k = 0;
+    frames.forEach(function (p) { if (p >= gate) { sum += p; k++; } });
+    if (k * fl < rate * 0.3) return null;           // under 0.3 s of speech: leave it alone
+    return 10 * Math.log10(sum / k);
+  }
+
+  // Look-ahead limiter: gain envelope reaches the needed reduction before each peak, recovers smoothly.
+  function limit(chans, rate) {
+    var n = chans[0].length, L = Math.max(1, Math.round(rate * 0.002)), rel = 1 - Math.exp(-1 / (rate * 0.03));
+    var need = new Float32Array(n), any = false, i, c;
+    for (i = 0; i < n; i++) {
+      var pk = 0; for (c = 0; c < chans.length; c++) { var a = Math.abs(chans[c][i]); if (a > pk) pk = a; }
+      need[i] = pk > LEVEL_CEIL ? LEVEL_CEIL / pk : 1; if (need[i] < 1) any = true;
+    }
+    if (!any) return 0;
+    // sliding minimum over [i-L, i+L]
+    var mn = new Float32Array(n), dq = new Int32Array(n), h = 0, t = 0, j = 0;
+    for (i = 0; i < n; i++) {
+      for (; j < n && j <= i + L; j++) { while (t > h && need[dq[t - 1]] >= need[j]) t--; dq[t++] = j; }
+      while (dq[h] < i - L) h++;
+      mn[i] = need[dq[h]];
+    }
+    // Box average of that minimum over [i-L, i+L] (outside the clip counts as 1).
+    // Every value in a peak's window is ≤ the gain that peak needs, so the average
+    // is too: the ceiling always holds, and the gain glides in over ~2 ms.
+    var P = new Float64Array(n + 1), w = 2 * L + 1;
+    for (i = 0; i < n; i++) P[i + 1] = P[i] + mn[i];
+    var env = new Float32Array(n), prev = 1, deepest = 1;
+    for (i = 0; i < n; i++) {
+      var lo = i - L, hi = i + L, inside = P[Math.min(n, hi + 1)] - P[Math.max(0, lo)];
+      var outside = Math.max(0, -lo) + Math.max(0, hi - (n - 1));
+      var e = Math.min((inside + outside) / w, prev + (1 - prev) * rel);   // smooth ~30 ms recovery
+      env[i] = e; prev = e; if (e < deepest) deepest = e;
+    }
+    for (c = 0; c < chans.length; c++) for (i = 0; i < n; i++) {
+      var v = chans[c][i] * env[i];
+      chans[c][i] = v > LEVEL_CEIL ? LEVEL_CEIL : v < -LEVEL_CEIL ? -LEVEL_CEIL : v;   // rounding guard only
+    }
+    return -20 * Math.log10(deepest);
+  }
+
+  // In-place on float channels. Returns { gainDb, limitDb } or null when nothing was changed.
+  function levelChannels(chans, rate) {
+    var lvl = speechLevelDb(chans, rate);
+    if (lvl === null || !isFinite(lvl)) return null;
+    if (Math.abs(LEVEL_TARGET_DB - lvl) < LEVEL_DEADBAND_DB) return null;   // already right: leave every sample as is
+    var gainDb = Math.max(LEVEL_MIN_DB, Math.min(LEVEL_MAX_DB, LEVEL_TARGET_DB - lvl));
+    var peak = 0, c, i;
+    for (c = 0; c < chans.length; c++) for (i = 0; i < chans[c].length; i++) { var a = Math.abs(chans[c][i]); if (a > peak) peak = a; }
+    if (!peak) return null;
+    // Never squash: if the limiter would need more than 3 dB, raise the clip less instead.
+    var over = 20 * Math.log10(peak) + gainDb - 20 * Math.log10(LEVEL_CEIL);
+    if (over > LEVEL_MAX_LIMIT_DB) gainDb -= over - LEVEL_MAX_LIMIT_DB;
+    if (Math.abs(gainDb) < 0.5) return null;
+    var g = Math.pow(10, gainDb / 20);
+    for (c = 0; c < chans.length; c++) for (i = 0; i < chans[c].length; i++) chans[c][i] *= g;
+    var limitDb = limit(chans, rate);
+    return { gainDb: gainDb, limitDb: limitDb };
+  }
+
+  // Blob → Promise<{ blob, gainDb }>. Only WAV is processed; when off, not WAV,
+  // or anything goes wrong, the original blob comes back untouched.
+  function levelBlob(blob, ext) {
+    if (!settings.level || String(ext || '').toLowerCase() !== 'wav') return Promise.resolve({ blob: blob, gainDb: null });
+    return blob.arrayBuffer().then(function (buf) {
+      var w = parseWav(buf);
+      if (!w || !w.chans[0].length) return { blob: blob, gainDb: null };
+      var r = levelChannels(w.chans, w.rate);
+      if (!r) return { blob: blob, gainDb: 0 };
+      return { blob: encodeWavPcm(w.chans, w.rate, w.bits, w.float), gainDb: r.gainDb, limitDb: r.limitDb };
+    }).catch(function (err) {
+      console.warn('[Voice Studio] loudness levelling skipped', err);
+      return { blob: blob, gainDb: null };
+    });
+  }
+  function gainNote(r) {
+    if (!r || r.gainDb === null) return '';
+    return r.gainDb === 0 ? 'level already right' : 'levelled ' + (r.gainDb > 0 ? '+' : '') + r.gainDb.toFixed(1) + ' dB';
+  }
+
   /* ---------- Output ---------- */
   function fileStamp(d) {
     function p(n) { return String(n).padStart(2, '0'); }
@@ -1534,7 +1688,7 @@
   // The latest output is kept in this browser (IndexedDB) so it's still on the
   // Voice screen after a reload or closing the app, until a new one replaces it
   // or Clear Output is pressed. `saved` = { name, at } when restoring.
-  function showAudio(blob, ext, prefix, saved) {
+  function showAudio(blob, ext, prefix, saved, note) {
     if (app.audioUrl) URL.revokeObjectURL(app.audioUrl);   // no Blob URL leaks
     app.audioUrl = URL.createObjectURL(blob);
     app.audioSeq = (app.audioSeq || 0) + 1;
@@ -1544,7 +1698,7 @@
     var name = saved ? saved.name : (prefix || 'youtube-blue-voice') + '-' + fileStamp(new Date()) + '.' + ext;
     dl.href = app.audioUrl;
     dl.download = name;
-    var when = saved && saved.at ? ' · made ' + ago(new Date(saved.at)) : '';
+    var when = (saved && saved.note ? ' · ' + saved.note : note ? ' · ' + note : '') + (saved && saved.at ? ' · made ' + ago(new Date(saved.at)) : '');
     $('audioInfo').textContent = ext.toUpperCase() + ' · ' + bytesLabel(blob.size) + when;
     player.onloadedmetadata = function () {
       if (isFinite(player.duration)) $('audioInfo').textContent = ext.toUpperCase() + ' · ' + mmss(player.duration) + ' · ' + bytesLabel(blob.size) + when;
@@ -1552,7 +1706,7 @@
     $('audioOutputSection').hidden = false;
     if (!saved) {
       $('audioOutputSection').scrollIntoView({ behavior: 'smooth', block: 'nearest' });
-      idb.put('lastAudio', { blob: blob, ext: ext, name: name, at: Date.now() });
+      idb.put('lastAudio', { blob: blob, ext: ext, name: name, at: Date.now(), note: note || '' });
     }
   }
 
@@ -1570,7 +1724,7 @@
     var seq = app.audioSeq || 0;
     idb.get('lastAudio').then(function (rec) {
       if (!rec || !rec.blob || (app.audioSeq || 0) !== seq) return;   // a newer result already showed
-      showAudio(rec.blob, rec.ext || 'wav', '', { name: rec.name || 'youtube-blue-voice.' + (rec.ext || 'wav'), at: rec.at });
+      showAudio(rec.blob, rec.ext || 'wav', '', { name: rec.name || 'youtube-blue-voice.' + (rec.ext || 'wav'), at: rec.at, note: rec.note });
     });
   }
 
@@ -1665,7 +1819,8 @@
       tickElapsed(); clearInterval(app.elapsedTimer); app.elapsedTimer = setInterval(tickElapsed, 1000); return true; },
     progress: function (pill, title, detail) { setState('generating', pill); $('genStatusText').textContent = title; $('genDetail').textContent = detail; },
     end: function () { stopGenerating(); },
-    showAudio: function (blob, ext, prefix) { showAudio(blob, ext, prefix); },
+    showAudio: function (blob, ext, prefix, note) { showAudio(blob, ext, prefix, null, note); },
+    levelBlob: levelBlob, gainNote: gainNote, levelOn: function () { return !!settings.level; },
     db: idb, normalizeUrl: function (u) { return normalizeUrl(u); },
     // Per-character voice settings (Story mode): defaults, ranges, model caps, labels.
     caps: function () { return caps(); },
@@ -1754,6 +1909,7 @@
 
     // settings
     $('outputFormat').addEventListener('change', function () { settings.format = this.value; saveSettings(); renderSummary(); });
+    $('levelLoudness').addEventListener('change', function () { settings.level = this.checked; saveSettingsNow(); });
     $('chunkSize').addEventListener('input', function () { settings.chunk = clampChunk(this.value); $('chunkVal').textContent = chunkLabel(settings.chunk); saveSettings(); updateScriptMeta(); renderPresets(); });
     $('temperature').addEventListener('input', function () { settings.temperature = clampTo(this.value, TEMP_MIN, TEMP_MAX, 0.05); $('tempVal').textContent = tempLabel(settings.temperature); saveSettings(); renderPresets(); });
     $('exaggeration').addEventListener('input', function () { settings.exaggeration = clampTo(this.value, EXAG_MIN, EXAG_MAX, 0.05); $('exagVal').textContent = exagLabel(settings.exaggeration); saveSettings(); renderPresets(); });
