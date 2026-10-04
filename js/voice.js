@@ -17,12 +17,43 @@
 
   /* ---------- Constants ---------- */
   var DEFAULT_TAGS = ['laugh', 'chuckle', 'sigh', 'gasp', 'cough', 'clear throat', 'sniff', 'groan', 'shush'];
-  var SETTINGS_VERSION = 3;
+  var SETTINGS_VERSION = 4;
   var DEFAULTS = {
     mode: 'predefined', voiceId: '', reference: '',
-    format: 'wav', chunk: 400, temperature: 0.75, speed: 1, seed: 0, split: true
+    format: 'wav', chunk: 400, temperature: 0.75, speed: 1, seed: 0, split: true,
+    exaggeration: 0.5, cfg: 0.5, language: 'en', preferredModel: ''
   };
-  var CHUNK_MIN = 50, CHUNK_MAX = 500;          // server-side limits for chunk_size
+  var CHUNK_MIN = 200, CHUNK_MAX = 500;         // user-facing range (server accepts 50–500)
+  var TEMP_MIN = 0.05, TEMP_MAX = 1.5;          // 0 would divide by zero in sampling
+  var EXAG_MIN = 0.25, EXAG_MAX = 2, CFG_MIN = 0.2, CFG_MAX = 1;
+  var SWITCH_POLL_MS = 3000, STATE_POLL_MS = 5000;
+  var MODEL_NAMES = { turbo: 'Turbo', original: 'Original Chatterbox', multilingual: 'Multilingual' };
+  // What each model accepts. Turbo: reaction tags. Original: exaggeration + CFG.
+  // Multilingual: language + exaggeration (no CFG).
+  var MODEL_CAPS = {
+    turbo: { tags: true, exaggeration: false, cfg: false, language: false },
+    original: { tags: false, exaggeration: true, cfg: true, language: false },
+    multilingual: { tags: false, exaggeration: true, cfg: false, language: true }
+  };
+  var PRESETS = {
+    turbo: [
+      ['Natural', { temperature: 0.75, speed: 1.00, chunk: 400 }],
+      ['Stable', { temperature: 0.55, speed: 1.00, chunk: 350 }],
+      ['Energetic', { temperature: 0.95, speed: 1.02, chunk: 400 }],
+      ['Comedy', { temperature: 0.90, speed: 1.01, chunk: 350 }],
+      ['Narration', { temperature: 0.65, speed: 0.99, chunk: 400 }]],
+    original: [
+      ['Natural', { temperature: 0.75, exaggeration: 0.50, cfg: 0.50, speed: 1.00, chunk: 400 }],
+      ['Expressive', { temperature: 0.85, exaggeration: 1.00, cfg: 0.50, speed: 1.00, chunk: 400 }],
+      ['Dramatic', { temperature: 0.90, exaggeration: 1.30, cfg: 0.60, speed: 1.00, chunk: 400 }],
+      ['Subtle', { temperature: 0.60, exaggeration: 0.35, cfg: 0.50, speed: 1.00, chunk: 400 }]],
+    multilingual: [
+      ['Natural', { temperature: 0.75, exaggeration: 0.50, speed: 1.00, chunk: 400 }],
+      ['Expressive', { temperature: 0.85, exaggeration: 1.00, speed: 1.00, chunk: 400 }],
+      ['Narration', { temperature: 0.65, exaggeration: 0.40, speed: 0.99, chunk: 400 }]]
+  };
+  // How the reaction-tag chips are grouped (any extra tags from the server go in "More").
+  var TAG_GROUPS = [['Laughter', ['laugh', 'chuckle']], ['Reaction', ['sigh', 'gasp', 'groan']], ['Vocal sounds', ['cough', 'clear throat', 'sniff', 'shush']]];
   // Speed is a time-stretch: outside this band it audibly distorts the voice.
   var SPEED_MIN = 0.97, SPEED_MAX = 1.05;
   var REF_SHORT_SEC = 5, REF_LONG_SEC = 30;     // reference clip guidance (server rejects > 30 s)
@@ -43,7 +74,10 @@
     jobs: ['job_endpoint', '/jobs'],
     voices: ['predefined_voices_endpoint', '/get_predefined_voices'],
     refs: ['reference_files_endpoint', '/get_reference_files'],
-    upload: ['reference_upload_endpoint', '/upload_reference']
+    upload: ['reference_upload_endpoint', '/upload_reference'],
+    models: ['models_endpoint', '/models'],
+    state: ['backend_state_endpoint', '/state'],
+    modelSwitch: ['model_switch_job_endpoint', '/model-switch-jobs']
   };
 
   /* ---------- State ---------- */
@@ -70,6 +104,10 @@
     jobToken: 0,
     preparing: false,
     cloneAvailable: true,
+    models: null,        // GET /models list (null = not loaded / route missing)
+    switching: null,     // active model switch { id, model, fails, startedAt }
+    switchTimer: null,
+    remoteSwitching: false,   // /state says a switch is running that this page didn't start
     refFiles: null,      // last reference list the server returned (null = not loaded yet)
     voices: [],          // last predefined voice list [{display_name, filename}]
     voicesAt: 0, refsAt: 0
@@ -88,7 +126,27 @@
     saved.v = SETTINGS_VERSION;
     var s = Object.assign({}, DEFAULTS, saved);
     s.speed = clampSpeed(s.speed);   // e.g. an old 0.90 / 0.95 becomes 0.97
+    s.chunk = clampChunk(s.chunk);   // 200–500 (never back to 240 by default)
+    s.temperature = clampTo(s.temperature, TEMP_MIN, TEMP_MAX, 0.05);
+    s.exaggeration = clampTo(s.exaggeration, EXAG_MIN, EXAG_MAX, 0.05);
+    s.cfg = clampTo(s.cfg, CFG_MIN, CFG_MAX, 0.05);
+    if (typeof s.language !== 'string' || !s.language) s.language = 'en';
     return s;
+  }
+
+  function clampTo(v, lo, hi, step) {
+    v = Number(v); if (!isFinite(v)) v = lo;
+    v = Math.round(v / step) * step;
+    return Math.min(hi, Math.max(lo, Math.round(v * 100) / 100));
+  }
+  function tempLabel(v) { v = Number(v); return v.toFixed(2) + ' · ' + (v < 0.5 ? 'Steady' : v < 1 ? 'Natural' : 'More varied'); }
+  function exagLabel(v) {
+    v = Number(v);
+    return v.toFixed(2) + ' · ' + (v < 0.4 ? 'Subtle' : v < 0.8 ? 'Natural' : v < 1.25 ? 'Expressive' : v < 1.75 ? 'Dramatic' : 'Maximum');
+  }
+  function chunkLabel(v) {
+    v = Number(v);
+    return v + ' · ' + (v < 280 ? 'Short / Stability' : v < 360 ? 'Conservative' : v < 440 ? 'Balanced' : 'Long');
   }
 
   function clampSpeed(v) {
@@ -150,6 +208,18 @@
     return app.backend + '/jobs/' + encodeURIComponent(id) + (audio ? '/audio' : '');
   }
 
+  function switchRoute(id) {
+    var tpl = app.source === 'config' && app.config && app.config.model_switch_status_template;
+    if (tpl && isHttpUrl(tpl) && hostOf(tpl) === hostOf(app.backend) && tpl.indexOf('{switch_id}') !== -1) {
+      return tpl.replace('{switch_id}', encodeURIComponent(id));
+    }
+    return app.backend + '/model-switch-jobs/' + encodeURIComponent(id);
+  }
+
+  // The model actually loaded on the server (never a saved preference).
+  function activeModel() { return (app.info && app.info.type) || ''; }
+  function caps() { return MODEL_CAPS[activeModel()] || MODEL_CAPS.turbo; }
+
   function call(url, opts, ms) {
     opts = opts || {};
     return timedFetch(url, Object.assign({ cache: 'no-store', mode: 'cors' }, opts, { headers: apiHeaders(opts.headers) }), ms || HEALTH_TIMEOUT_MS);
@@ -185,8 +255,9 @@
       console.error('[Voice Studio] HTTP ' + res.status + ' on ' + ctx, text.slice(0, 2000));
       var s = res.status;
       if (s === 511 || (looksHtml && isLocalTunnel(app.backend))) return makeErr('tunnel-auth', 'The LocalTunnel address needs to be authorized in this browser.');
-      if (s === 530 || s === 1033) return makeErr('tunnel', 'Cloudflare tunnel is not ready or has disconnected.');
-      if (s === 524) return makeErr('cf-timeout', 'Request exceeded Cloudflare\'s synchronous request limit.');
+      if (s === 530 || s === 1033) return makeErr('tunnel', 'Cloudflare tunnel is still connecting or disconnected.');
+      if (s === 524) return makeErr('cf-timeout', 'A synchronous backend request exceeded Cloudflare\'s timeout.');
+      if (s === 409 && ctx === 'switch') return makeErr('switch-busy', 'Finish the current generation before switching models.');
       if (s === 502 || s === 504) return makeErr('unavailable', 'Backend temporarily unavailable.');
       if (looksHtml) return makeErr('unavailable', 'Backend temporarily unavailable.');
       if (s === 503) return makeErr('model', detail || 'The Chatterbox model is not loaded yet.');
@@ -207,11 +278,13 @@
     return makeErr('offline', 'Could not reach the live backend.');
   }
 
-  var RESTART = 'Start the Colab backend, then press Refresh Backend.';
+  var RESTART = 'Start the Colab backend and wait for automatic reconnection.';
   var HELP = {
     'config-missing': 'Run the Colab startup cell — it publishes the live address to backend-config.json. You can also enter an address under “Manual backend override”.',
-    'offline': RESTART + ' This page also checks for a newly published address every minute and reconnects by itself.',
-    'tunnel': 'Restart the Colab backend, then press Refresh Backend.',
+    'offline': RESTART + ' The page checks for a newly published address every minute (or press Refresh Backend).',
+    'tunnel': 'Wait a moment for the tunnel, or restart the Colab backend. The page reconnects automatically.',
+    'switch-busy': 'Wait for the speech job to finish, then choose the model again.',
+    'switch': 'Try the switch again. If it keeps failing, restart the Colab backend.',
     'unavailable': 'Cloudflare answered with an error page. ' + RESTART,
     'not-job-api': 'Use the address of the Youtube Blue job server (its /health returns ok:true).',
     'tunnel-auth': 'Click Authorize Tunnel, complete the LocalTunnel page in the new tab, then come back and click Test Connection.',
@@ -228,7 +301,7 @@
     'job-lost': 'The job server no longer knows this job — it was probably restarted. Press Refresh Backend and generate again.',
     'busy': 'It\'s probably still finishing an earlier job. New jobs wait and run slower until it\'s done.',
     'clone-unavailable': 'Your job server needs the /upload_reference and /get_reference_files routes (see the README).',
-    'tts': 'If it repeats: try a cleaner 10–20 s reference clip, a different voice, or shorter sentences. The exact error is below.',
+    'tts': 'Try: set speed to 1.00 · use chunk size 300–400 · shorten the script · check the clone reference (10–20 s of clean speech) · try another seed.',
     'http': 'Details are in the browser console.'
   };
 
@@ -250,7 +323,7 @@
   }
 
   /* ---------- Status / UI state ---------- */
-  var STATE_LABEL = { connecting: 'Connecting…', online: 'Online', offline: 'Backend Offline', generating: 'Generating', error: 'Error' };
+  var STATE_LABEL = { connecting: 'Connecting…', online: 'Online', offline: 'Backend Offline', generating: 'Generating', switching: 'Switching Model', error: 'Error' };
 
   function setState(state, label) {
     app.state = state;
@@ -266,23 +339,32 @@
     return !!settings.reference && Array.isArray(app.refFiles) && app.refFiles.indexOf(settings.reference) !== -1;
   }
 
+  function isSwitching() { return !!app.switching || app.remoteSwitching; }
+
   function updateControls() {
     var busy = app.generating;
+    var switching = isSwitching();
+    var locked = busy || switching;                      // no voice/model changes mid-job or mid-switch
     var story = storyHooks && storyHooks.active();
     var blocked = story ? !storyHooks.canGenerate() : (settings.mode === 'clone' && !refReady());
-    $('generateBtn').disabled = busy || app.uploading || app.preparing || blocked;
-    $('generateBtn').textContent = busy ? '⏳ Generating…' : story ? '🎭 Generate Story Audio' : '🎙️ Generate Speech';
+    $('generateBtn').disabled = locked || app.uploading || app.preparing || blocked;
+    $('generateBtn').textContent = busy ? '⏳ Generating…' : switching ? '⏳ Switching model…' : story ? '🎭 Generate Story Audio' : '🎙️ Generate Speech';
     $('cancelBtn').disabled = !busy;
-    $('testBtn').disabled = busy;
+    $('testBtn').disabled = locked;
     $('refreshBackendBtn').disabled = busy;
-    $('refreshVoicesBtn').disabled = busy;
-    $('refreshRefsBtn').disabled = busy;
-    $('againBtn').disabled = busy;
+    $('refreshVoicesBtn').disabled = locked;
+    $('refreshRefsBtn').disabled = locked;
+    $('againBtn').disabled = locked;
     $('authTunnelBtn').hidden = !isLocalTunnel(app.backend);
     $('openBackendBtn').disabled = !app.backend;
     $('openDocsBtn').disabled = !app.backend;
-    $('uploadRefBtn').disabled = busy || app.uploading || !app.cloneAvailable;
+    $('uploadRefBtn').disabled = locked || app.uploading || !app.cloneAvailable;
+    $('voiceSampleFile').disabled = locked;
     $('cloneUnavailable').hidden = app.cloneAvailable;
+    $('predefinedVoiceSelect').disabled = locked;
+    $('referenceSelect').disabled = locked;
+    document.querySelectorAll('#voiceModeSeg button, #presetChips button').forEach(function (b) { b.disabled = locked; });
+    renderEngineCards();
   }
 
   function renderBackendFacts() {
@@ -291,10 +373,13 @@
     $('modelType').textContent = info.type ? info.type.charAt(0).toUpperCase() + info.type.slice(1) : '—';
     $('modelDevice').textContent = info.device ? String(info.device).toUpperCase() : '—';
     $('modelSampleRate').textContent = info.sample_rate ? Number(info.sample_rate) + ' Hz' : '—';
+    $('outSampleRate').textContent = info.sample_rate ? Number(info.sample_rate) + ' Hz' : '—';
+    if (info.type && MODEL_NAMES[info.type]) $('modelType').textContent = MODEL_NAMES[info.type].replace(' Chatterbox', '');
     var up = app.source === 'config' && app.config && app.config.updated_at;
     if (up) {
       var d = new Date(up);
-      $('backendUpdatedAt').textContent = isNaN(d) ? up : d.toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' }) + ' (' + ago(d) + ')';
+      $('backendUpdatedAt').textContent = isNaN(d) ? up : d.toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' }) +
+        ' at ' + d.toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' }) + ' (' + ago(d) + ')';
     } else $('backendUpdatedAt').textContent = app.source === 'manual' ? 'Manual address' : '—';
   }
   function ago(d) {
@@ -323,7 +408,7 @@
 
     return timedFetch('./backend-config.json?ts=' + Date.now(), { cache: 'no-store' }, CONFIG_TIMEOUT_MS)
       .then(function (res) {
-        if (res.status === 404) throw makeErr('config-missing', 'Live backend configuration has not been published yet.');
+        if (res.status === 404) throw makeErr('config-missing', 'Live backend configuration is unavailable.');
         if (!res.ok) throw makeErr('config-missing', 'Couldn\'t load backend-config.json (HTTP ' + res.status + ').');
         return res.json().catch(function () { throw makeErr('config-missing', 'backend-config.json is not valid JSON.'); });
       })
@@ -376,6 +461,7 @@
   function checkHealth(opts) {
     opts = opts || {};
     if (app.generating) return Promise.resolve(true);
+    if (isSwitching() && !opts.afterSwitch) return Promise.resolve(true);   // never "offline" mid-switch
     if (!app.backend) { setState('offline'); return Promise.resolve(false); }
     if (app.healthBusy) return Promise.resolve(app.state === 'online');
     app.healthBusy = true;
@@ -389,27 +475,33 @@
       })
       .then(function (h) {
         if (!h || h.ok !== true) throw makeErr('not-job-api', 'The server answered /health without ok: true.');
-        return call(route('info'), {}, HEALTH_TIMEOUT_MS);
+        return getBackendState();
       })
-      .then(function (res) {
-        if (!res.ok) return httpError(res, 'health').then(function (e) { throw e; });
-        return readJson(res);
+      .then(function (st) {
+        if (st && st.model_switching === true && !app.switching) { observeRemoteSwitch(); return 'switching'; }
+        // A generation is already running (another tab/device): don't poke /model-info.
+        if (st && st.generation_active === true && app.info && !opts.loadLists) return { busy_or_unreachable: true };
+        return call(route('info'), {}, HEALTH_TIMEOUT_MS).then(function (res) {
+          if (!res.ok) return httpError(res, 'health').then(function (e) { throw e; });
+          return readJson(res);
+        });
       })
       .then(function (info) {
+        if (info === 'switching') return true;
         if (app.generating) return true; // a generation started meanwhile — ignore
         app.healthFails = 0;
         app.busy = info.busy_or_unreachable === true;
         if (app.busy) {
           // The job server answered; Chatterbox is just busy finishing a job. Not offline.
           if (!app.info) app.info = infoFromConfig();
-          renderBackendFacts(); renderTags();
+          renderBackendFacts(); applyModelUI();
           setState('online', onlineLabel() + ' · busy');
           showNotice($('backendNotice'), makeErr('busy', 'Chatterbox is busy right now.'), 'warn');
           if (!app.voicesLoaded) useCachedVoices();
           return true;
         }
         app.info = info;
-        renderBackendFacts(); renderTags();
+        renderBackendFacts(); applyModelUI();
         if (info.loaded !== true) {
           setState('error', 'Model not loaded');
           showNotice($('backendNotice'), makeErr('model', 'Chatterbox is running but the model is not loaded.'));
@@ -417,8 +509,9 @@
         }
         setState('online', onlineLabel());
         if (!opts.keepNotice) showNotice($('backendNotice'), null);
-        if (opts.loadLists || !app.voicesLoaded) return Promise.all([loadVoices(true), loadReferences(true)]).then(function () { return true; });
-        return true;
+        var work = [loadModels()];
+        if (opts.loadLists || !app.voicesLoaded) work.push(loadVoices(true), loadReferences(true));
+        return Promise.all(work).then(function () { return true; });
       })
       .catch(function (err) {
         if (app.generating) return true;
@@ -431,6 +524,191 @@
         return false;
       })
       .then(function (ok) { app.healthBusy = false; return ok; }, function () { app.healthBusy = false; return false; });
+  }
+
+  // GET /state → { generation_active, model_switching }. Optional: null if the
+  // server doesn't have it or it can't be read right now.
+  function getBackendState() {
+    return call(route('state') + '?ts=' + Date.now(), {}, 20000)
+      .then(function (res) { return res.ok ? res.text().then(function (t) { try { return JSON.parse(t); } catch (e) { return null; } }) : null; })
+      .catch(function () { return null; });
+  }
+
+  // GET /models → { active, models: [{ id, name, available, ... }] }. Optional.
+  function loadModels() {
+    return call(route('models'), {}, HEALTH_TIMEOUT_MS)
+      .then(function (res) { return res.ok ? res.text().then(function (t) { try { return JSON.parse(t); } catch (e) { return null; } }) : null; })
+      .catch(function () { return null; })
+      .then(function (data) {
+        if (data && Array.isArray(data.models)) app.models = data.models;
+        renderEngineCards();
+      });
+  }
+
+  /* ---------- Model engine (async switching: POST /model-switch-jobs → poll) ---------- */
+  function modelAvailable(id) {
+    var m = Array.isArray(app.models) && app.models.find(function (x) { return x.id === id; });
+    if (m) return m.available === true;
+    var c = app.config || {};
+    if (id === 'turbo') return c.turbo_available !== false;
+    if (id === 'multilingual') return c.multilingual_available === true;
+    return id === 'original';
+  }
+
+  function renderEngineCards() {
+    var host = $('engineCards'); if (!host) return;
+    var active = activeModel(), target = app.switching && app.switching.model;
+    var offline = !app.backend || app.state === 'offline' || app.state === 'connecting' && !app.info;
+    host.querySelectorAll('[data-model]').forEach(function (b) {
+      var id = b.getAttribute('data-model'), avail = modelAvailable(id), isActive = id === active, pending = id === target;
+      b.classList.toggle('active', isActive);
+      b.classList.toggle('pending', pending);
+      b.classList.toggle('unavailable', !avail);
+      b.setAttribute('aria-checked', isActive ? 'true' : 'false');
+      var badge = b.querySelector('.engine-badge');
+      badge.hidden = !isActive && !pending && avail;
+      badge.textContent = isActive ? 'ACTIVE' : pending ? 'LOADING…' : avail ? '' : 'NOT AVAILABLE';
+      b.disabled = !avail || isActive || offline || app.generating || isSwitching();
+    });
+    $('engineActive').textContent = active ? 'Active: ' + (MODEL_NAMES[active] || active) : '';
+  }
+
+  function setSwitchPhase(status) {
+    var name = MODEL_NAMES[app.switching ? app.switching.model : ''] || 'model';
+    var text = status === 'switching' ? 'Unloading current model…' : status === 'loading' ? 'Loading ' + name + '…' : 'Preparing ' + name + '…';
+    $('switchProgress').hidden = false;
+    $('switchStatusText').textContent = text;
+    setState('switching', 'Switching Model');
+  }
+
+  function tickSwitch() {
+    var t0 = (app.switching && app.switching.startedAt) || app.remoteSince;
+    if (t0) $('switchElapsed').textContent = mmss((Date.now() - t0) / 1000) + ' elapsed';
+  }
+
+  function saveSwitch() {
+    if (app.switching && app.switching.id) YB.store.set('voiceSwitch', { id: app.switching.id, model: app.switching.model, backend: app.backend, startedAt: app.switching.startedAt });
+    else YB.store.remove('voiceSwitch');
+  }
+
+  function switchModel(id) {
+    if (!app.backend || app.generating || isSwitching() || app.preparing) return;
+    if (id === activeModel()) { YB.toast((MODEL_NAMES[id] || id) + ' is already active'); return; }
+    if (!modelAvailable(id)) { YB.toast((MODEL_NAMES[id] || id) + ' isn\'t available on this server'); return; }
+    settings.preferredModel = id; saveSettings();   // a preference only — /model-info decides
+    showNotice($('modelNotice'), null);
+    app.switching = { id: null, model: id, fails: 0, startedAt: Date.now() };
+    stopPolling();
+    setSwitchPhase('queued');
+    clearInterval(app.switchTick); app.switchTick = setInterval(tickSwitch, 1000); tickSwitch();
+    updateControls();
+    call(route('modelSwitch'), { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ model: id }) }, SHORT_TIMEOUT_MS)
+      .then(function (res) {
+        if (!res.ok) return httpError(res, 'switch').then(function (e) { throw e; });
+        return readJson(res);
+      })
+      .then(function (data) {
+        if (!app.switching) return;
+        if (!data.switch_id && data.status === 'complete') { finishSwitch(null); return; }   // already active
+        if (!data.switch_id) throw makeErr('switch', 'The server did not return a switch ID.', { raw: JSON.stringify(data) });
+        app.switching.id = data.switch_id;
+        saveSwitch();
+        setSwitchPhase(data.status || 'queued');
+        scheduleSwitchPoll();
+      })
+      .catch(function (err) { if (app.switching) finishSwitch(networkError(err)); });
+  }
+
+  function scheduleSwitchPoll() {
+    clearTimeout(app.switchTimer);
+    if (app.switching && app.switching.id) app.switchTimer = setTimeout(pollSwitch, SWITCH_POLL_MS);
+  }
+
+  function pollSwitch() {
+    var sw = app.switching; if (!sw || !sw.id) return;
+    call(switchRoute(sw.id) + '?ts=' + Date.now(), {}, SHORT_TIMEOUT_MS)
+      .then(function (res) {
+        if (res.status === 404) return res.text().then(function (t) {
+          if (/not found/i.test(t) && !/^\s*</.test(t)) throw makeErr('switch', 'The server no longer has this model switch.', { raw: t });
+          throw Object.assign(makeErr('unavailable', 'Switch status not found.'), { transient: true });
+        });
+        if (!res.ok) return httpError(res, 'switch-status').then(function (e) { e.transient = true; throw e; });
+        return readJson(res);
+      })
+      .then(function (data) {
+        if (app.switching !== sw) return;
+        sw.fails = 0;
+        if (data.status === 'complete') { finishSwitch(null); return; }
+        if (data.status === 'failed') {
+          finishSwitch(makeErr('switch', 'Couldn\'t switch to ' + (MODEL_NAMES[sw.model] || sw.model) + '.', { raw: data.error || JSON.stringify(data) }));
+          return;
+        }
+        setSwitchPhase(data.status);
+        scheduleSwitchPoll();
+      })
+      .catch(function (err) {
+        if (app.switching !== sw) return;
+        err = networkError(err);
+        var transient = err.transient || /offline|timeout|unavailable|tunnel/.test(err.kind);
+        // Chatterbox loading can stall the tunnel briefly — keep waiting, never mark offline.
+        if (transient && ++sw.fails < 60) { scheduleSwitchPoll(); return; }
+        finishSwitch(transient ? makeErr('lost', 'Lost contact with the server while the model was switching.') : err);
+      });
+  }
+
+  function finishSwitch(err) {
+    var sw = app.switching;
+    clearTimeout(app.switchTimer); clearInterval(app.switchTick);
+    app.switching = null; saveSwitch();
+    $('switchProgress').hidden = true;
+    if (err) showNotice($('modelNotice'), err);
+    updateControls();
+    startPolling();
+    return checkHealth({ loadLists: true, afterSwitch: true }).then(function (ok) {
+      if (err || !ok || !sw) return;
+      var name = MODEL_NAMES[activeModel()] || activeModel();
+      var box = $('modelNotice');
+      box.className = 'notice'; box.hidden = false;
+      box.innerHTML = '<b>' + YB.esc(name) + ' ready</b>' + YB.esc(activeModel() === sw.model ? '' : 'The server reports ' + name + ' is loaded.');
+      YB.toast(name + ' ready');
+    });
+  }
+
+  // A switch started elsewhere (another tab or device): follow GET /state.
+  function observeRemoteSwitch() {
+    if (app.remoteSwitching) return;
+    app.remoteSwitching = true; app.remoteSince = Date.now();
+    stopPolling();
+    $('switchProgress').hidden = false;
+    $('switchStatusText').textContent = 'Switching voice model…';
+    clearInterval(app.switchTick); app.switchTick = setInterval(tickSwitch, 1000); tickSwitch();
+    setState('switching', 'Switching Model');
+    (function wait() {
+      setTimeout(function () {
+        getBackendState().then(function (st) {
+          if (st && st.model_switching === true) { wait(); return; }
+          app.remoteSwitching = false; clearInterval(app.switchTick);
+          $('switchProgress').hidden = true;
+          updateControls(); startPolling();
+          checkHealth({ loadLists: true, afterSwitch: true });
+        });
+      }, STATE_POLL_MS);
+    })();
+    updateControls();
+  }
+
+  // Reopened the page during a switch this page started? Keep following it.
+  function resumeSwitch() {
+    var saved = YB.store.get('voiceSwitch', null);
+    if (!saved || !saved.id) return false;
+    if (normalizeUrl(saved.backend) !== app.backend) { YB.store.remove('voiceSwitch'); return false; }
+    app.switching = { id: saved.id, model: saved.model, fails: 0, startedAt: saved.startedAt || Date.now() };
+    stopPolling();
+    setSwitchPhase('loading');
+    clearInterval(app.switchTick); app.switchTick = setInterval(tickSwitch, 1000); tickSwitch();
+    updateControls();
+    pollSwitch();
+    return true;
   }
 
   function startPolling() {
@@ -561,16 +839,17 @@
 
   // POST multipart "files" → server stores it under a (sanitized) filename →
   // refresh GET /get_reference_files and select that filename.
-  function uploadReference() {
-    var input = $('voiceSampleFile');
-    var file = input.files && input.files[0];
-    if (!app.backend) { showNotice($('genError'), makeErr('config-missing', 'No backend is connected yet.')); return Promise.resolve(null); }
-    if (!file) { setUploadState('error', 'Choose a WAV or MP3 file first.'); return Promise.resolve(null); }
-    if (!/\.(wav|mp3)$/i.test(file.name)) { setUploadState('error', 'Only .wav and .mp3 files are accepted.'); return Promise.resolve(null); }
-    if (app.uploading || app.generating) return Promise.resolve(null);
-
+  // Shared upload used by the single-script clone section and by Story mode's
+  // per-character "Upload reference": POST multipart "files" → server stores it
+  // under a (sanitized) filename → GET /get_reference_files must list it.
+  // Resolves to the server filename; rejects with a typed error.
+  function sendReference(file, onStep) {
+    if (!app.backend) return Promise.reject(makeErr('config-missing', 'No backend is connected yet.'));
+    if (!file) return Promise.reject(makeErr('upload', 'Choose a WAV or MP3 file first.'));
+    if (!/\.(wav|mp3)$/i.test(file.name)) return Promise.reject(makeErr('upload', 'Only .wav and .mp3 files are accepted.'));
+    if (app.uploading || app.generating || isSwitching()) return Promise.reject(makeErr('upload', 'Wait for the current task to finish, then upload again.'));
     app.uploading = true; updateControls();
-    setUploadState('busy', 'Uploading ' + file.name + ' (' + bytesLabel(file.size) + ')…');
+    if (onStep) onStep('Uploading ' + file.name + ' (' + bytesLabel(file.size) + ')…');
     var form = new FormData();
     form.append('files', file, file.name); // the multipart field must be "files"
 
@@ -585,37 +864,46 @@
           if (!data) {
             console.error('[Voice Studio] upload response', res.status, text.slice(0, 1000));
             throw res.ok ? makeErr('upload', 'Upload returned an unexpected response.')
-              : res.status === 530 ? makeErr('tunnel', 'Cloudflare tunnel is not ready or has disconnected.')
+              : res.status === 530 ? makeErr('tunnel', 'Cloudflare tunnel is still connecting or disconnected.')
               : makeErr('unavailable', 'Backend temporarily unavailable.');
           }
           var uploaded = data.uploaded_files || [];
           if (!uploaded.length) {
             var msg = (data.errors && data.errors[0] && data.errors[0].error) || data.detail || 'The server did not accept the file.';
-            throw makeErr('upload', 'Reference upload failed: ' + msg);
+            throw makeErr('upload', 'Reference upload failed: ' + msg, { raw: text });
           }
           return uploaded[0]; // server-side (sanitized) filename
         });
       })
       .then(function (serverName) {
         // Only use the file once the TTS engine's own list includes it.
-        setUploadState('busy', 'Uploaded — checking the server can use ' + serverName + '…');
+        if (onStep) onStep('Uploaded — checking the server can use ' + serverName + '…');
         return loadReferences(true).then(function (files) {
           if (!files || files.indexOf(serverName) === -1) {
             throw makeErr('ref-pending', 'Reference audio was uploaded but is not available to the TTS engine yet.');
           }
-          setReference(serverName); // select the new file in the refreshed list
-          setUploadState('done', '✓ Uploaded and ready: ' + serverName);
-          showNotice($('genError'), null);
           return serverName;
         });
       })
-      .catch(function (err) {
-        err = networkError(err);
+      .then(function (name) { app.uploading = false; updateControls(); return name; },
+        function (err) { app.uploading = false; updateControls(); throw networkError(err); });
+  }
+
+  function uploadReference() {
+    var input = $('voiceSampleFile');
+    var file = input.files && input.files[0];
+    if (app.uploading || app.generating || isSwitching()) return Promise.resolve(null);
+    return sendReference(file, function (msg) { setUploadState('busy', msg); })
+      .then(function (serverName) {
+        setReference(serverName); // select the new file in the refreshed list
+        setUploadState('done', '✓ Uploaded and ready: ' + serverName);
+        showNotice($('genError'), null);
+        return serverName;
+      }, function (err) {
         setUploadState('error', err.message);
-        showNotice($('genError'), err);
+        if (err.kind !== 'upload' || file) showNotice($('genError'), err);
         return null;
-      })
-      .then(function (v) { app.uploading = false; updateControls(); return v; });
+      });
   }
 
   function clearReference() {
@@ -648,12 +936,18 @@
     $('speedFactor').value = settings.speed;
     $('generationSeed').value = settings.seed;
     $('splitText').checked = !!settings.split;
-    $('tempVal').textContent = Number(settings.temperature).toFixed(2);
+    $('exaggeration').value = settings.exaggeration;
+    $('cfgWeight').value = settings.cfg;
+    $('tempVal').textContent = tempLabel(settings.temperature);
     $('speedVal').textContent = speedLabel(settings.speed);
+    $('exagVal').textContent = exagLabel(settings.exaggeration);
+    $('cfgVal').textContent = Number(settings.cfg).toFixed(2);
+    $('chunkVal').textContent = chunkLabel(settings.chunk);
     $('chunkSize').disabled = !settings.split;
+    $('chunkField').classList.toggle('is-off', !settings.split);
   }
 
-  function clampChunk(v) { v = Math.round(Number(v) || DEFAULTS.chunk); return Math.min(CHUNK_MAX, Math.max(CHUNK_MIN, v)); }
+  function clampChunk(v) { v = Math.round((Number(v) || 400) / 10) * 10; return Math.min(CHUNK_MAX, Math.max(CHUNK_MIN, v)); }
 
   /* ---------- Script editor ---------- */
   function updateScriptMeta() {
@@ -668,37 +962,162 @@
 
   function insertAtCursor(snippet) {
     var ta = $('scriptText');
-    var start = ta.selectionStart == null ? ta.value.length : ta.selectionStart;
-    var end = ta.selectionEnd == null ? start : ta.selectionEnd;
-    var before = ta.value.slice(0, start);
-    if (before && !/\s$/.test(before) && /^\[/.test(snippet)) snippet = ' ' + snippet;
+    var focused = document.activeElement === ta;
+    // Use the live cursor, or the one saved while typing (phones may blur the box on tap).
+    var start = focused && ta.selectionStart != null ? ta.selectionStart : (tagUi.start != null ? tagUi.start : ta.value.length);
+    var end = focused && ta.selectionEnd != null ? ta.selectionEnd : (tagUi.end != null ? tagUi.end : start);
+    start = Math.min(start, ta.value.length); end = Math.min(Math.max(end, start), ta.value.length);
+    var before = ta.value.slice(0, start), after = ta.value.slice(end);
+    if (/^\[/.test(snippet)) {
+      if (before && !/\s$/.test(before)) snippet = ' ' + snippet;
+      if (!after || !/^\s/.test(after)) snippet = snippet + ' ';
+    }
     if (ta.setRangeText) ta.setRangeText(snippet, start, end, 'end');
-    else { ta.value = before + snippet + ta.value.slice(end); ta.selectionStart = ta.selectionEnd = start + snippet.length; }
+    else { ta.value = before + snippet + after; ta.selectionStart = ta.selectionEnd = start + snippet.length; }
     ta.focus();
+    tagUi.start = tagUi.end = ta.selectionEnd;
     updateScriptMeta(); saveScript();
   }
 
-  // Tag list: backend-config.json first, then /model-info, then the Turbo set.
+  // Reaction tags: the active model's own list (/model-info) is authoritative,
+  // then backend-config.json, then the standard Turbo set.
   function tagList() {
-    var c = app.source === 'config' && app.config;
-    var list = (c && Array.isArray(c.available_paralinguistic_tags) && c.available_paralinguistic_tags.length) ? c.available_paralinguistic_tags
-      : (app.info && Array.isArray(app.info.available_paralinguistic_tags) && app.info.available_paralinguistic_tags.length) ? app.info.available_paralinguistic_tags
-      : DEFAULT_TAGS;
-    return list.map(function (t) { return String(t).replace(/^\[|\]$/g, '').trim(); }).filter(Boolean);
+    var info = app.info, c = app.source === 'config' && app.config;
+    var list;
+    if (info && info.type && Array.isArray(info.available_paralinguistic_tags) && info.available_paralinguistic_tags.length) list = info.available_paralinguistic_tags;
+    else if (info && info.type && !caps().tags) list = [];
+    else if (c && Array.isArray(c.available_paralinguistic_tags) && c.available_paralinguistic_tags.length) list = c.available_paralinguistic_tags;
+    else list = DEFAULT_TAGS;
+    return list.map(function (t) { return String(t).replace(/^\[|\]$/g, '').trim().toLowerCase(); }).filter(Boolean);
   }
+  function tagsAllowed() { return !activeModel() || caps().tags; }
+  function knownTags() { return tagList(); }
 
   function renderTags() {
-    var info = app.info;
-    var known = info && info.type;
-    var supports = !known || info.supports_paralinguistic_tags !== false;
-    $('tagBox').hidden = !supports;
-    $('tagNote').textContent = known ? '(inserted at your cursor)' : '(Turbo model — inserted at your cursor)';
-    $('tagButtons').innerHTML = tagList().map(function (t) {
-      return '<button type="button" data-tag="' + YB.esc(t) + '">[' + YB.esc(t) + ']</button>';
-    }).join('');
+    var tags = tagList(), used = {}, html = '';
+    function group(name, items) {
+      return '<div class="tag-group"><span class="tag-group-name">' + YB.esc(name) + '</span><div class="tag-row">' +
+        items.map(function (t) { return '<button type="button" data-tag="' + YB.esc(t) + '" title="Adds [' + YB.esc(t) + '] at your cursor">[' + YB.esc(t) + ']</button>'; }).join('') +
+        '</div></div>';
+    }
+    TAG_GROUPS.forEach(function (g) {
+      var items = g[1].filter(function (t) { return tags.indexOf(t) !== -1; });
+      items.forEach(function (t) { used[t] = 1; });
+      if (items.length) html += group(g[0], items);
+    });
+    var extra = tags.filter(function (t) { return !used[t]; });
+    if (extra.length) html += group('More', extra);
+    $('tagButtons').innerHTML = html;
+    if (tags.length && tagsAllowed()) YB.store.set('voiceTags', tags);   // Story Studio shows the same chips
+    updateTagVisibility();
   }
 
-  function knownTags() { return tagList().map(function (t) { return t.toLowerCase(); }); }
+  // The tag panel shows while you're typing in the script (and stays while you tap chips).
+  var tagUi = { open: false, start: null, end: null, hideTimer: 0, chipAt: 0 };
+  function updateTagVisibility() {
+    var allowed = tagsAllowed() && tagList().length > 0;
+    $('tagBox').hidden = !(allowed && tagUi.open);
+    $('tagHint').hidden = !allowed || tagUi.open;
+    var off = $('tagOff');
+    off.hidden = allowed || !activeModel();
+    if (!allowed && activeModel()) off.textContent = '😄 Reaction tags like [laugh] work with Turbo. ' + (MODEL_NAMES[activeModel()] || activeModel()) + ' uses the Exaggeration slider for emotion instead — any tags in your script are left out when it generates.';
+  }
+  function openTags() { clearTimeout(tagUi.hideTimer); tagUi.open = true; updateTagVisibility(); }
+  function maybeCloseTags() {
+    clearTimeout(tagUi.hideTimer);
+    tagUi.hideTimer = setTimeout(function () {
+      var ae = document.activeElement;
+      if (ae === $('scriptText') || $('tagBox').contains(ae)) return;
+      if (Date.now() - tagUi.chipAt < 300) { maybeCloseTags(); return; }   // just tapped a chip — check again shortly
+      tagUi.open = false; updateTagVisibility();
+    }, 250);
+  }
+  function saveCursor() {
+    var ta = $('scriptText');
+    if (ta.selectionStart != null) { tagUi.start = ta.selectionStart; tagUi.end = ta.selectionEnd; }
+  }
+
+  // Non-Turbo models would read "[laugh]" out loud, so tags are removed for them.
+  function prepareText(text) {
+    text = String(text || '');
+    if (tagsAllowed()) return text.trim();
+    var names = DEFAULT_TAGS.concat(tagList());
+    return text.replace(/\[([^\]]{1,24})\]/g, function (m, inner) {
+      return names.indexOf(inner.trim().toLowerCase()) !== -1 ? ' ' : m;
+    }).replace(/[ \t]{2,}/g, ' ').replace(/ +\n/g, '\n').trim();
+  }
+
+  /* ---------- Model-aware controls ---------- */
+  function applyModelUI() {
+    var t = activeModel(), c = caps();
+    renderTags();
+    $('exaggerationField').hidden = !c.exaggeration;
+    $('cfgField').hidden = !c.cfg;
+    $('expressionNote').textContent = !t ? '' :
+      t === 'turbo' ? 'Turbo uses reaction tags for expression. Exaggeration and CFG Weight are available in Original Chatterbox.' :
+      t === 'multilingual' ? 'Multilingual supports Exaggeration. CFG Weight is available in Original Chatterbox.' : '';
+    $('languageGroup').hidden = !c.language;
+    if (c.language) renderLanguages();
+    renderPresets();
+    renderEngineCards();
+    renderSummary();
+  }
+
+  function renderLanguages() {
+    var langs = (app.info && app.info.supported_languages) || (app.config && app.config.supported_languages) || { en: 'English' };
+    var codes = Object.keys(langs).sort(function (a, b) { return String(langs[a]).localeCompare(String(langs[b])); });
+    $('languageSelect').innerHTML = codes.map(function (k) { return '<option value="' + YB.esc(k) + '">' + YB.esc(langs[k]) + '</option>'; }).join('');
+    if (codes.indexOf(settings.language) === -1) { settings.language = codes.indexOf('en') !== -1 ? 'en' : codes[0]; saveSettings(); }
+    $('languageSelect').value = settings.language;
+  }
+
+  function renderPresets() {
+    var t = activeModel() || 'turbo', list = PRESETS[t] || PRESETS.turbo;
+    $('presetModel').textContent = '· for ' + (MODEL_NAMES[t] || t);
+    $('presetChips').innerHTML = list.map(function (p, i) {
+      var on = Object.keys(p[1]).every(function (k) { return Math.abs(Number(settings[k]) - p[1][k]) < 0.001; });
+      return '<button type="button" class="chip-btn' + (on ? ' on' : '') + '" data-preset="' + i + '">' + YB.esc(p[0]) + '</button>';
+    }).join('');
+    var locked = app.generating || isSwitching();
+    $('presetChips').querySelectorAll('button').forEach(function (b) { b.disabled = locked; });
+  }
+
+  function applyPreset(i) {
+    var t = activeModel() || 'turbo', p = (PRESETS[t] || PRESETS.turbo)[i];
+    if (!p || app.generating || isSwitching()) return;
+    var v = p[1];
+    if (v.temperature != null) settings.temperature = clampTo(v.temperature, TEMP_MIN, TEMP_MAX, 0.05);
+    if (v.speed != null) settings.speed = clampSpeed(v.speed);
+    if (v.chunk != null) settings.chunk = clampChunk(v.chunk);
+    if (v.exaggeration != null) settings.exaggeration = clampTo(v.exaggeration, EXAG_MIN, EXAG_MAX, 0.05);
+    if (v.cfg != null) settings.cfg = clampTo(v.cfg, CFG_MIN, CFG_MAX, 0.05);
+    saveSettings(); fillSettings(); updateScriptMeta(); renderPresets();
+    YB.toast('Preset: ' + p[0]);
+  }
+
+  // One place builds every /jobs payload — single script and story lines alike.
+  // Only fields the active model accepts are sent; no null/undefined values.
+  function buildGenerationPayload(text, voice, overrides) {
+    var c = caps();
+    var body = {
+      text: prepareText(text),
+      voice_mode: voice.mode === 'clone' ? 'clone' : 'predefined',
+      output_format: settings.format,
+      split_text: !!settings.split,
+      chunk_size: clampChunk(settings.chunk),
+      temperature: clampTo(settings.temperature, TEMP_MIN, TEMP_MAX, 0.05),
+      seed: Math.max(0, Math.round(Number(settings.seed) || 0)),
+      speed_factor: clampSpeed(settings.speed)
+    };
+    if (body.voice_mode === 'clone') body.reference_audio_filename = voice.id;
+    else body.predefined_voice_id = voice.id;
+    if (c.exaggeration) body.exaggeration = clampTo(settings.exaggeration, EXAG_MIN, EXAG_MAX, 0.05);
+    if (c.cfg) body.cfg_weight = clampTo(settings.cfg, CFG_MIN, CFG_MAX, 0.05);
+    body.language = c.language ? (settings.language || 'en') : 'en';
+    Object.assign(body, overrides || {});
+    Object.keys(body).forEach(function (k) { if (body[k] === null || body[k] === undefined || body[k] === '') delete body[k]; });
+    return body;
+  }
 
   /* ---------- Story Studio import ---------- */
   function storiesList() { return YB.store.get('stories', []); }
@@ -759,31 +1178,21 @@
     var voice = settings.mode === 'clone'
       ? (settings.reference ? 'Clone: ' + settings.reference : 'Clone: no reference yet')
       : ($('predefinedVoiceSelect').selectedOptions[0] && $('predefinedVoiceSelect').value ? $('predefinedVoiceSelect').selectedOptions[0].textContent : 'No voice selected');
-    el.textContent = voice + ' · ' + String(settings.format).toUpperCase();
+    el.textContent = voice + ' · ' + String(settings.format).toUpperCase() + (activeModel() ? ' · ' + (MODEL_NAMES[activeModel()] || activeModel()) : '');
   }
 
   function buildRequest() {
-    var body = {
-      text: $('scriptText').value.trim(),
-      voice_mode: settings.mode,
-      output_format: settings.format,
-      split_text: !!settings.split,
-      chunk_size: clampChunk(settings.chunk),
-      temperature: Number(settings.temperature),
-      speed_factor: Number(settings.speed),
-      seed: Math.max(0, Math.round(Number(settings.seed) || 0))
-    };
-    // Only the field for the chosen voice mode is sent.
-    if (settings.mode === 'predefined') body.predefined_voice_id = $('predefinedVoiceSelect').value;
-    else body.reference_audio_filename = settings.reference;
-    return body;
+    return buildGenerationPayload($('scriptText').value, {
+      mode: settings.mode,
+      id: settings.mode === 'predefined' ? $('predefinedVoiceSelect').value : settings.reference
+    });
   }
 
   var PHASES = {
     submit: ['Queued', 'Submitting job…', 'Sending your script to the server.'],
     queued: ['Queued', 'Queued…', 'Waiting for Chatterbox to start this job.'],
     running: ['Generating', 'Generating speech…', 'Generating chunked speech on CPU. Longer scripts can take several minutes. You can leave this page — it picks the job back up when you return.'],
-    processing: ['Generating', 'Processing audio…', 'Speech is ready — downloading the audio file.']
+    processing: ['Generating', 'Downloading audio…', 'Speech is ready — downloading the audio file.']
   };
 
   function setPhase(name, detail) {
@@ -832,11 +1241,13 @@
 
   function generate() {
     if (app.generating || app.job || app.preparing) return;   // never two jobs at once
+    if (isSwitching()) { YB.toast('Wait for the model switch to finish'); return; }
     if (storyHooks && storyHooks.active()) { storyHooks.generate(); return; }
     showNotice($('genError'), null);
     var text = $('scriptText').value.trim();
     if (!app.backend) { showNotice($('genError'), makeErr('offline', 'Backend is not connected.')); return; }
     if (!text) { showNotice($('genError'), makeErr('validation', 'Add some narration to the script first.'), 'warn'); $('scriptText').focus(); return; }
+    if (!prepareText(text)) { showNotice($('genError'), makeErr('validation', 'The script only has reaction tags — add some words to say.'), 'warn'); return; }
 
     var ready = Promise.resolve(true);
     if (settings.mode === 'predefined') {
@@ -1067,6 +1478,7 @@
   }
 
   function resumeOrCheck(opts) {
+    if (!app.generating && !app.switching && resumeSwitch()) { app.preparing = false; return Promise.resolve(true); }
     if (!app.generating && resumeJob()) { app.preparing = false; return Promise.resolve(true); }
     return checkHealth(opts);
   }
@@ -1103,19 +1515,32 @@
 
   // Reads the chosen reference clip's length in the browser and warns when it's
   // outside what cloning handles well.
+  // Measures a reference clip in the browser. Resolves { seconds, level, text }
+  // (level: 'warn' | 'info' | 'ok' | '' when it can't be read).
+  function clipLength(file) {
+    return new Promise(function (resolve) {
+      var url = URL.createObjectURL(file), probe = new Audio();
+      function done(r) { URL.revokeObjectURL(url); resolve(r); }
+      probe.preload = 'metadata';
+      probe.onloadedmetadata = function () {
+        var d = probe.duration;
+        if (!isFinite(d)) return done({ seconds: 0, level: '', text: '' });
+        if (d < REF_SHORT_SEC) done({ seconds: d, level: 'warn', text: '⚠️ ' + d.toFixed(1) + ' s — Very short references may produce unstable voice cloning. Aim for 10–20 seconds.' });
+        else if (d > REF_LONG_SEC) done({ seconds: d, level: 'warn', text: '⚠️ ' + Math.round(d) + ' s — the server may reject references longer than 30 seconds. Trim it to 10–20 seconds.' });
+        else done(d < 10 ? { seconds: d, level: 'info', text: 'ℹ️ ' + d.toFixed(1) + ' s — usable, but 10–20 seconds gives better results.' }
+          : { seconds: d, level: 'ok', text: '✓ ' + Math.round(d) + ' s — a good length.' });
+      };
+      probe.onerror = function () { done({ seconds: 0, level: '', text: '' }); };
+      probe.src = url;
+    });
+  }
+
   function checkClipLength(file) {
-    var url = URL.createObjectURL(file), probe = new Audio(), note = $('refDurationNote');
-    function done(msg) { URL.revokeObjectURL(url); if (!msg) return; note.textContent = msg; note.hidden = false; }
-    probe.preload = 'metadata';
-    probe.onloadedmetadata = function () {
-      var d = probe.duration;
-      if (!isFinite(d)) return done('');
-      if (d < REF_SHORT_SEC) done('⚠️ This clip is only ' + d.toFixed(1) + ' s — very short references usually clone poorly. Aim for 10–20 seconds.');
-      else if (d > REF_LONG_SEC) done('⚠️ This clip is ' + Math.round(d) + ' s — the server may reject references longer than 30 seconds. Trim it to 10–20 seconds.');
-      else done(d < 10 ? 'ℹ️ ' + d.toFixed(1) + ' s — usable, but 10–20 seconds gives better results.' : '✓ ' + Math.round(d) + ' s — a good length.');
-    };
-    probe.onerror = function () { done(''); };
-    probe.src = url;
+    clipLength(file).then(function (r) {
+      var note = $('refDurationNote');
+      if (!r.text) return;
+      note.textContent = r.text; note.hidden = false;
+    });
   }
 
   /* ---------- Shared core for Story (multi-voice) mode — js/voice-story.js ---------- */
@@ -1133,7 +1558,9 @@
     refFiles: function () { return app.refFiles; },
     cloneAvailable: function () { return app.cloneAvailable; },
     backend: function () { return app.backend; },
-    isBusy: function () { return app.generating || app.preparing || !!app.job || app.uploading; },
+    isBusy: function () { return app.generating || app.preparing || !!app.job || app.uploading || isSwitching(); },
+    buildPayload: buildGenerationPayload, prepareText: prepareText, activeModel: activeModel,
+    sendReference: sendReference, clipLength: clipLength,
     updateControls: updateControls,
     // Story runs use the same locks as single generation: no health polling,
     // Generate disabled, Cancel enabled, status pill shows progress.
@@ -1193,9 +1620,18 @@
           function () { YB.toast('Tap and hold in the script box, then choose Paste'); ta.focus(); });
       } else { YB.toast('Tap and hold in the script box, then choose Paste'); ta.focus(); }
     });
-    $('tagButtons').addEventListener('mousedown', function (e) { if (e.target.closest('[data-tag]')) e.preventDefault(); }); // keep cursor in textarea
+    ['focus', 'click'].forEach(function (ev) { ta.addEventListener(ev, function () { saveCursor(); openTags(); }); });
+    ['keyup', 'select', 'input'].forEach(function (ev) { ta.addEventListener(ev, saveCursor); });
+    ta.addEventListener('blur', function () { saveCursor(); maybeCloseTags(); });
+    ['pointerdown', 'mousedown'].forEach(function (ev) {
+      $('tagBox').addEventListener(ev, function (e) { tagUi.chipAt = Date.now(); if (e.target.closest('[data-tag]')) e.preventDefault(); }); // keep the cursor in the script
+    });
+    $('tagBox').addEventListener('focusout', maybeCloseTags);
     $('tagButtons').addEventListener('click', function (e) {
-      var b = e.target.closest('[data-tag]'); if (b) insertAtCursor('[' + b.getAttribute('data-tag') + ']');
+      var b = e.target.closest('[data-tag]'); if (!b) return;
+      tagUi.chipAt = Date.now();
+      insertAtCursor('[' + b.getAttribute('data-tag') + ']');
+      openTags();
     });
 
     // story import
@@ -1230,11 +1666,16 @@
 
     // settings
     $('outputFormat').addEventListener('change', function () { settings.format = this.value; saveSettings(); renderSummary(); });
-    $('chunkSize').addEventListener('change', function () { settings.chunk = clampChunk(this.value); this.value = settings.chunk; saveSettings(); updateScriptMeta(); });
-    $('temperature').addEventListener('input', function () { settings.temperature = Number(this.value); $('tempVal').textContent = settings.temperature.toFixed(2); saveSettings(); });
-    $('speedFactor').addEventListener('input', function () { settings.speed = clampSpeed(this.value); $('speedVal').textContent = speedLabel(settings.speed); saveSettings(); });
+    $('chunkSize').addEventListener('input', function () { settings.chunk = clampChunk(this.value); $('chunkVal').textContent = chunkLabel(settings.chunk); saveSettings(); updateScriptMeta(); renderPresets(); });
+    $('temperature').addEventListener('input', function () { settings.temperature = clampTo(this.value, TEMP_MIN, TEMP_MAX, 0.05); $('tempVal').textContent = tempLabel(settings.temperature); saveSettings(); renderPresets(); });
+    $('exaggeration').addEventListener('input', function () { settings.exaggeration = clampTo(this.value, EXAG_MIN, EXAG_MAX, 0.05); $('exagVal').textContent = exagLabel(settings.exaggeration); saveSettings(); renderPresets(); });
+    $('cfgWeight').addEventListener('input', function () { settings.cfg = clampTo(this.value, CFG_MIN, CFG_MAX, 0.05); $('cfgVal').textContent = settings.cfg.toFixed(2); saveSettings(); renderPresets(); });
+    $('languageSelect').addEventListener('change', function () { settings.language = this.value; saveSettings(); renderSummary(); });
+    $('presetChips').addEventListener('click', function (e) { var b = e.target.closest('[data-preset]'); if (b) applyPreset(Number(b.getAttribute('data-preset'))); });
+    $('engineCards').addEventListener('click', function (e) { var b = e.target.closest('[data-model]'); if (b && !b.disabled) switchModel(b.getAttribute('data-model')); });
+    $('speedFactor').addEventListener('input', function () { settings.speed = clampSpeed(this.value); $('speedVal').textContent = speedLabel(settings.speed); saveSettings(); renderPresets(); });
     $('generationSeed').addEventListener('change', function () { settings.seed = Math.max(0, Math.round(Number(this.value) || 0)); this.value = settings.seed; saveSettings(); });
-    $('splitText').addEventListener('change', function () { settings.split = this.checked; $('chunkSize').disabled = !this.checked; saveSettings(); updateScriptMeta(); });
+    $('splitText').addEventListener('change', function () { settings.split = this.checked; $('chunkSize').disabled = !this.checked; $('chunkField').classList.toggle('is-off', !this.checked); saveSettings(); updateScriptMeta(); });
     $('resetSettingsBtn').addEventListener('click', function () {
       ['format', 'chunk', 'temperature', 'speed', 'seed', 'split'].forEach(function (k) { settings[k] = DEFAULTS[k]; });
       saveSettings(); fillSettings(); updateScriptMeta(); renderSummary(); YB.toast('Settings reset');
@@ -1275,7 +1716,7 @@
     $('scriptText').value = YB.store.get('voiceScript', '');
     $('uploadedReferenceName').textContent = settings.reference || 'None';
     if (settings.reference) setUploadState('done', '✓ Using ' + settings.reference + ' (checking it\'s still on the server…)');
-    renderTags();
+    applyModelUI();
     bind();
     renderImport();
 

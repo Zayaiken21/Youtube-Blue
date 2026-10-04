@@ -58,7 +58,7 @@
       if (b.type === 'scene') { if (b.text.trim()) pendingScene = b.text.trim(); return; }
       if (b.type !== 'line') return;
       var text = clean(b.text);
-      if (!text || !/[\w]/.test(text.replace(/\[[^\]]*\]/g, ''))) return;   // nothing speakable
+      if (!text || !/[\w]/.test(V.prepareText(text).replace(/\[[^\]]*\]/g, ''))) return;   // nothing speakable
       var speaker = cast(s).some(function (c) { return c.id === b.speaker; }) ? b.speaker : 'narrator';
       if (pendingScene) { out.push({ type: 'scene', text: pendingScene }); pendingScene = ''; }
       var last = out[out.length - 1];
@@ -126,8 +126,40 @@
         '<div class="cv-row">' +
         '<select data-cv-mode="' + YB.esc(id) + '" aria-label="Voice type for ' + YB.esc(c.name) + '"><option value="predefined"' + (v.mode === 'predefined' ? ' selected' : '') + '>Built-in voice</option><option value="clone"' + (v.mode === 'clone' ? ' selected' : '') + '>Clone</option></select>' +
         '<select data-cv-voice="' + YB.esc(id) + '" aria-label="Voice for ' + YB.esc(c.name) + '">' + options + '</select>' +
-        '</div>' + (problem && v.id ? '<div class="cv-warn">' + YB.esc(problem) + '</div>' : '') + '</div>';
+        '</div>' + (problem && v.id ? '<div class="cv-warn">' + YB.esc(problem) + '</div>' : '') +
+        uploadHtml(id, c.name, cloneOk) + '</div>';
     }).join('');
+  }
+
+  // Per-character "Upload reference" — same upload + checks as the single-narrator clone section.
+  var upNotes = {};   // charId → { text, level }
+  function uploadHtml(id, name, cloneOk) {
+    var busy = !!st.run || V.isBusy(), note = upNotes[id];
+    return '<div class="cv-upload">' +
+      '<label class="btn btn-ghost btn-sm cv-up-btn' + (busy || !cloneOk ? ' is-disabled' : '') + '">⬆️ Upload reference' +
+      '<input type="file" accept=".wav,.mp3,audio/wav,audio/x-wav,audio/mpeg" data-cv-file="' + YB.esc(id) + '" aria-label="Upload a reference voice for ' + YB.esc(name) + '"' + (busy || !cloneOk ? ' disabled' : '') + ' hidden></label>' +
+      (note ? '<span class="cv-up-note" data-level="' + YB.esc(note.level) + '">' + YB.esc(note.text) + '</span>' : '') +
+      '</div>';
+  }
+
+  function setUpNote(id, text, level) { upNotes[id] = { text: text, level: level || '' }; renderCast(); V.updateControls(); }
+
+  function uploadFor(id, file) {
+    if (!file || st.run || V.isBusy()) return;
+    var lenText = '';
+    V.clipLength(file).then(function (r) {
+      lenText = r.text || '';
+      return V.sendReference(file, function (msg) { setUpNote(id, msg + (lenText ? '  ' + lenText : ''), 'busy'); });
+    }).then(function (serverName) {
+      var map = castMap[st.storyId] || (castMap[st.storyId] = {});
+      map[id] = { mode: 'clone', id: serverName };     // this character now uses the new clone
+      saveCast();
+      setUpNote(id, '✓ Uploaded and ready: ' + serverName + (lenText ? '  ' + lenText : ''), lenText.indexOf('⚠️') === 0 ? 'warn' : 'ok');
+      renderAll();
+    }, function (err) {
+      setUpNote(id, err.message, 'error');
+      if (err.raw || err.kind !== 'upload') V.showNotice(V.errorBox(), err);
+    });
   }
 
   /* ---------- Story picker + line list ---------- */
@@ -238,22 +270,10 @@
   }
 
   /* ---------- Run ---------- */
+  // Same builder as single scripts (model-aware fields, exactly one voice
+  // field); clips are always WAV so they can be stitched losslessly.
   function payload(g) {
-    var s = V.settings(), v = g.voice;
-    var body = {
-      text: g.text,
-      voice_mode: v.mode,
-      output_format: 'wav',                 // lossless clips for stitching
-      split_text: !!s.split,
-      chunk_size: V.clampChunk(s.chunk),
-      temperature: Number(s.temperature),
-      speed_factor: Number(s.speed),
-      seed: Math.max(0, Math.round(Number(s.seed) || 0))
-    };
-    // Exactly one voice field per job.
-    if (v.mode === 'clone') body.reference_audio_filename = v.id;
-    else body.predefined_voice_id = v.id;
-    return body;
+    return V.buildPayload(g.text, g.voice, { output_format: 'wav' });
   }
 
   function generate(onlyFailed) {
@@ -546,6 +566,8 @@
 
     var castHost = $('castRows');
     castHost.addEventListener('change', function (e) {
+      var up = e.target.getAttribute('data-cv-file');
+      if (up) { var f = e.target.files && e.target.files[0]; e.target.value = ''; uploadFor(up, f); return; }
       var m = e.target.getAttribute('data-cv-mode'), v = e.target.getAttribute('data-cv-voice');
       var map = castMap[st.storyId] || (castMap[st.storyId] = {});
       if (m) {

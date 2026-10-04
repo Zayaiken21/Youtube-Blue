@@ -412,6 +412,92 @@
     if (pState.lock) { pState.lock.release().catch(function () {}); pState.lock = null; }
   }
 
+  /* ---------- Emotion / reaction tags while typing a line ----------
+     Same chips as Voice Studio (it saves the server's tag list as
+     "voiceTags"); shown under the character line you're typing in. */
+  var DEFAULT_TAGS = ['laugh', 'chuckle', 'sigh', 'gasp', 'cough', 'clear throat', 'sniff', 'groan', 'shush'];
+  var TAG_GROUPS = [['Laughter', ['laugh', 'chuckle']], ['Reaction', ['sigh', 'gasp', 'groan']], ['Vocal sounds', ['cough', 'clear throat', 'sniff', 'shush']]];
+  var tagUi = { bar: null, target: null, start: null, end: null, hideTimer: 0, chipAt: 0 };
+
+  function storyTags() {
+    var t = YB.store.get('voiceTags', null);
+    return (Array.isArray(t) && t.length ? t : DEFAULT_TAGS).map(function (x) { return String(x).replace(/^\[|\]$/g, '').trim().toLowerCase(); }).filter(Boolean);
+  }
+
+  function tagBar() {
+    if (tagUi.bar) return tagUi.bar;
+    var tags = storyTags(), used = {}, html = '';
+    function group(name, items) {
+      return '<div class="tag-group"><span class="tag-group-name">' + YB.esc(name) + '</span><div class="tag-row">' +
+        items.map(function (t) { return '<button type="button" data-tag="' + YB.esc(t) + '" title="Adds [' + YB.esc(t) + '] at your cursor">[' + YB.esc(t) + ']</button>'; }).join('') + '</div></div>';
+    }
+    TAG_GROUPS.forEach(function (g) {
+      var items = g[1].filter(function (t) { return tags.indexOf(t) !== -1; });
+      items.forEach(function (t) { used[t] = 1; });
+      if (items.length) html += group(g[0], items);
+    });
+    var extra = tags.filter(function (t) { return !used[t]; });
+    if (extra.length) html += group('More', extra);
+    var bar = document.createElement('div');
+    bar.className = 'tag-box story-tag-box';
+    bar.innerHTML = '<div class="label" style="margin-bottom:4px">😄 Emotion &amp; reaction tags <span class="muted small">— tap one to add it where your cursor is</span></div>' +
+      '<p class="tag-example">Type it like this: <code>[laugh] That\'s the silliest thing ever!</code></p>' +
+      '<div class="tag-groups">' + html + '</div>' +
+      '<p class="muted small" style="margin:8px 0 0">Tags work best right before the sentence they affect. They\'re voiced by the Turbo model in Voice Studio.</p>';
+    ['pointerdown', 'mousedown'].forEach(function (ev) {
+      bar.addEventListener(ev, function (e) { tagUi.chipAt = Date.now(); if (e.target.closest('[data-tag]')) e.preventDefault(); }); // keep the cursor in the line
+    });
+    bar.addEventListener('click', function (e) {
+      var b = e.target.closest('[data-tag]'); if (!b) return;
+      tagUi.chipAt = Date.now();
+      insertTag('[' + b.getAttribute('data-tag') + ']');
+    });
+    tagUi.bar = bar;
+    return bar;
+  }
+
+  function showTagsFor(ta) {
+    clearTimeout(tagUi.hideTimer);
+    tagUi.target = ta;
+    saveTagCursor();
+    var bar = tagBar(), block = ta.closest('.block');
+    if (bar.parentNode !== block) block.appendChild(bar);
+    bar.hidden = false;
+  }
+
+  function hideTagsSoon() {
+    clearTimeout(tagUi.hideTimer);
+    tagUi.hideTimer = setTimeout(function () {
+      var ae = document.activeElement;
+      if (ae === tagUi.target || (tagUi.bar && tagUi.bar.contains(ae))) return;
+      if (Date.now() - tagUi.chipAt < 300) { hideTagsSoon(); return; }   // just tapped a chip — check again shortly
+      if (tagUi.bar) tagUi.bar.hidden = true;
+    }, 250);
+  }
+
+  function saveTagCursor() {
+    var ta = tagUi.target;
+    if (ta && ta.selectionStart != null) { tagUi.start = ta.selectionStart; tagUi.end = ta.selectionEnd; }
+  }
+
+  function insertTag(snippet) {
+    var ta = tagUi.target;
+    if (!ta || !document.body.contains(ta)) return;
+    var focused = document.activeElement === ta;
+    var start = focused ? ta.selectionStart : (tagUi.start != null ? tagUi.start : ta.value.length);
+    var end = focused ? ta.selectionEnd : (tagUi.end != null ? tagUi.end : start);
+    start = Math.min(start, ta.value.length); end = Math.min(Math.max(end, start), ta.value.length);
+    var before = ta.value.slice(0, start), after = ta.value.slice(end);
+    if (before && !/\s$/.test(before)) snippet = ' ' + snippet;
+    if (!after || !/^\s/.test(after)) snippet += ' ';
+    ta.value = before + snippet + after;
+    var pos = start + snippet.length;
+    ta.focus();
+    ta.setSelectionRange(pos, pos);
+    tagUi.start = tagUi.end = pos;
+    ta.dispatchEvent(new Event('input', { bubbles: true }));   // saves through the normal line editor
+  }
+
   /* ---------- Events ---------- */
   function bind() {
     $('sTemplate').innerHTML = Object.keys(TEMPLATES).map(function (k) { return '<option value="' + k + '">' + YB.esc(TEMPLATES[k].name) + '</option>'; }).join('');
@@ -474,6 +560,17 @@
       var el = e.target, wrap = el.closest('.block'); if (!wrap || el.getAttribute('data-f') !== 'text') return;
       var b = story().blocks.find(function (x) { return x.id === wrap.getAttribute('data-id'); });
       if (b) { b.text = el.value; touch(); statsLater(); }
+    });
+    // Emotion tags appear while you type in a character line
+    $('blocks').addEventListener('focusin', function (e) {
+      var ta = e.target;
+      if (ta.getAttribute && ta.getAttribute('data-f') === 'text' && ta.closest('.block.line')) showTagsFor(ta);
+    });
+    $('blocks').addEventListener('focusout', function (e) {
+      if (e.target === tagUi.target) { saveTagCursor(); hideTagsSoon(); }
+    });
+    ['keyup', 'click', 'select'].forEach(function (ev) {
+      $('blocks').addEventListener(ev, function (e) { if (e.target === tagUi.target) saveTagCursor(); });
     });
     $('blocks').addEventListener('change', function (e) {
       var el = e.target, wrap = el.closest('.block'); if (!wrap || el.getAttribute('data-f') !== 'speaker') return;

@@ -61,11 +61,25 @@ If a job fails, the exact `job.error` from the server is shown in an expandable 
 
 **Story mode (multiple voices)**
 
-Switch to **Story · multiple voices** to voice a Story Studio script. Give each character a built-in voice or a clone reference (saved per story). Each spoken line — or a speaker's back-to-back lines — becomes its own job; up to 3 are sent at once, and every clip keeps its place in the script. When all lines are done, the browser stitches them into one WAV in story order, with your chosen pause between lines and at scene changes. Each line's clip can also be played or downloaded on its own, and **Retry failed lines** re-sends only the lines that failed. The server has one CPU, so sending several jobs keeps it busy without gaps; it doesn't make each line faster.
+Switch to **Story · multiple voices** to voice a Story Studio script. Give each character a built-in voice or a clone reference (saved per story) — or upload a new reference for a character right there, with the same checks as the single-narrator upload. Each spoken line — or a speaker's back-to-back lines — becomes its own job; up to 3 are sent at once, and every clip keeps its place in the script. When all lines are done, the browser stitches them into one WAV in story order, with your chosen pause between lines and at scene changes. Each line's clip can also be played or downloaded on its own, and **Retry failed lines** re-sends only the lines that failed. The server has one CPU, so sending several jobs keeps it busy without gaps; it doesn't make each line faster.
+
+**Model engine**
+
+Pick ⚡ Turbo, 🎙 Original or 🌍 Multilingual (only models the server reports as available can be chosen). Switching runs in the background: the page sends `POST /model-switch-jobs` and checks `GET /model-switch-jobs/{id}` every ~3 s (Preparing → Unloading → Loading), then refreshes model info, voices and references. The model the server reports in `/model-info` always wins over the saved preference. The controls follow the active model:
+
+- **Turbo:** reaction tags; no Exaggeration/CFG.
+- **Original:** Exaggeration + CFG Weight; reaction tags are left out of the text.
+- **Multilingual:** Language (from the server's list) + Exaggeration; no CFG.
+
+Each model has its own presets, and presets change settings only, never the voice.
+
+**Emotion tags**
+
+While you type a script in Voice Studio — or a character line in Story Studio — the reaction tags appear grouped (Laughter, Reaction, Vocal sounds) with an example of what to type. Tap one to insert it at your cursor.
 
 **Settings**
 
-Defaults are WAV, chunk size 400 (350–450 works best on CPU; the server accepts 50–500), temperature 0.75, speed 1.00 and seed 0 (random). Speed is limited to 0.97–1.05 (Slower · Natural · Faster · Fast) because stronger time-stretching distorts the voice; for slower speech, use punctuation and pauses instead.
+Defaults are WAV, chunk size 400 (range 200–500), temperature 0.75, speed 1.00, exaggeration 0.50, CFG 0.50 and seed 0 (random). Speed is limited to 0.97–1.05 (Slower · Natural · Faster · Fast) because stronger time-stretching distorts the voice; for slower speech, use punctuation and pauses instead.
 
 **Notes**
 

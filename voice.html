@@ -15,10 +15,10 @@
   <meta name="mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
   <meta name="apple-mobile-web-app-title" content="YT Blue">
-  <link rel="stylesheet" href="css/style.css?v=5">
+  <link rel="stylesheet" href="css/style.css?v=7">
   <script src="js/core.js" defer></script>
-  <script src="js/voice.js?v=6" defer></script>
-  <script src="js/voice-story.js?v=5" defer></script>
+  <script src="js/voice.js?v=7" defer></script>
+  <script src="js/voice-story.js?v=7" defer></script>
 </head>
 <body data-page="voice">
   <header class="topbar">
@@ -81,6 +81,37 @@
       </details>
     </section>
 
+    <!-- ===== Model engine ===== -->
+    <section class="card" style="margin-top:16px" aria-labelledby="engineTitle" id="engineCard">
+      <div class="row between">
+        <h2 id="engineTitle" style="margin:0">Model engine</h2>
+        <span class="muted small" id="engineActive"></span>
+      </div>
+      <div class="engine-cards" id="engineCards" role="radiogroup" aria-label="Voice model">
+        <button type="button" class="engine-card" data-model="turbo" role="radio" aria-checked="false">
+          <span class="engine-name">⚡ Turbo</span><span class="engine-badge" hidden>ACTIVE</span>
+          <span class="engine-desc">Fastest. Best for reaction tags and quick generation.</span>
+        </button>
+        <button type="button" class="engine-card" data-model="original" role="radio" aria-checked="false">
+          <span class="engine-name">🎙 Original</span><span class="engine-badge" hidden>ACTIVE</span>
+          <span class="engine-desc">Best English control. Supports Exaggeration and CFG Weight.</span>
+        </button>
+        <button type="button" class="engine-card" data-model="multilingual" role="radio" aria-checked="false">
+          <span class="engine-name">🌍 Multilingual</span><span class="engine-badge" hidden>ACTIVE</span>
+          <span class="engine-desc">Supports multiple languages plus emotion exaggeration.</span>
+        </button>
+      </div>
+      <div class="gen-progress" id="switchProgress" hidden>
+        <div class="progress indeterminate"><i></i></div>
+        <div class="gen-text">
+          <b id="switchStatusText">Preparing…</b>
+          <span class="muted small">The first load may take several minutes on CPU.</span>
+          <span class="small" id="switchElapsed"></span>
+        </div>
+      </div>
+      <div class="notice error" id="modelNotice" hidden role="alert"></div>
+    </section>
+
     <!-- ===== What to generate ===== -->
     <section class="card gen-mode-card" style="margin-top:16px" aria-label="What to generate">
       <div class="seg" id="genModeSeg" role="radiogroup" aria-label="Generation mode">
@@ -122,10 +153,14 @@
           <span class="muted" id="characterCount">0 characters</span>
         </div>
 
-        <div id="tagBox" style="margin-top:14px">
-          <div class="label" style="margin-bottom:6px">Expression tags <span class="muted small" id="tagNote">(Turbo model)</span></div>
-          <div class="tag-row" id="tagButtons" role="group" aria-label="Insert expression tag at cursor"></div>
+        <p class="muted small tag-hint" id="tagHint">😄 Tap in the script to show the emotion tags.</p>
+        <div id="tagBox" class="tag-box" hidden>
+          <div class="label" style="margin-bottom:4px">Emotion &amp; reaction tags <span class="muted small" id="tagNote">— tap one to add it where your cursor is</span></div>
+          <p class="tag-example">Type it like this: <code>[chuckle] That's the funniest thing I've seen.</code></p>
+          <div id="tagButtons" class="tag-groups" role="group" aria-label="Insert emotion tag at cursor"></div>
+          <p class="muted small" style="margin:8px 0 0">Tags work best immediately before the sentence or reaction they affect.</p>
         </div>
+        <p class="muted small" id="tagOff" hidden></p>
       </section>
 
       <!-- ===== Story (multi-voice) ===== -->
@@ -214,7 +249,8 @@
             <h2 id="castTitle" style="margin:0">Cast voices</h2>
             <button class="btn btn-ghost btn-sm" type="button" id="castRefreshBtn">🔄 Refresh lists</button>
           </div>
-          <p class="muted small" style="margin:8px 0 12px">Pick a built-in voice or one of your clone references for each character. Choices are saved per story.</p>
+          <p class="muted small" style="margin:8px 0 6px">Pick a built-in voice or one of your clone references for each character, or upload a new reference for a character. Choices are saved per story.</p>
+          <p class="small ref-tips-inline">Best results: 10–20 seconds of clean speech, one speaker, no music, no reverb, no background noise. Only clone voices you own or have permission to use.</p>
           <div class="cast-voices" id="castRows"></div>
         </section>
 
@@ -222,25 +258,79 @@
         <section class="card" aria-labelledby="setTitle">
           <h2 id="setTitle">Voice settings</h2>
           <p class="muted small" style="margin:0 0 12px">Speech is made as a background job on your server, so long scripts are fine — the page checks back every few seconds.</p>
-          <div class="fields">
-            <label class="field"><span>Format</span>
-              <select id="outputFormat">
-                <option value="wav">WAV</option>
-                <option value="mp3">MP3</option>
-                <option value="opus">Opus</option>
-              </select>
-            </label>
-            <label class="field"><span>Chunk size (350–450 best on CPU)</span><input id="chunkSize" type="number" min="50" max="500" step="10" inputmode="numeric"></label>
-            <label class="field"><span>Temperature <b id="tempVal"></b></span><input id="temperature" type="range" min="0.05" max="1.5" step="0.05"></label>
-            <label class="field speed-field"><span>Speed <b id="speedVal"></b></span>
-              <input id="speedFactor" type="range" min="0.97" max="1.05" step="0.01" list="speedMarks">
-              <datalist id="speedMarks"><option value="0.97"></option><option value="1"></option><option value="1.03"></option><option value="1.05"></option></datalist>
-              <span class="speed-scale" aria-hidden="true"><i>Slower</i><i>Natural</i><i>Faster</i><i>Fast</i></span>
-            </label>
-            <label class="field"><span>Seed (0 = random)</span><input id="generationSeed" type="number" min="0" step="1" inputmode="numeric"></label>
-            <label class="field check-field"><input id="splitText" type="checkbox"><span>Split long text into chunks</span></label>
+
+          <div class="set-group">
+            <div class="set-head">Presets <span class="muted small" id="presetModel"></span></div>
+            <div class="chips" id="presetChips" role="group" aria-label="Setting presets"></div>
+            <p class="muted small" style="margin:6px 0 0">Presets change settings only — never your voice.</p>
           </div>
-          <p class="muted small" style="margin:10px 0 0">For more natural slower speech, use punctuation and pauses instead of aggressive speed reduction.</p>
+
+          <div class="set-group">
+            <div class="set-head">Delivery</div>
+            <div class="fields">
+              <label class="field"><span>Temperature <b id="tempVal"></b></span>
+                <input id="temperature" type="range" min="0.05" max="1.5" step="0.05">
+                <span class="slider-scale" aria-hidden="true"><i>Steady</i><i>Natural</i><i>More varied</i></span>
+                <small class="muted">Lower values are steadier. Higher values add more variation.</small>
+              </label>
+              <label class="field speed-field"><span>Speed <b id="speedVal"></b></span>
+                <input id="speedFactor" type="range" min="0.97" max="1.05" step="0.01" list="speedMarks">
+                <datalist id="speedMarks"><option value="0.97"></option><option value="1"></option><option value="1.03"></option><option value="1.05"></option></datalist>
+                <span class="speed-scale" aria-hidden="true"><i>Slower</i><i>Natural</i><i>Faster</i><i>Fast</i></span>
+                <small class="muted">Large speed changes can distort generated speech. For slower delivery, use punctuation and pauses.</small>
+              </label>
+              <label class="field"><span>Seed (0 = random)</span><input id="generationSeed" type="number" min="0" step="1" inputmode="numeric">
+                <small class="muted">Reuse a fixed seed for more repeatable generations.</small>
+              </label>
+            </div>
+          </div>
+
+          <div class="set-group" id="expressionGroup">
+            <div class="set-head">Expression</div>
+            <p class="muted small" id="expressionNote" style="margin:0 0 8px"></p>
+            <div class="fields">
+              <label class="field" id="exaggerationField"><span>Exaggeration <b id="exagVal"></b></span>
+                <input id="exaggeration" type="range" min="0.25" max="2" step="0.05">
+                <span class="slider-scale" aria-hidden="true"><i>Subtle</i><i>Natural</i><i>Expressive</i><i>Dramatic</i><i>Max</i></span>
+                <small class="muted">Controls emotional intensity and expressive delivery.</small>
+              </label>
+              <label class="field" id="cfgField"><span>CFG Weight <b id="cfgVal"></b></span>
+                <input id="cfgWeight" type="range" min="0.2" max="1" step="0.05">
+                <small class="muted">Controls how strongly Original Chatterbox follows the intended delivery/style.</small>
+              </label>
+            </div>
+          </div>
+
+          <div class="set-group" id="languageGroup" hidden>
+            <div class="set-head">Language</div>
+            <label class="field"><span>Speech language</span><select id="languageSelect"></select></label>
+          </div>
+
+          <div class="set-group">
+            <div class="set-head">Text processing</div>
+            <div class="fields">
+              <label class="field check-field"><input id="splitText" type="checkbox"><span>Split long text into chunks</span></label>
+              <label class="field" id="chunkField"><span>Chunk size <b id="chunkVal"></b></span>
+                <input id="chunkSize" type="range" min="200" max="500" step="10">
+                <span class="slider-scale" aria-hidden="true"><i>Short</i><i>Conservative</i><i>Balanced</i><i>Long</i></span>
+                <small class="muted">Smaller chunks can improve stability but create more joins. 400 is recommended.</small>
+              </label>
+            </div>
+          </div>
+
+          <div class="set-group">
+            <div class="set-head">Output</div>
+            <div class="fields">
+              <label class="field"><span>Format</span>
+                <select id="outputFormat">
+                  <option value="wav">WAV</option>
+                  <option value="mp3">MP3</option>
+                  <option value="opus">Opus</option>
+                </select>
+              </label>
+              <div class="field"><span>Sample rate</span><div class="readout" id="outSampleRate">—</div></div>
+            </div>
+          </div>
           <div class="row" style="margin-top:10px">
             <button class="btn btn-ghost btn-sm" type="button" id="resetSettingsBtn">↺ Reset defaults</button>
           </div>
