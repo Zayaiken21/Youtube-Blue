@@ -210,7 +210,7 @@
   var RESTART = 'Start the Colab backend, then press Refresh Backend.';
   var HELP = {
     'config-missing': 'Run the Colab startup cell — it publishes the live address to backend-config.json. You can also enter an address under “Manual backend override”.',
-    'offline': RESTART,
+    'offline': RESTART + ' This page also checks for a newly published address every minute and reconnects by itself.',
     'tunnel': 'Restart the Colab backend, then press Refresh Backend.',
     'unavailable': 'Cloudflare answered with an error page. ' + RESTART,
     'not-job-api': 'Use the address of the Youtube Blue job server (its /health returns ok:true).',
@@ -333,7 +333,15 @@
         useBackend(url, 'config', cfg);
         return resumeOrCheck({ loadLists: true }).then(function (ok) {
           if (ok || !override || override === url) return ok;
-          return tryOverride(override, 'The published backend didn\'t answer — trying your manual address.');
+          return tryOverride(override, 'The published backend didn\'t answer — using your manual address.').then(function (ok2) {
+            if (ok2) return true;
+            // Neither answers: keep showing the published address (the one Colab
+            // will update), not an old manual tunnel that no longer exists.
+            useBackend(url, 'config', cfg);
+            setState('offline');
+            showNotice($('backendNotice'), makeErr('offline', 'Could not reach the live backend — neither the published address nor your saved manual address is answering.'));
+            return false;
+          });
         });
       }, function (err) {
         console.error('[Voice Studio] backend config', err);
@@ -428,10 +436,13 @@
   function startPolling() {
     stopPolling();
     app.healthTimer = setInterval(function () {
-      if (!app.generating && !document.hidden && app.backend) checkHealth({ silent: true });
+      if (app.generating || document.hidden) return;
+      if (isDown()) loadBackendConfig();                 // look for a newly published address
+      else if (app.backend) checkHealth({ silent: true });
     }, HEALTH_INTERVAL_MS);
   }
   function stopPolling() { if (app.healthTimer) { clearInterval(app.healthTimer); app.healthTimer = null; } }
+  function isDown() { return app.state === 'offline' || (app.state === 'error' && !app.info); }
 
   /* ---------- Predefined voices ---------- */
   function loadVoices(quiet) {
@@ -1251,7 +1262,8 @@
     // lifecycle
     document.addEventListener('visibilitychange', function () {
       if (!document.hidden && app.job) { clearTimeout(app.pollTimer); pollJob(); return; }
-      if (!document.hidden && !app.generating && app.backend && app.state !== 'connecting') checkHealth({ silent: true });
+      if (document.hidden || app.generating || app.state === 'connecting') return;
+      if (isDown()) loadBackendConfig(); else if (app.backend) checkHealth({ silent: true });
     });
   }
 
