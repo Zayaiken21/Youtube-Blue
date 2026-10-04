@@ -103,6 +103,7 @@
     orphanJob: null,     // a job we stopped waiting for that may still be running
     jobToken: 0,
     preparing: false,
+    prepToken: 0,
     cloneAvailable: true,
     models: null,        // GET /models list (null = not loaded / route missing)
     switching: null,     // active model switch { id, model, fails, startedAt }
@@ -353,7 +354,7 @@
     var remote = app.remoteBusy && !busy;                // someone else's generation is using the server
     $('generateBtn').disabled = locked || remote || app.uploading || app.preparing || blocked;
     $('generateBtn').textContent = busy ? '⏳ Generating…' : switching ? '⏳ Switching model…' : remote ? (app.ownBg ? '⏳ Server finishing…' : '⏳ Another user is generating…') : story ? '🎭 Generate Story Audio' : '🎙️ Generate Speech';
-    $('cancelBtn').disabled = !busy;
+    $('cancelBtn').disabled = !busy && !app.preparing;
     $('testBtn').disabled = locked;
     $('refreshBackendBtn').disabled = busy;
     $('refreshVoicesBtn').disabled = locked || remote;
@@ -903,11 +904,11 @@
   // per-character "Upload reference": POST multipart "files" → server stores it
   // under a (sanitized) filename → GET /get_reference_files must list it.
   // Resolves to the server filename; rejects with a typed error.
-  function sendReference(file, onStep) {
+  function sendReference(file, onStep, own) {
     if (!app.backend) return Promise.reject(makeErr('config-missing', 'No backend is connected yet.'));
     if (!file) return Promise.reject(makeErr('upload', 'Choose a WAV or MP3 file first.'));
     if (!/\.(wav|mp3)$/i.test(file.name)) return Promise.reject(makeErr('upload', 'Only .wav and .mp3 files are accepted.'));
-    if (app.uploading || app.generating || isSwitching()) return Promise.reject(makeErr('upload', 'Wait for the current task to finish, then upload again.'));
+    if (app.uploading || (app.generating && !own) || isSwitching()) return Promise.reject(makeErr('upload', 'Wait for the current task to finish, then upload again.'));
     if (app.remoteBusy) return Promise.reject(makeErr('upload', 'Another user is generating — upload once the server is free.'));
     app.uploading = true; updateControls();
     if (onStep) onStep('Uploading ' + file.name + ' (' + bytesLabel(file.size) + ')…');
@@ -1221,6 +1222,19 @@
     $('genDetail').textContent = detail || p[2];
   }
 
+  // Progress bar while a library voice is sent to the server before the job.
+  function prepProgress(on, detail) {
+    clearInterval(app.elapsedTimer);
+    if (!on) { $('genProgress').hidden = true; if (app.state === 'generating') setState(app.info && app.info.loaded ? 'online' : 'connecting', app.info && app.info.loaded ? onlineLabel() : undefined); updateControls(); return; }
+    app.startedAt = Date.now();
+    showNotice($('genError'), null);
+    $('genProgress').hidden = false;
+    setState('generating', 'Preparing');
+    $('genStatusText').textContent = 'Getting your voice ready…';
+    $('genDetail').textContent = detail || '';
+    tickElapsed(); app.elapsedTimer = setInterval(tickElapsed, 1000);
+  }
+
   function startGenerating() {
     app.generating = true;
     clearRemoteGen(false);
@@ -1273,19 +1287,25 @@
 
     if (!settings.voiceKey) { showNotice($('genError'), makeErr('voice-missing', 'Choose a voice first.'), 'warn'); return; }
 
-    var key = settings.voiceKey, resolved = null;
+    var key = settings.voiceKey, resolved = null, token = ++app.prepToken;
+    var upload = library && library.groupOf(key) !== 'builtin';
     app.preparing = true; updateControls();
-    var ready = library ? library.resolve(key, function (msg) { renderPickNote(msg); })
+    if (upload) prepProgress(true, 'Sending "' + library.label(key) + '" to the server so it can be cloned.');
+    var ready = library ? library.resolve(key, function (msg) { if (token === app.prepToken) { renderPickNote(msg); if (upload) $('genDetail').textContent = msg; } })
       : Promise.resolve({ mode: 'predefined', id: key.replace(/^builtin:/, '') });
     ready.then(function (voice) {
+      if (token !== app.prepToken) return false;
       resolved = voice; renderPickNote();
       return checkOrphan();
     }, function (err) {
-      renderPickNote();
+      if (token !== app.prepToken) return false;
+      renderPickNote(); prepProgress(false);
       showNotice($('genError'), networkError(err), err.kind === 'validation' ? 'warn' : undefined);
       return false;
     }).then(function (ok) {
+      if (token !== app.prepToken) return;      // cancelled while preparing
       app.preparing = false; updateControls();
+      if (!ok) prepProgress(false);
       if (!ok || app.generating || !resolved) return;
       app.jobVoiceKey = key;
       runJob(buildRequest(resolved));
@@ -1305,6 +1325,12 @@
   }
 
   function cancelGeneration() {
+    if (!app.generating && app.preparing) {      // still getting the voice ready: nothing was sent yet
+      app.prepToken++; app.preparing = false; prepProgress(false); renderPickNote();
+      var b = $('genError'); b.className = 'notice warn'; b.hidden = false;
+      b.innerHTML = '<b>Stopped before anything was sent.</b>Nothing is generating on the server.';
+      updateControls(); return;
+    }
     if (!app.generating) return;
     if (storyHooks && storyHooks.running()) { storyHooks.cancel(); return; }
     app.jobToken++;                          // ignore any reply still in flight
@@ -1634,7 +1660,7 @@
     // Generate disabled, Cancel enabled, status pill shows progress.
     remoteBusy: function () { return app.remoteBusy && !app.generating; },
     noteOwnBackground: function () { markOwnBg(); },
-    begin: function (label) { if (app.generating) return false; clearRemoteGen(false); app.generating = true; stopPolling(); app.startedAt = Date.now();
+    begin: function (label, startedAt) { if (app.generating) return false; clearRemoteGen(false); app.generating = true; stopPolling(); app.startedAt = startedAt || Date.now();
       showNotice($('genError'), null); $('genProgress').hidden = false; setState('generating', label || 'Generating');
       tickElapsed(); clearInterval(app.elapsedTimer); app.elapsedTimer = setInterval(tickElapsed, 1000); return true; },
     progress: function (pill, title, detail) { setState('generating', pill); $('genStatusText').textContent = title; $('genDetail').textContent = detail; },

@@ -1,7 +1,7 @@
 /* Youtube Blue — service worker
    Network first (so your edits show up right away), cache as offline backup.
    Bump CACHE when you want installed copies to drop old files. */
-const CACHE = 'yt-blue-v6';
+const CACHE = 'yt-blue-v7';
 const ASSETS = [
   './', 'index.html', 'design.html', 'analytics.html', 'stories.html', 'voice.html',
   'css/style.css',
@@ -12,7 +12,10 @@ const ASSETS = [
 ];
 
 self.addEventListener('install', (e) => {
-  e.waitUntil(caches.open(CACHE).then((c) => c.addAll(ASSETS)).then(() => self.skipWaiting()));
+  e.waitUntil(caches.open(CACHE).then((c) => Promise.all(ASSETS.map((a) => {
+    const url = new URL(a, self.registration.scope);
+    return fetch(url, { cache: 'no-cache' }).then((res) => { if (!res.ok) throw new Error(a + ' ' + res.status); return c.put(cacheKey(url), res); });
+  }))).then(() => self.skipWaiting()));
 });
 
 self.addEventListener('activate', (e) => {
@@ -23,6 +26,12 @@ self.addEventListener('activate', (e) => {
   );
 });
 
+// Network first with a short wait: a weak signal falls back after ~3 s to the
+// saved copy of exactly this version (so new pages never mix with old scripts);
+// no network at all falls back to any saved copy, so the app always opens offline.
+const NET_WAIT_MS = 3000;
+function cacheKey(url) { const u = new URL(url); u.searchParams.delete('ts'); u.hash = ''; return u.href; }
+
 self.addEventListener('fetch', (e) => {
   const req = e.request;
   const url = new URL(req.url);
@@ -31,21 +40,33 @@ self.addEventListener('fetch', (e) => {
   if (req.method !== 'GET' || url.origin !== location.origin) return;
   // The live backend address must always come straight from the network.
   if (url.pathname.endsWith('/backend-config.json')) return;
-  e.respondWith(
-    // 'no-cache' revalidates with the server every time, so a reload always
-    // gets the newest site files (GitHub Pages otherwise lets browsers reuse
-    // them for up to 10 minutes).
-    // (Page navigations can't be re-created with options, so fetch their URL.)
-    (req.mode === 'navigate' ? fetch(req.url, { cache: 'no-cache', credentials: 'same-origin' }) : fetch(req, { cache: 'no-cache' }))
-      .then((res) => {
-        if (res && res.ok) {
-          const copy = res.clone();
-          caches.open(CACHE).then((c) => c.put(req, copy));
-        }
-        return res;
-      })
-      .catch(() => caches.match(req, { ignoreSearch: true }).then((hit) => hit || caches.match('index.html')))
-  );
+  if (req.headers.has('range')) return;          // media range requests go straight through
+
+  // 'no-cache' revalidates with GitHub Pages every time, so a reload always gets
+  // the newest site files. (Page navigations can't be re-created with options,
+  // so fetch their URL.)
+  const network = (req.mode === 'navigate' ? fetch(req.url, { cache: 'no-cache', credentials: 'same-origin' }) : fetch(req, { cache: 'no-cache' }))
+    .then((res) => {
+      if (res && res.status === 200 && res.type === 'basic') {
+        const copy = res.clone();
+        caches.open(CACHE).then((c) => c.put(cacheKey(url), copy)).catch(() => {});
+      }
+      return res;
+    });
+  const exact = () => caches.match(cacheKey(url));
+  const anyCopy = () => exact().then((hit) => hit || caches.match(req, { ignoreSearch: true }))
+    .then((hit) => hit || (req.mode === 'navigate' ? caches.match(new URL('index.html', self.registration.scope).href) : undefined));
+
+  e.respondWith(new Promise((resolve) => {
+    let settled = false;
+    const finish = (res) => { if (!settled && res) { settled = true; resolve(res); } };
+    const timer = setTimeout(() => { exact().then(finish); }, NET_WAIT_MS);
+    network.then((res) => { clearTimeout(timer); finish(res); }, () => {
+      clearTimeout(timer);
+      anyCopy().then((res) => { if (!settled) { settled = true; resolve(res || Response.error()); } });
+    });
+  }));
+  e.waitUntil(network.catch(() => {}));   // keep refreshing the saved copy in the background
 });
 
 /* ---------- Voice Studio: finish story lines after the page closes ----------

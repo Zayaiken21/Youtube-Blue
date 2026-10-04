@@ -29,6 +29,10 @@ Each page script only touches its own page, so you can edit one without affectin
 3. Go to **Settings → Pages**, set **Source** to *Deploy from a branch*, choose `main` and `/ (root)`, and save.
 4. After a minute the site is live at `https://<your-username>.github.io/youtube-blue/`.
 
+## Works offline
+
+The service worker saves the whole app the first time it's opened. Every page then opens with no connection, or on a weak one: if the network doesn't answer in about 3 seconds, the saved copy opens. Story Studio, Channel Design, Analytics, sending a story to Voice Studio, and Voice Studio's scripts, Story mode and character settings all work offline (everything is stored on the device). Only generating speech needs the server; Voice Studio shows "Backend Offline" and reconnects by itself when the connection returns.
+
 ## Add to home screen
 
 - **iPhone / iPad:** open the site in Safari → Share → *Add to Home Screen*.

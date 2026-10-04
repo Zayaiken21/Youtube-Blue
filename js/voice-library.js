@@ -193,7 +193,7 @@
   }
 
   // → Promise<{ mode: 'predefined'|'clone', id }> ready for a job payload.
-  function resolve(key, onStep) {
+  function resolve(key, onStep, own) {
     var e = entry(key), k = parse(key);
     if (!key) return Promise.reject(V.makeErr('voice-missing', 'Choose a voice first.'));
     if (e === undefined) {
@@ -203,7 +203,7 @@
           if (k.source === 'builtin') return { mode: 'predefined', id: k.id };   // server list unreadable right now; let the server decide
           throw V.makeErr('validation', 'The voice library couldn\'t be loaded — check your connection and press Refresh Voices.');
         }
-        return resolve(key, onStep);
+        return resolve(key, onStep, own);
       });
     }
     if (!e) return Promise.reject(V.makeErr('voice-missing', 'That voice isn\'t available any more — pick another one.'));
@@ -216,7 +216,7 @@
       return blobFor(e).then(function (blob) {
         var ext = (/\.mp3$/i.test(e.file) || /mpeg/.test(blob.type)) ? 'mp3' : 'wav';
         var file = new File([blob], 'yb-' + e.source + '-' + slug(e.name) + '-' + hash(e.key + ':' + (e.size || blob.size)) + '.' + ext, { type: ext === 'mp3' ? 'audio/mpeg' : 'audio/wav' });
-        return V.sendReference(file, onStep);
+        return V.sendReference(file, onStep, own);
       }).then(function (name) {
         remember(key, name);
         changed();

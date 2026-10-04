@@ -417,13 +417,13 @@
       if (st.active && st.storyId === rec.storyId) rebuild();
       return false;
     }
-    if (!V.begin('Generating')) return false;
+    if (!V.begin('Generating', rec.startedAt)) return false;
     st.storyId = rec.storyId; st.runId = rec.runId;
     YB.store.set('voiceStorySel', rec.storyId);
     resetRunData();
     st.segs = rec.segs.map(function (r) {
       return r.type === 'scene' ? { type: 'scene', text: r.text }
-        : { type: 'line', speaker: r.speaker, text: r.text, lines: r.lines || 1, status: r.status || 'idle', jobId: r.jobId || null, voice: r.voice, error: r.error, fails: 0, handedAt: r.handedAt || 0 };
+        : { type: 'line', speaker: r.speaker, text: r.text, lines: r.lines || 1, status: r.status === 'fetching' ? 'running' : (r.status || 'idle'), jobId: r.jobId || null, voice: r.voice, error: r.error, fails: 0, handedAt: r.handedAt || 0 };
     });
     var run = st.run = { token: Date.now(), queue: [], inflight: [], timer: null, total: lineSegs().length, posting: false, hold: 0, cycle: 0, startedAt: rec.startedAt || Date.now(), resumed: true };
     if (!st.active) setActive(true); else { renderStoryPicker(); }
@@ -458,7 +458,8 @@
       ' · ' + speakersUsed().length + ' voice' + (speakersUsed().length === 1 ? '' : 's') + ' · about ' + mmss((words / 150) * 60) + ' of speech';
   }
 
-  var STATUS_LABEL = { idle: 'Waiting', queued: 'Queued', running: 'Generating', done: 'Done', failed: 'Failed' };
+  var STATUS_LABEL = { idle: 'Waiting', queued: 'Queued', running: 'Generating', fetching: 'Downloading', done: 'Done', failed: 'Failed' };
+  function statusLabel(s) { return STATUS_LABEL[s] || 'Working'; }
 
   function renderSegments() {
     var s = story(), n = 0;
@@ -477,7 +478,7 @@
       return '<li style="--c:' + YB.esc(c.color || '#1e7bff') + '" data-i="' + i + '"><span class="num">' + n + '</span>' +
         '<div><div class="who">' + YB.esc(c.name) + (g.lines > 1 ? ' <span class="muted small">(' + g.lines + ' lines)</span>' : '') + '</div>' +
         '<div class="say">' + YB.esc(g.text.length > 220 ? g.text.slice(0, 217) + '…' : g.text) + '</div>' + actions + '</div>' +
-        '<span class="st" data-s="' + status + '">' + STATUS_LABEL[status] + '</span></li>';
+        '<span class="st" data-s="' + status + '">' + statusLabel(status) + '</span></li>';
     }).join('');
   }
 
@@ -553,29 +554,42 @@
     if (bad.length) { V.showNotice(box, V.makeErr('validation', bad[0]), 'warn'); return; }
 
     // Get every voice ready on the server first (library voices are uploaded
-    // once per server session); built-in voices need nothing.
+    // once per server session); built-in voices need nothing. This runs inside
+    // the generation, so the progress bar, timer and Cancel all work during it.
     var used = [], L = lib(), resolved = {};
     speakersUsed().forEach(function (id) { var k = voiceFor(id).key; if (used.indexOf(k) === -1) used.push(k); });
+    var needUpload = used.filter(function (k) { return L && L.groupOf(k) !== 'builtin'; }).length;
+    if (!V.begin('Preparing')) return;
+    var token = ++prepToken;
     st.preparing = true; renderCast(); V.updateControls();
-    var chain = Promise.resolve();
+    V.progress('Generating', needUpload ? 'Getting voices ready…' : 'Starting…', needUpload ? 'Sending ' + needUpload + ' voice' + (needUpload === 1 ? '' : 's') + ' to the server so they can be cloned.' : 'Sending the first lines to the server.');
+    var chain = Promise.resolve(), n = 0;
     used.forEach(function (k) {
       chain = chain.then(function () {
-        return (L ? L.resolve(k, function (msg) { $('storyRunNote').textContent = msg; }) : Promise.resolve({ mode: 'predefined', id: k.replace(/^builtin:/, '') }))
+        if (token !== prepToken) return;
+        var label = L ? L.label(k) : k;
+        if (L && L.groupOf(k) !== 'builtin') { n++; V.progress('Generating', 'Getting voices ready… (' + n + ' of ' + needUpload + ')', label); }
+        return (L ? L.resolve(k, function (msg) { if (token === prepToken) V.progress('Generating', 'Getting voices ready… (' + n + ' of ' + needUpload + ')', msg); }, true)
+          : Promise.resolve({ mode: 'predefined', id: k.replace(/^builtin:/, '') }))
           .then(function (r) { resolved[k] = r; });
       });
     });
     chain.then(function () {
-      st.preparing = false; $('storyRunNote').textContent = '';
-      start(onlyFailed, resolved);
+      if (token !== prepToken) return;          // cancelled meanwhile
+      st.preparing = false;
+      start(onlyFailed, resolved, true);
       renderCast(); V.updateControls();
     }, function (err) {
-      st.preparing = false; $('storyRunNote').textContent = '';
+      if (token !== prepToken) return;
+      st.preparing = false;
+      V.end();
       renderCast(); V.updateControls();
       V.showNotice(box, V.networkError(err), err.kind === 'validation' || err.kind === 'voice-missing' ? 'warn' : undefined);
     });
   }
 
-  function start(onlyFailed, resolved) {
+  var prepToken = 0;
+  function start(onlyFailed, resolved, begun) {
     var queue = [];
     st.segs.forEach(function (g, i) {
       if (g.type !== 'line') return;
@@ -587,8 +601,8 @@
       g.status = 'idle'; g.error = null; g.jobId = null; g.fails = 0; g.handedAt = 0;
       queue.push(i);
     });
-    if (!queue.length) return;
-    if (!V.begin('Queued')) return;
+    if (!queue.length) { if (begun) V.end(); return; }
+    if (!begun && !V.begin('Queued')) return;
     if (!onlyFailed || !st.runId) {
       var keepDone = onlyFailed ? st.segs.map(function (g, i) { return g.status === 'done' && g.blob ? i : -1; }).filter(function (i) { return i >= 0; }) : [];
       st.runId = Date.now().toString(36);
@@ -605,11 +619,12 @@
 
   function progress() {
     var lines = lineSegs(), done = lines.filter(function (g) { return g.status === 'done'; }).length;
-    var running = lines.filter(function (g) { return g.status === 'running'; });
+    var running = lines.filter(function (g) { return g.status === 'running' || g.status === 'fetching'; });
     var s = story();
     var title = done === lines.length ? 'Processing audio…' : 'Generating speech… ' + done + ' of ' + lines.length + ' lines done';
+    if (!st.run) return;
     var detail = running.length
-      ? 'Now voicing: ' + running.map(function (g) { return who(s, g.speaker).name; }).join(', ') + '. ' + st.run.inflight.length + ' job' + (st.run.inflight.length === 1 ? '' : 's') + ' in flight; Chatterbox works through them on CPU.'
+      ? 'Now voicing: ' + running.map(function (g) { return who(s, g.speaker).name || 'Narrator'; }).join(', ') + '. ' + st.run.inflight.length + ' job' + (st.run.inflight.length === 1 ? '' : 's') + ' in flight; Chatterbox works through them on CPU.'
       : st.run.inflight.length ? 'Jobs queued on the server — waiting for Chatterbox to start.' : 'Sending the next lines…';
     V.progress(running.length ? 'Generating' : 'Queued', title, detail);
   }
@@ -850,6 +865,13 @@
   }
 
   function cancel() {
+    if (st.preparing) {
+      prepToken++; st.preparing = false; V.end();
+      var b = V.errorBox(); b.className = 'notice warn'; b.hidden = false;
+      b.innerHTML = '<b>Stopped before any lines were sent.</b>Nothing is generating on the server.';
+      renderCast(); V.updateControls();
+      return;
+    }
     var run = st.run; if (!run) return;
     clearTimeout(run.timer);
     var sent = run.inflight.filter(function (i) { return st.segs[i].jobId; }).length;
@@ -1015,7 +1037,7 @@
     }
     V.registerStory({
       active: function () { return st.active; },
-      running: function () { return !!st.run; },
+      running: function () { return !!st.run || !!st.preparing; },
       canGenerate: function () { return !st.run && !st.preparing && problems().length === 0; },
       generate: function () { generate(false); },
       cancel: cancel,
