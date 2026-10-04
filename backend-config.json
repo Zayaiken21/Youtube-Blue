@@ -16,11 +16,21 @@
   "tts_mode": "async-job",
   "model_switch_mode": "async-job",
   "model_loaded": true,
-  "model_type": "original",
+  "model_type": "turbo",
   "device": "cpu",
   "sample_rate": 24000,
-  "supports_paralinguistic_tags": false,
-  "available_paralinguistic_tags": [],
+  "supports_paralinguistic_tags": true,
+  "available_paralinguistic_tags": [
+    "laugh",
+    "chuckle",
+    "sigh",
+    "gasp",
+    "cough",
+    "clear throat",
+    "sniff",
+    "groan",
+    "shush"
+  ],
   "supports_multilingual": false,
   "supported_languages": {
     "en": "English"
@@ -29,5 +39,5 @@
   "multilingual_available": true,
   "chatterbox_port": 8004,
   "job_api_port": 8010,
-  "updated_at": "2026-10-04T17:02:33.988945+00:00"
+  "updated_at": "2026-10-04T18:44:53.467185+00:00"
 }
