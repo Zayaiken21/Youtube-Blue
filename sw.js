@@ -1,11 +1,11 @@
 /* Youtube Blue — service worker
    Network first (so your edits show up right away), cache as offline backup.
    Bump CACHE when you want installed copies to drop old files. */
-const CACHE = 'yt-blue-v1';
+const CACHE = 'yt-blue-v2';
 const ASSETS = [
-  './', 'index.html', 'design.html', 'analytics.html', 'stories.html',
+  './', 'index.html', 'design.html', 'analytics.html', 'stories.html', 'voice.html',
   'css/style.css',
-  'js/core.js', 'js/home.js', 'js/design.js', 'js/analytics.js', 'js/stories.js',
+  'js/core.js', 'js/home.js', 'js/design.js', 'js/analytics.js', 'js/stories.js', 'js/voice.js',
   'manifest.webmanifest',
   'icons/logo.svg', 'icons/icon-192.png', 'icons/icon-512.png', 'icons/maskable-512.png',
   'icons/apple-touch-icon.png', 'icons/favicon-32.png'
@@ -25,7 +25,10 @@ self.addEventListener('activate', (e) => {
 
 self.addEventListener('fetch', (e) => {
   const req = e.request;
-  if (req.method !== 'GET' || new URL(req.url).origin !== location.origin) return;
+  const url = new URL(req.url);
+  if (req.method !== 'GET' || url.origin !== location.origin) return;
+  // The live backend address must always come straight from the network.
+  if (url.pathname.endsWith('/backend-config.json')) return;
   e.respondWith(
     fetch(req)
       .then((res) => {

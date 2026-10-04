@@ -1,0 +1,229 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>Voice Studio — Youtube Blue</title>
+  <meta name="description" content="Turn your scripts into narration with predefined voices or your own cloned voice, powered by your Chatterbox server.">
+  <meta name="theme-color" content="#06101f">
+  <meta name="color-scheme" content="dark">
+  <link rel="manifest" href="manifest.webmanifest">
+  <link rel="icon" href="icons/logo.svg" type="image/svg+xml">
+  <link rel="icon" href="icons/favicon-32.png" sizes="32x32" type="image/png">
+  <link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="apple-mobile-web-app-title" content="YT Blue">
+  <link rel="stylesheet" href="css/style.css">
+  <script src="js/core.js" defer></script>
+  <script src="js/voice.js" defer></script>
+</head>
+<body data-page="voice">
+  <header class="topbar">
+    <div class="container topbar-inner">
+      <a class="brand" href="index.html"><img src="icons/logo.svg" alt="" width="34" height="34"><span>Youtube <b>Blue</b></span></a>
+      <nav class="nav" id="nav" aria-label="Main">
+        <div class="nav-head"><img src="icons/logo.svg" alt="" width="30" height="30">Youtube Blue</div>
+        <a href="index.html" data-page="home"><span class="nav-ico">🏠</span>Home</a>
+        <a href="design.html" data-page="design"><span class="nav-ico">🎨</span>Channel Design</a>
+        <a href="analytics.html" data-page="analytics"><span class="nav-ico">📊</span>Analytics</a>
+        <a href="stories.html" data-page="stories"><span class="nav-ico">✍️</span>Story Studio</a>
+        <a href="voice.html" data-page="voice"><span class="nav-ico">🎙️</span>Voice Studio</a>
+        <div class="nav-foot"><button class="btn" type="button" data-install hidden>📲 Add to Home Screen</button></div>
+      </nav>
+      <button class="menu-btn" type="button" aria-label="Open menu" aria-expanded="false" aria-controls="nav"><span></span><span></span><span></span></button>
+    </div>
+  </header>
+  <div class="scrim"></div>
+
+  <main class="page container">
+    <div class="page-head">
+      <div class="eyebrow">🎙️ Voice Studio</div>
+      <h1>Script to speech</h1>
+      <p>Narrate your scripts with a built-in voice or a clone of your own voice. Runs on your Chatterbox server — the address is picked up automatically each time Colab starts it.</p>
+    </div>
+
+    <!-- ===== Backend status ===== -->
+    <section class="card" aria-labelledby="beTitle">
+      <div class="row between">
+        <h2 id="beTitle" style="margin:0">Backend status</h2>
+        <span class="status-pill" id="connectionStatus" data-state="connecting" role="status" aria-live="polite">Connecting…</span>
+      </div>
+
+      <dl class="be-facts">
+        <div><dt>Backend</dt><dd id="backendDisplay">—</dd></div>
+        <div><dt>Model</dt><dd id="modelType">—</dd></div>
+        <div><dt>Device</dt><dd id="modelDevice">—</dd></div>
+        <div><dt>Config updated</dt><dd id="backendUpdatedAt">—</dd></div>
+      </dl>
+
+      <div class="notice" id="backendNotice" hidden></div>
+
+      <div class="row" style="margin-top:12px">
+        <button class="btn btn-sm" type="button" id="testBtn">🔌 Test Connection</button>
+        <button class="btn btn-ghost btn-sm" type="button" id="refreshBackendBtn">🔄 Refresh Backend</button>
+        <button class="btn btn-ghost btn-sm" type="button" id="authTunnelBtn" hidden>🔓 Authorize Tunnel</button>
+        <button class="btn btn-ghost btn-sm" type="button" id="openBackendBtn">↗ Open Chatterbox</button>
+        <button class="btn btn-ghost btn-sm" type="button" id="openDocsBtn">↗ Open API Docs</button>
+      </div>
+
+      <details class="override" id="overrideBox">
+        <summary>Manual backend override <span class="muted small">(recovery / debugging only)</span></summary>
+        <form class="row" id="overrideForm" autocomplete="off" style="margin-top:10px">
+          <input type="url" id="backendUrlInput" placeholder="https://your-tunnel.trycloudflare.com" inputmode="url" style="flex:1 1 240px">
+          <button class="btn btn-sm" type="submit">Use this address</button>
+          <button class="btn btn-ghost btn-sm" type="button" id="clearOverrideBtn">Back to automatic</button>
+        </form>
+        <p class="muted small" id="overrideNote" style="margin:8px 0 0">Automatic mode reads <code>backend-config.json</code>, which your Colab startup cell updates.</p>
+      </details>
+    </section>
+
+    <div class="voice-grid" style="margin-top:16px">
+      <!-- ===== Script editor ===== -->
+      <section class="card" aria-labelledby="scriptTitle">
+        <div class="row between">
+          <h2 id="scriptTitle" style="margin:0">Script</h2>
+          <div class="row">
+            <button class="btn btn-ghost btn-sm" type="button" id="pasteBtn">📋 Paste</button>
+            <button class="btn btn-ghost btn-sm" type="button" id="clearScriptBtn">🧹 Clear Script</button>
+          </div>
+        </div>
+
+        <details class="import-box" id="importBox">
+          <summary>✍️ Import from Story Studio</summary>
+          <div class="fields" style="margin-top:10px">
+            <label class="field"><span>Story</span><select id="importStory"></select></label>
+            <label class="field"><span>Lines to include</span><select id="importSpeaker"></select></label>
+          </div>
+          <div class="row" style="margin-top:10px">
+            <button class="btn btn-sm" type="button" id="importBtn">Import lines</button>
+            <span class="muted small">Tip: import one character at a time to give each their own voice.</span>
+          </div>
+        </details>
+
+        <label class="field" style="margin-top:12px">
+          <span class="sr-only">Narration text</span>
+          <textarea id="scriptText" class="script-area" placeholder="Type or paste your narration here…" spellcheck="true"></textarea>
+        </label>
+        <div class="row between small" style="margin-top:6px">
+          <span class="muted" id="scriptMeta">0 words · about 0 chunks</span>
+          <span class="muted" id="characterCount">0 characters</span>
+        </div>
+
+        <div id="tagBox" style="margin-top:14px">
+          <div class="label" style="margin-bottom:6px">Expression tags <span class="muted small" id="tagNote">(Turbo model)</span></div>
+          <div class="tag-row" id="tagButtons" role="group" aria-label="Insert expression tag at cursor"></div>
+        </div>
+      </section>
+
+      <div class="stack" style="min-width:0">
+        <!-- ===== Voice ===== -->
+        <section class="card" aria-labelledby="voiceTitle">
+          <h2 id="voiceTitle">Voice</h2>
+          <div class="seg" id="voiceModeSeg" role="radiogroup" aria-label="Voice mode">
+            <button type="button" role="radio" data-mode="predefined" aria-checked="true" class="on">🗣️ Predefined Voice</button>
+            <button type="button" role="radio" data-mode="clone" aria-checked="false">🧬 Voice Clone</button>
+          </div>
+
+          <div id="predefinedVoiceSection" style="margin-top:14px">
+            <label class="field"><span>Voice</span><select id="predefinedVoiceSelect"><option value="">Connect to load voices…</option></select></label>
+            <div class="row" style="margin-top:10px">
+              <button class="btn btn-ghost btn-sm" type="button" id="refreshVoicesBtn">🔄 Refresh Voices</button>
+              <span class="muted small" id="voiceCount"></span>
+            </div>
+          </div>
+
+          <div id="cloneVoiceSection" style="margin-top:14px" hidden>
+            <p class="muted small" style="margin:0 0 10px">Upload 5–30 seconds of clean speech (WAV or MP3), one speaker, no music. Only clone voices you own or have permission to use.</p>
+            <label class="field"><span>Reference audio</span><input id="voiceSampleFile" type="file" accept=".wav,.mp3,audio/wav,audio/x-wav,audio/mpeg"></label>
+            <div class="small muted" style="margin-top:6px">Selected: <b id="localFileName">None</b></div>
+            <div class="row" style="margin-top:10px">
+              <button class="btn btn-sm" type="button" id="uploadRefBtn">⬆️ Upload Reference</button>
+              <button class="btn btn-ghost btn-sm" type="button" id="clearRefBtn">✕ Clear Reference</button>
+            </div>
+            <div class="upload-state" id="uploadState" data-state="idle">No reference uploaded yet.</div>
+
+            <label class="field" style="margin-top:12px"><span>Or use a reference already on the server</span><select id="referenceSelect"><option value="">—</option></select></label>
+            <div class="row" style="margin-top:10px">
+              <button class="btn btn-ghost btn-sm" type="button" id="refreshRefsBtn">🔄 Refresh References</button>
+              <span class="small">Using: <b id="uploadedReferenceName">None</b></span>
+            </div>
+          </div>
+        </section>
+
+        <!-- ===== Settings ===== -->
+        <section class="card" aria-labelledby="setTitle">
+          <h2 id="setTitle">Voice settings</h2>
+          <div class="field">
+            <span>Delivery</span>
+            <div class="seg" id="deliverySeg" role="radiogroup" aria-label="Delivery">
+              <button type="button" role="radio" data-delivery="stream" class="on" aria-checked="true">📡 Stream (WAV)</button>
+              <button type="button" role="radio" data-delivery="file" aria-checked="false">📦 Single file</button>
+            </div>
+            <p class="muted small" id="deliveryNote" style="margin:6px 0 0"></p>
+          </div>
+          <div class="fields" style="margin-top:12px">
+            <label class="field"><span>Format</span>
+              <select id="outputFormat">
+                <option value="mp3">MP3</option>
+                <option value="wav">WAV</option>
+                <option value="opus">Opus</option>
+              </select>
+            </label>
+            <label class="field"><span>Chunk size (50–500)</span><input id="chunkSize" type="number" min="50" max="500" step="10" inputmode="numeric"></label>
+            <label class="field"><span>Temperature <b id="tempVal"></b></span><input id="temperature" type="range" min="0.05" max="1.5" step="0.05"></label>
+            <label class="field"><span>Speed <b id="speedVal"></b></span><input id="speedFactor" type="range" min="0.5" max="2" step="0.05"></label>
+            <label class="field"><span>Seed (0 = random)</span><input id="generationSeed" type="number" min="0" step="1" inputmode="numeric"></label>
+            <label class="field check-field"><input id="splitText" type="checkbox"><span>Split long text into chunks</span></label>
+          </div>
+          <div class="row" style="margin-top:10px">
+            <button class="btn btn-ghost btn-sm" type="button" id="resetSettingsBtn">↺ Reset defaults</button>
+          </div>
+        </section>
+      </div>
+    </div>
+
+    <!-- ===== Generate ===== -->
+    <section class="card generate-card" style="margin-top:16px" aria-labelledby="genTitle">
+      <h2 id="genTitle" class="sr-only">Generate</h2>
+      <div class="row">
+        <button class="btn btn-lg" type="button" id="generateBtn">🎙️ Generate Speech</button>
+        <button class="btn btn-danger" type="button" id="cancelBtn" disabled>■ Cancel Generation</button>
+        <span class="spacer"></span>
+        <span class="muted small" id="genSummary"></span>
+      </div>
+      <div class="gen-progress" id="genProgress" hidden>
+        <div class="progress indeterminate"><i></i></div>
+        <div class="gen-text">
+          <b id="genStatusText">Generating speech — CPU generation may take several minutes</b>
+          <span class="muted small" id="genDetail">Generating chunked speech on CPU. Longer scripts can take several minutes.</span>
+          <span class="small" id="genElapsed">0:00 elapsed</span>
+        </div>
+      </div>
+      <div class="notice error" id="genError" hidden role="alert"></div>
+    </section>
+
+    <!-- ===== Generated audio ===== -->
+    <section class="card" style="margin-top:16px" aria-labelledby="outTitle" id="audioOutputSection" hidden>
+      <div class="row between">
+        <h2 id="outTitle" style="margin:0">Generated audio</h2>
+        <span class="muted small" id="audioInfo"></span>
+      </div>
+      <audio id="audioPreview" controls preload="metadata" class="audio-player"></audio>
+      <div class="row" style="margin-top:12px">
+        <button class="btn btn-ghost btn-sm" type="button" id="playBtn">▶ Play</button>
+        <button class="btn btn-ghost btn-sm" type="button" id="pauseBtn">❚❚ Pause</button>
+        <button class="btn btn-ghost btn-sm" type="button" id="replayBtn">↺ Replay</button>
+        <a class="btn btn-sm" id="downloadAudioBtn" href="#" download>⬇️ Download Audio</a>
+        <button class="btn btn-ghost btn-sm" type="button" id="againBtn">🔁 Generate Again</button>
+        <button class="btn btn-danger btn-sm" type="button" id="clearAudioBtn">✕ Clear Output</button>
+      </div>
+    </section>
+  </main>
+
+  <footer class="foot">
+    <div class="container">Youtube Blue is an independent creator tool and is not affiliated with or endorsed by YouTube or Google. Speech is generated by your own Chatterbox server; only clone voices you have permission to use.</div>
+  </footer>
+</body>
+</html>

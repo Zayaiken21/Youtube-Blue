@@ -492,6 +492,12 @@
     $('dlScript').addEventListener('click', function () { YB.download(fileSlug(story()) + '-script.txt', scriptText(story())); });
     $('dlSheets').addEventListener('click', function () { YB.download(fileSlug(story()) + '-voice-sheets.txt', voiceSheets(story())); });
     $('copyScript').addEventListener('click', function () { YB.copy(scriptText(story())); });
+    // Voice Studio reads this once on load and imports the story's spoken lines.
+    $('sendToVoice').addEventListener('click', function () {
+      YB.store.set('stories', stories);
+      YB.store.set('voiceImport', { storyId: currentId, speaker: 'all' });
+      location.href = 'voice.html';
+    });
 
     // teleprompter
     $('openPrompter').addEventListener('click', openPrompter);
