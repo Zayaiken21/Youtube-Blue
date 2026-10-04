@@ -1,15 +1,20 @@
 {
-  "backend_url": "https://dangerous-headset-toolbox-voted.trycloudflare.com",
-  "health_endpoint": "https://dangerous-headset-toolbox-voted.trycloudflare.com/health",
-  "model_info": "https://dangerous-headset-toolbox-voted.trycloudflare.com/model-info",
-  "api_docs": "https://dangerous-headset-toolbox-voted.trycloudflare.com/docs",
-  "job_endpoint": "https://dangerous-headset-toolbox-voted.trycloudflare.com/jobs",
-  "job_status_template": "https://dangerous-headset-toolbox-voted.trycloudflare.com/jobs/{job_id}",
-  "job_audio_template": "https://dangerous-headset-toolbox-voted.trycloudflare.com/jobs/{job_id}/audio",
-  "reference_upload_endpoint": "https://dangerous-headset-toolbox-voted.trycloudflare.com/upload_reference",
-  "reference_files_endpoint": "https://dangerous-headset-toolbox-voted.trycloudflare.com/get_reference_files",
-  "predefined_voices_endpoint": "https://dangerous-headset-toolbox-voted.trycloudflare.com/get_predefined_voices",
+  "backend_url": "https://leasing-optics-peas-equal.trycloudflare.com",
+  "health_endpoint": "https://leasing-optics-peas-equal.trycloudflare.com/health",
+  "model_info": "https://leasing-optics-peas-equal.trycloudflare.com/model-info",
+  "models_endpoint": "https://leasing-optics-peas-equal.trycloudflare.com/models",
+  "backend_state_endpoint": "https://leasing-optics-peas-equal.trycloudflare.com/state",
+  "api_docs": "https://leasing-optics-peas-equal.trycloudflare.com/docs",
+  "job_endpoint": "https://leasing-optics-peas-equal.trycloudflare.com/jobs",
+  "job_status_template": "https://leasing-optics-peas-equal.trycloudflare.com/jobs/{job_id}",
+  "job_audio_template": "https://leasing-optics-peas-equal.trycloudflare.com/jobs/{job_id}/audio",
+  "model_switch_job_endpoint": "https://leasing-optics-peas-equal.trycloudflare.com/model-switch-jobs",
+  "model_switch_status_template": "https://leasing-optics-peas-equal.trycloudflare.com/model-switch-jobs/{switch_id}",
+  "reference_upload_endpoint": "https://leasing-optics-peas-equal.trycloudflare.com/upload_reference",
+  "reference_files_endpoint": "https://leasing-optics-peas-equal.trycloudflare.com/get_reference_files",
+  "predefined_voices_endpoint": "https://leasing-optics-peas-equal.trycloudflare.com/get_predefined_voices",
   "tts_mode": "async-job",
+  "model_switch_mode": "async-job",
   "model_loaded": true,
   "model_type": "turbo",
   "device": "cpu",
@@ -26,7 +31,13 @@
     "groan",
     "shush"
   ],
+  "supports_multilingual": false,
+  "supported_languages": {
+    "en": "English"
+  },
+  "turbo_available": true,
+  "multilingual_available": true,
   "chatterbox_port": 8004,
   "job_api_port": 8010,
-  "updated_at": "2026-10-04T15:07:25.698250+00:00"
+  "updated_at": "2026-10-04T16:23:44.450826+00:00"
 }
