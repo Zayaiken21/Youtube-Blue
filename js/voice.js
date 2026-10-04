@@ -108,6 +108,9 @@
     switching: null,     // active model switch { id, model, fails, startedAt }
     switchTimer: null,
     remoteSwitching: false,   // /state says a switch is running that this page didn't start
+    remoteBusy: false,   // /state says a generation is running that this page isn't waiting for (another user)
+    ownBg: false,        // …except it's our own stopped job finishing in the background
+    lastOwnEnd: 0,       // when this page's own generation ended (server may still report it for a moment)
     refFiles: null,      // last reference list the server returned (null = not loaded yet)
     voices: [],          // last predefined voice list [{display_name, filename}]
     voicesAt: 0, refsAt: 0
@@ -326,6 +329,7 @@
   var STATE_LABEL = { connecting: 'Connecting…', online: 'Online', offline: 'Backend Offline', generating: 'Generating', switching: 'Switching Model', error: 'Error' };
 
   function setState(state, label) {
+    if (state === 'online' && app.remoteBusy && !app.generating) { state = 'busy'; label = app.ownBg ? 'Busy · finishing' : 'In use · another user'; }
     app.state = state;
     var el = $('connectionStatus');
     el.setAttribute('data-state', state);
@@ -347,18 +351,19 @@
     var locked = busy || switching;                      // no voice/model changes mid-job or mid-switch
     var story = storyHooks && storyHooks.active();
     var blocked = story ? !storyHooks.canGenerate() : (settings.mode === 'clone' && !refReady());
-    $('generateBtn').disabled = locked || app.uploading || app.preparing || blocked;
-    $('generateBtn').textContent = busy ? '⏳ Generating…' : switching ? '⏳ Switching model…' : story ? '🎭 Generate Story Audio' : '🎙️ Generate Speech';
+    var remote = app.remoteBusy && !busy;                // someone else's generation is using the server
+    $('generateBtn').disabled = locked || remote || app.uploading || app.preparing || blocked;
+    $('generateBtn').textContent = busy ? '⏳ Generating…' : switching ? '⏳ Switching model…' : remote ? (app.ownBg ? '⏳ Server finishing…' : '⏳ Another user is generating…') : story ? '🎭 Generate Story Audio' : '🎙️ Generate Speech';
     $('cancelBtn').disabled = !busy;
     $('testBtn').disabled = locked;
     $('refreshBackendBtn').disabled = busy;
-    $('refreshVoicesBtn').disabled = locked;
-    $('refreshRefsBtn').disabled = locked;
-    $('againBtn').disabled = locked;
+    $('refreshVoicesBtn').disabled = locked || remote;
+    $('refreshRefsBtn').disabled = locked || remote;
+    $('againBtn').disabled = locked || remote;
     $('authTunnelBtn').hidden = !isLocalTunnel(app.backend);
     $('openBackendBtn').disabled = !app.backend;
     $('openDocsBtn').disabled = !app.backend;
-    $('uploadRefBtn').disabled = locked || app.uploading || !app.cloneAvailable;
+    $('uploadRefBtn').disabled = locked || remote || app.uploading || !app.cloneAvailable;
     $('voiceSampleFile').disabled = locked;
     $('cloneUnavailable').hidden = app.cloneAvailable;
     $('predefinedVoiceSelect').disabled = locked;
@@ -440,7 +445,7 @@
   }
 
   function useBackend(url, source, cfg) {
-    if (url !== app.backend) { app.voicesLoaded = false; app.cloneAvailable = true; app.info = null; }
+    if (url !== app.backend) { app.voicesLoaded = false; app.cloneAvailable = true; app.info = null; clearRemoteGen(false); }   // busy state belonged to the old server
     app.backend = url; app.source = source; app.config = cfg || null;
     $('backendUrlInput').value = url;
     renderBackendFacts(); updateControls();
@@ -479,8 +484,11 @@
       })
       .then(function (st) {
         if (st && st.model_switching === true && !app.switching) { observeRemoteSwitch(); return 'switching'; }
+        if (st && st.generation_active === true) observeRemoteGen();
         // A generation is already running (another tab/device): don't poke /model-info.
-        if (st && st.generation_active === true && app.info && !opts.loadLists) return { busy_or_unreachable: true };
+        // Another user's job: Chatterbox won't answer /model-info until it's done, so use
+        // what Colab published and load the lists once the server is free.
+        if (st && st.generation_active === true && (app.info || infoFromConfig()) && (!opts.loadLists || app.remoteBusy)) return { busy_or_unreachable: true };
         return call(route('info'), {}, HEALTH_TIMEOUT_MS).then(function (res) {
           if (!res.ok) return httpError(res, 'health').then(function (e) { throw e; });
           return readJson(res);
@@ -568,7 +576,7 @@
       var badge = b.querySelector('.engine-badge');
       badge.hidden = !isActive && !pending && avail;
       badge.textContent = isActive ? 'ACTIVE' : pending ? 'LOADING…' : avail ? '' : 'NOT AVAILABLE';
-      b.disabled = !avail || isActive || offline || app.generating || isSwitching();
+      b.disabled = !avail || isActive || offline || app.generating || isSwitching() || app.remoteBusy;
     });
     $('engineActive').textContent = active ? 'Active: ' + (MODEL_NAMES[active] || active) : '';
   }
@@ -593,6 +601,7 @@
 
   function switchModel(id) {
     if (!app.backend || app.generating || isSwitching() || app.preparing) return;
+    if (app.remoteBusy) { YB.toast('Another user is generating — switch models once the server is free'); return; }
     if (id === activeModel()) { YB.toast((MODEL_NAMES[id] || id) + ' is already active'); return; }
     if (!modelAvailable(id)) { YB.toast((MODEL_NAMES[id] || id) + ' isn\'t available on this server'); return; }
     settings.preferredModel = id; saveSettings();   // a preference only — /model-info decides
@@ -711,6 +720,55 @@
     return true;
   }
 
+  // Someone else's generation is running (another user / device): lock the
+  // buttons that would compete for the server, show who has it, and unlock by
+  // itself once GET /state says the server is free.
+  function observeRemoteGen() {
+    if (app.remoteBusy || app.generating || app.job || app.preparing) return;
+    if (Date.now() - app.lastOwnEnd < 8000) return;      // our own job is just wrapping up
+    app.remoteBusy = true; app.remoteSince = Date.now(); app.remoteMiss = 0;
+    var mark = YB.store.get('voiceOwnBg', null);   // our stopped job, remembered across reloads
+    app.ownBg = !!app.orphanJob || app.ownBg || !!(mark && normalizeUrl(mark.backend) === app.backend && Date.now() - mark.at < 3600000);
+    renderRemoteBusy();
+    if (app.state === 'online' || app.state === 'busy') setState('online'); else updateControls();
+    if (storyHooks) storyHooks.listsChanged();
+    (function wait() {
+      clearTimeout(app.remoteTimer);
+      app.remoteTimer = setTimeout(function () {
+        if (!app.remoteBusy) return;
+        if (app.generating) { clearRemoteGen(false); return; }
+        getBackendState().then(function (st) {
+          if (!app.remoteBusy) return;
+          if (st && st.generation_active === true) { app.remoteMiss = 0; renderRemoteBusy(); wait(); return; }
+          if (!st && ++app.remoteMiss < 3) { wait(); return; }   // can't read /state right now — keep waiting a little
+          clearRemoteGen(true);
+        });
+      }, STATE_POLL_MS);
+    })();
+  }
+
+  // Our own stopped job is still running on the server (not another user).
+  function markOwnBg() { app.ownBg = true; YB.store.set('voiceOwnBg', { backend: app.backend, at: Date.now() }); }
+
+  function clearRemoteGen(announce) {
+    if (announce) YB.store.remove('voiceOwnBg');   // server seen free
+    if (!app.remoteBusy) return;
+    app.remoteBusy = false; app.ownBg = false;
+    clearTimeout(app.remoteTimer);
+    $('remoteBusy').hidden = true;
+    if (app.state === 'busy') setState('online', onlineLabel()); else updateControls();
+    if (storyHooks) storyHooks.listsChanged();
+    if (announce) { YB.toast('The server is free — you can generate now'); checkHealth({ silent: true }); }
+  }
+
+  function renderRemoteBusy() {
+    var box = $('remoteBusy'), wait = mmss((Date.now() - app.remoteSince) / 1000);
+    box.hidden = false;
+    box.innerHTML = app.ownBg
+      ? '<b>Your stopped generation is still finishing on the server.</b>Generate unlocks by itself when it\'s done (waiting ' + wait + ').'
+      : '<b>Another user is generating right now.</b>The server makes one voice at a time, so Generate, model switching and uploads unlock by themselves when it\'s free (waiting ' + wait + '). You can keep editing your script, voices and settings meanwhile.';
+  }
+
   function startPolling() {
     stopPolling();
     app.healthTimer = setInterval(function () {
@@ -718,8 +776,24 @@
       if (isDown()) loadBackendConfig();                 // look for a newly published address
       else if (app.backend) checkHealth({ silent: true });
     }, HEALTH_INTERVAL_MS);
+    // Light GET /state check while idle (job server only, never Chatterbox):
+    // notices another user's generation or model switch within a few seconds.
+    app.stateTimer = setInterval(function () {
+      if (app.generating || app.job || app.preparing || app.remoteBusy || isSwitching() || document.hidden || !app.backend || isDown() || app.stateBusy) return;
+      app.stateBusy = true;
+      getBackendState().then(function (st) {
+        app.stateBusy = false;
+        if (!st || app.generating) return;
+        if (st.model_switching === true && !app.switching) observeRemoteSwitch();
+        else if (st.generation_active === true) observeRemoteGen();
+        else { app.ownBg = false; YB.store.remove('voiceOwnBg'); }   // server idle: nothing of ours is still running
+      });
+    }, STATE_POLL_MS);
   }
-  function stopPolling() { if (app.healthTimer) { clearInterval(app.healthTimer); app.healthTimer = null; } }
+  function stopPolling() {
+    if (app.healthTimer) { clearInterval(app.healthTimer); app.healthTimer = null; }
+    if (app.stateTimer) { clearInterval(app.stateTimer); app.stateTimer = null; }
+  }
   function isDown() { return app.state === 'offline' || (app.state === 'error' && !app.info); }
 
   /* ---------- Predefined voices ---------- */
@@ -848,6 +922,7 @@
     if (!file) return Promise.reject(makeErr('upload', 'Choose a WAV or MP3 file first.'));
     if (!/\.(wav|mp3)$/i.test(file.name)) return Promise.reject(makeErr('upload', 'Only .wav and .mp3 files are accepted.'));
     if (app.uploading || app.generating || isSwitching()) return Promise.reject(makeErr('upload', 'Wait for the current task to finish, then upload again.'));
+    if (app.remoteBusy) return Promise.reject(makeErr('upload', 'Another user is generating — upload once the server is free.'));
     app.uploading = true; updateControls();
     if (onStep) onStep('Uploading ' + file.name + ' (' + bytesLabel(file.size) + ')…');
     var form = new FormData();
@@ -1205,6 +1280,7 @@
 
   function startGenerating() {
     app.generating = true;
+    clearRemoteGen(false);
     stopPolling();                       // no health / model-info checks during a job
     app.startedAt = Date.now();
     showNotice($('genError'), null);
@@ -1219,6 +1295,7 @@
 
   function stopGenerating() {
     app.generating = false;
+    app.lastOwnEnd = Date.now();
     clearInterval(app.elapsedTimer);
     $('genProgress').hidden = true;
     // Resume health checks. Show the last known good state right away; the
@@ -1243,6 +1320,7 @@
   function generate() {
     if (app.generating || app.job || app.preparing) return;   // never two jobs at once
     if (isSwitching()) { YB.toast('Wait for the model switch to finish'); return; }
+    if (app.remoteBusy) { YB.toast('Another user is generating — this unlocks when the server is free'); return; }
     if (storyHooks && storyHooks.active()) { storyHooks.generate(); return; }
     showNotice($('genError'), null);
     var text = $('scriptText').value.trim();
@@ -1296,7 +1374,7 @@
     app.jobToken++;                          // ignore any reply still in flight
     var id = app.job && app.job.id;
     var serverCancel = id ? requestServerCancel(id) : false;
-    if (id && !serverCancel) app.orphanJob = id;
+    if (id && !serverCancel) { app.orphanJob = id; markOwnBg(); }
     clearTimeout(app.pollTimer);
     app.job = null; saveActiveJob();
     stopGenerating();
@@ -1623,7 +1701,9 @@
     updateControls: updateControls,
     // Story runs use the same locks as single generation: no health polling,
     // Generate disabled, Cancel enabled, status pill shows progress.
-    begin: function (label) { if (app.generating) return false; app.generating = true; stopPolling(); app.startedAt = Date.now();
+    remoteBusy: function () { return app.remoteBusy && !app.generating; },
+    noteOwnBackground: function () { markOwnBg(); },
+    begin: function (label) { if (app.generating) return false; clearRemoteGen(false); app.generating = true; stopPolling(); app.startedAt = Date.now();
       showNotice($('genError'), null); $('genProgress').hidden = false; setState('generating', label || 'Generating');
       tickElapsed(); clearInterval(app.elapsedTimer); app.elapsedTimer = setInterval(tickElapsed, 1000); return true; },
     progress: function (pill, title, detail) { setState('generating', pill); $('genStatusText').textContent = title; $('genDetail').textContent = detail; },
@@ -1632,9 +1712,13 @@
     db: idb, normalizeUrl: function (u) { return normalizeUrl(u); },
     // Per-character voice settings (Story mode): defaults, ranges, model caps, labels.
     caps: function () { return caps(); },
-    voiceDefaults: function () { return { temperature: DEFAULTS.temperature, speed: DEFAULTS.speed, exaggeration: DEFAULTS.exaggeration, cfg: DEFAULTS.cfg, seed: DEFAULTS.seed }; },
-    ranges: { temperature: [TEMP_MIN, TEMP_MAX, 0.05], speed: [SPEED_MIN, SPEED_MAX, 0.01], exaggeration: [EXAG_MIN, EXAG_MAX, 0.05], cfg: [CFG_MIN, CFG_MAX, 0.05] },
-    clampTo: clampTo, clampSpeed: clampSpeed, tempLabel: tempLabel, speedLabel: speedLabel, exagLabel: exagLabel,
+    voiceDefaults: function () { return { temperature: DEFAULTS.temperature, speed: DEFAULTS.speed, exaggeration: DEFAULTS.exaggeration, cfg: DEFAULTS.cfg, seed: DEFAULTS.seed,
+      language: DEFAULTS.language, split: DEFAULTS.split, chunk: DEFAULTS.chunk }; },
+    ranges: { temperature: [TEMP_MIN, TEMP_MAX, 0.05], speed: [SPEED_MIN, SPEED_MAX, 0.01], exaggeration: [EXAG_MIN, EXAG_MAX, 0.05], cfg: [CFG_MIN, CFG_MAX, 0.05], chunk: [CHUNK_MIN, CHUNK_MAX, 10] },
+    clampTo: clampTo, clampSpeed: clampSpeed, tempLabel: tempLabel, speedLabel: speedLabel, exagLabel: exagLabel, chunkLabel: chunkLabel,
+    presets: function () { var t = activeModel() || 'turbo'; return PRESETS[t] || PRESETS.turbo; },
+    modelName: function () { var t = activeModel() || 'turbo'; return MODEL_NAMES[t] || t; },
+    languages: function () { return (app.info && app.info.supported_languages) || (app.config && app.config.supported_languages) || { en: 'English' }; },
     errorBox: function () { return $('genError'); },
     SHORT_TIMEOUT_MS: SHORT_TIMEOUT_MS, AUDIO_TIMEOUT_MS: AUDIO_TIMEOUT_MS, JOB_POLL_MS: JOB_POLL_MS, JOB_MAX_FAILS: JOB_MAX_FAILS
   };

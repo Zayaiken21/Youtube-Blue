@@ -120,68 +120,139 @@
     return '';
   }
 
-  /* ---------- Per-character voice settings ---------- */
+  /* ---------- Per-character voice settings ----------
+     Story mode has no shared settings card: every setting lives on the
+     character (presets, delivery, expression, language, text processing).
+     Each character starts at the defaults; the controls follow the active
+     model (Turbo / Original / Multilingual). */
   var openSet = {};   // charId → settings panel open
+  function langs() { return V.languages() || { en: 'English' }; }
   function fullSet(set) {
     var d = V.voiceDefaults(), r = V.ranges, x = Object.assign({}, d, set || {});
+    var codes = Object.keys(langs());
     return {
       temperature: V.clampTo(x.temperature, r.temperature[0], r.temperature[1], r.temperature[2]),
       speed: V.clampSpeed(x.speed),
       exaggeration: V.clampTo(x.exaggeration, r.exaggeration[0], r.exaggeration[1], r.exaggeration[2]),
       cfg: V.clampTo(x.cfg, r.cfg[0], r.cfg[1], r.cfg[2]),
-      seed: Math.max(0, Math.round(Number(x.seed) || 0))
+      seed: Math.max(0, Math.round(Number(x.seed) || 0)),
+      language: codes.indexOf(x.language) !== -1 ? x.language : (codes.indexOf('en') !== -1 ? 'en' : codes[0] || 'en'),
+      split: x.split !== false,
+      chunk: V.clampChunk(x.chunk)
     };
   }
+  // Keys that matter for the active model.
+  function liveKeys() {
+    var c = V.caps(), k = ['temperature', 'speed', 'seed', 'split', 'chunk'];
+    if (c.exaggeration) k.push('exaggeration');
+    if (c.cfg) k.push('cfg');
+    if (c.language) k.push('language');
+    return k;
+  }
   function isDefaultSet(set) {
-    var a = fullSet(set), d = fullSet(null), c = V.caps();
-    return a.temperature === d.temperature && a.speed === d.speed && a.seed === d.seed &&
-      (!c.exaggeration || a.exaggeration === d.exaggeration) && (!c.cfg || a.cfg === d.cfg);
+    var a = fullSet(set), d = fullSet(null);
+    return liveKeys().every(function (k) { return a[k] === d[k]; });
+  }
+  function presetOn(set, p) {
+    var a = fullSet(set);
+    return Object.keys(p[1]).every(function (k) { return Math.abs(Number(a[k]) - p[1][k]) < 0.001; });
   }
   function setSummary(set) {
     if (isDefaultSet(set)) return 'Default';
-    var a = fullSet(set), c = V.caps(), out = ['Temp ' + a.temperature.toFixed(2), 'Speed ' + a.speed.toFixed(2) + '×'];
-    if (c.exaggeration) out.push('Exag ' + a.exaggeration.toFixed(2));
-    if (c.cfg) out.push('CFG ' + a.cfg.toFixed(2));
+    var preset = V.presets().find(function (p) { return presetOn(set, p); });
+    var a = fullSet(set), d = fullSet(null), c = V.caps(), out = [];
+    if (preset) out.push(preset[0]);
+    else {
+      if (a.temperature !== d.temperature) out.push('Temp ' + a.temperature.toFixed(2));
+      if (a.speed !== d.speed) out.push('Speed ' + a.speed.toFixed(2) + '×');
+      if (c.exaggeration && a.exaggeration !== d.exaggeration) out.push('Exag ' + a.exaggeration.toFixed(2));
+      if (c.cfg && a.cfg !== d.cfg) out.push('CFG ' + a.cfg.toFixed(2));
+      if (a.chunk !== d.chunk && a.split) out.push('Chunk ' + a.chunk);
+    }
+    if (c.language && a.language !== d.language) out.push(langs()[a.language] || a.language);
+    if (!a.split) out.push('No split');
     if (a.seed) out.push('Seed ' + a.seed);
-    return out.join(' · ');
+    return out.join(' · ') || 'Custom';
   }
   // Only what the active model accepts goes into the job.
   function setOverrides(set) {
-    var a = fullSet(set), c = V.caps(), o = { temperature: a.temperature, speed_factor: a.speed, seed: a.seed };
+    var a = fullSet(set), c = V.caps();
+    var o = { temperature: a.temperature, speed_factor: a.speed, seed: a.seed, split_text: a.split, chunk_size: a.chunk };
     if (c.exaggeration) o.exaggeration = a.exaggeration;
     if (c.cfg) o.cfg_weight = a.cfg;
+    if (c.language) o.language = a.language;
     return o;
   }
-  function slider(id, key, label, value, text) {
-    var r = V.ranges[key];
-    return '<label class="field cs-field"><span>' + label + ' <b data-cs-val="' + key + '">' + YB.esc(text) + '</b></span>' +
-      '<input type="range" min="' + r[0] + '" max="' + r[1] + '" step="' + r[2] + '" value="' + value + '" data-cs="' + key + '" data-cs-char="' + YB.esc(id) + '"></label>';
+  function labelFor(key, a) {
+    return key === 'temperature' ? V.tempLabel(a.temperature) : key === 'speed' ? V.speedLabel(a.speed)
+      : key === 'exaggeration' ? V.exagLabel(a.exaggeration) : key === 'cfg' ? a.cfg.toFixed(2) : key === 'chunk' ? V.chunkLabel(a.chunk) : '';
   }
+  function slider(id, key, label, a, help, off) {
+    var r = V.ranges[key];
+    return '<label class="field cs-field' + (off ? ' is-off' : '') + '"><span>' + label + ' <b data-cs-val="' + key + '">' + YB.esc(labelFor(key, a)) + '</b></span>' +
+      '<input type="range" min="' + r[0] + '" max="' + r[1] + '" step="' + r[2] + '" value="' + a[key] + '" data-cs="' + key + '" data-cs-char="' + YB.esc(id) + '"' + (off ? ' disabled' : '') + '>' +
+      (help ? '<small class="muted">' + help + '</small>' : '') + '</label>';
+  }
+  function group(title, body) { return '<div class="cs-group"><div class="cs-head">' + title + '</div>' + body + '</div>'; }
   function settingsHtml(id, name, v) {
-    var open = !!openSet[id], a = fullSet(v.set), c = V.caps(), locked = !!st.run || V.isBusy();
-    var head = '<button type="button" class="cs-toggle" data-cs-toggle="' + YB.esc(id) + '" aria-expanded="' + open + '">' +
+    var open = !!openSet[id], a = fullSet(v.set), c = V.caps(), locked = !!st.run || V.isBusy(), cid = YB.esc(id);
+    var head = '<button type="button" class="cs-toggle" data-cs-toggle="' + cid + '" aria-expanded="' + open + '">' +
       '<span>🎚️ Voice settings</span><span class="cs-sum">' + YB.esc(setSummary(v.set)) + '</span><span class="cs-caret" aria-hidden="true">' + (open ? '▴' : '▾') + '</span></button>';
     if (!open) return '<div class="cs">' + head + '</div>';
+    var chips = V.presets().map(function (p, i) {
+      return '<button type="button" class="chip-btn' + (presetOn(v.set, p) ? ' on' : '') + '" data-cs-preset="' + i + '" data-cs-char="' + cid + '">' + YB.esc(p[0]) + '</button>';
+    }).join('');
+    var expression = c.exaggeration
+      ? slider(id, 'exaggeration', 'Exaggeration', a, 'Higher sounds more emotional and dramatic.') + (c.cfg ? slider(id, 'cfg', 'CFG Weight', a, 'Lower is looser and faster-paced; higher sticks closer to the voice.') : '')
+      : '<p class="cs-note">' + YB.esc(V.modelName()) + ' takes its emotion from the tags in the lines ([laugh], [sigh]…). Exaggeration and CFG Weight are in Original Chatterbox.</p>';
+    var lang = c.language ? group('Language', '<label class="field cs-field"><span>Spoken language</span><select data-cs="language" data-cs-char="' + cid + '">' +
+      Object.keys(langs()).sort(function (x, y) { return String(langs()[x]).localeCompare(String(langs()[y])); })
+        .map(function (k) { return '<option value="' + YB.esc(k) + '"' + (k === a.language ? ' selected' : '') + '>' + YB.esc(langs()[k]) + '</option>'; }).join('') +
+      '</select></label>') : '';
     return '<div class="cs">' + head + '<fieldset class="cs-panel"' + (locked ? ' disabled' : '') + ' aria-label="Voice settings for ' + YB.esc(name) + '">' +
-      slider(id, 'temperature', 'Temperature', a.temperature, V.tempLabel(a.temperature)) +
-      slider(id, 'speed', 'Speed', a.speed, V.speedLabel(a.speed)) +
-      (c.exaggeration ? slider(id, 'exaggeration', 'Exaggeration', a.exaggeration, V.exagLabel(a.exaggeration)) : '') +
-      (c.cfg ? slider(id, 'cfg', 'CFG Weight', a.cfg, a.cfg.toFixed(2)) : '') +
-      '<label class="field cs-field"><span>Seed (0 = random)</span><input type="number" min="0" step="1" inputmode="numeric" value="' + a.seed + '" data-cs="seed" data-cs-char="' + YB.esc(id) + '"></label>' +
-      (!c.exaggeration ? '<p class="cs-note">This model takes its emotion from the tags in the lines ([laugh], [sigh]…).</p>' : '') +
-      '<button type="button" class="btn btn-ghost btn-xs" data-cs-reset="' + YB.esc(id) + '"' + (isDefaultSet(v.set) ? ' disabled' : '') + '>↺ Reset to default</button>' +
+      group('Presets <span class="cs-model">· for ' + YB.esc(V.modelName()) + '</span>', '<div class="chips cs-chips">' + chips + '</div>') +
+      group('Delivery',
+        slider(id, 'temperature', 'Temperature', a, 'Lower is steadier. Higher adds more variation.') +
+        slider(id, 'speed', 'Speed', a, 'Big speed changes distort speech — use punctuation for slower delivery.') +
+        '<label class="field cs-field"><span>Seed (0 = random)</span><input type="number" min="0" step="1" inputmode="numeric" value="' + a.seed + '" data-cs="seed" data-cs-char="' + cid + '"><small class="muted">Reuse a fixed seed for repeatable results.</small></label>') +
+      group('Expression', expression) +
+      lang +
+      group('Text processing',
+        '<label class="field check-field cs-check"><input type="checkbox" data-cs="split" data-cs-char="' + cid + '"' + (a.split ? ' checked' : '') + '><span>Split long lines into chunks</span></label>' +
+        slider(id, 'chunk', 'Chunk size', a, 'Smaller chunks are more stable; larger ones flow more naturally.', !a.split)) +
+      '<p class="cs-note">Story audio is always WAV so every line stitches cleanly.</p>' +
+      '<button type="button" class="btn btn-ghost btn-xs" data-cs-reset="' + cid + '"' + (isDefaultSet(v.set) ? ' disabled' : '') + '>↺ Reset to default</button>' +
       '</fieldset></div>';
   }
+  function charEntry(id) {
+    var map = castMap[st.storyId] || (castMap[st.storyId] = {});
+    if (!map[id]) map[id] = Object.assign({}, voiceFor(id));
+    return map[id];
+  }
+  // Slider/number changes update in place (no re-render, so dragging stays smooth).
   function updateSetting(input) {
-    var id = input.getAttribute('data-cs-char'), key = input.getAttribute('data-cs');
-    var map = castMap[st.storyId] || (castMap[st.storyId] = {}), v = map[id] || voiceFor(id);
+    var id = input.getAttribute('data-cs-char'), key = input.getAttribute('data-cs'), v = charEntry(id);
     var set = fullSet(v.set);
-    set[key] = key === 'seed' ? Math.max(0, Math.round(Number(input.value) || 0)) : Number(input.value);
-    v.set = fullSet(set); map[id] = v; saveCast();
+    if (key === 'split') set.split = input.checked;
+    else if (key === 'language') set.language = input.value;
+    else if (key === 'seed') set.seed = Math.max(0, Math.round(Number(input.value) || 0));
+    else set[key] = Number(input.value);
+    v.set = fullSet(set); saveCast();
+    if (key === 'split' || key === 'language') { renderCast(); return; }
     var card = input.closest('.cast-voice'), lab = card.querySelector('[data-cs-val="' + key + '"]');
-    if (lab) lab.textContent = key === 'temperature' ? V.tempLabel(v.set.temperature) : key === 'speed' ? V.speedLabel(v.set.speed) : key === 'exaggeration' ? V.exagLabel(v.set.exaggeration) : v.set.cfg.toFixed(2);
-    card.querySelector('.cs-sum').textContent = setSummary(v.set);
-    var rb = card.querySelector('[data-cs-reset]'); if (rb) rb.disabled = isDefaultSet(v.set);
+    if (lab) lab.textContent = labelFor(key, v.set);
+    refreshCard(card, v.set);
+  }
+  function refreshCard(card, set) {
+    card.querySelector('.cs-sum').textContent = setSummary(set);
+    var rb = card.querySelector('[data-cs-reset]'); if (rb) rb.disabled = isDefaultSet(set);
+    card.querySelectorAll('[data-cs-preset]').forEach(function (b) { b.classList.toggle('on', presetOn(set, V.presets()[Number(b.getAttribute('data-cs-preset'))])); });
+  }
+  function applyCharPreset(id, i) {
+    var p = V.presets()[i]; if (!p) return;
+    var v = charEntry(id), set = fullSet(v.set);
+    Object.keys(p[1]).forEach(function (k) { set[k] = p[1][k]; });
+    v.set = fullSet(set); saveCast(); renderCast();
   }
 
   function renderCast() {
@@ -219,7 +290,7 @@
   var picked = {};    // charId → File chosen but not uploaded yet
   function sizeLabel(n) { return n < 1048576 ? Math.max(1, Math.round(n / 1024)) + ' KB' : (n / 1048576).toFixed(1) + ' MB'; }
   function uploadHtml(id, name, cloneOk) {
-    var off = !!st.run || V.isBusy() || !cloneOk, note = upNotes[id], f = picked[id];
+    var off = !!st.run || V.isBusy() || V.remoteBusy() || !cloneOk, note = upNotes[id], f = picked[id];
     return '<div class="cv-upload">' +
       '<div class="cv-up-row">' +
       '<label class="btn btn-ghost btn-xs cv-pick' + (off ? ' is-disabled' : '') + '">📁 Choose file' +
@@ -244,7 +315,7 @@
   }
 
   function uploadFor(id, file) {
-    if (!file || st.run || V.isBusy()) return;
+    if (!file || st.run || V.isBusy() || V.remoteBusy()) return;
     var lenText = '';
     V.clipLength(file).then(function (r) {
       lenText = r.text || '';
@@ -425,6 +496,7 @@
   function updateRetry() {
     var failed = lineSegs().some(function (g) { return g.status === 'failed'; });
     $('storyRetryBtn').hidden = !failed || !!st.run;
+    $('storyRetryBtn').disabled = V.remoteBusy();
   }
 
   /* ---------- Mode switch ---------- */
@@ -439,6 +511,7 @@
     $('voiceCard').hidden = st.active;
     $('storyCard').hidden = !st.active;
     $('castCard').hidden = !st.active;
+    $('settingsCard').hidden = st.active;          // Story mode: every setting lives on the character
     $('genModeNote').textContent = st.active
       ? 'Voices a Story Studio script with a voice per character, in script order, and stitches it into one WAV track.'
       : 'Type or paste a script and narrate it with one voice.';
@@ -469,6 +542,7 @@
 
   function generate(onlyFailed) {
     if (st.run || V.isBusy()) return;
+    if (V.remoteBusy()) { YB.toast('Another user is generating — this unlocks when the server is free'); return; }
     var box = V.errorBox();
     V.showNotice(box, null);
     if (!V.backend()) { V.showNotice(box, V.makeErr('offline', 'Backend is not connected.')); return; }
@@ -770,6 +844,7 @@
     run.inflight.concat(run.queue).forEach(function (i) { var g = st.segs[i]; if (g.status !== 'done') { g.status = 'idle'; g.jobId = null; g.handedAt = 0; } });
     st.run = null;
     saveRun('stopped');
+    if (sent) V.noteOwnBackground();   // those jobs are ours, not another user's
     V.end();
     var box = V.errorBox();
     box.className = 'notice warn'; box.hidden = false;
@@ -858,7 +933,7 @@
 
     var castHost = $('castRows');
     castHost.addEventListener('change', function (e) {
-      if (e.target.matches('[data-cs]')) { updateSetting(e.target); if (e.target.type === 'number') e.target.value = fullSet((castMap[st.storyId] || {})[e.target.getAttribute('data-cs-char')].set).seed; return; }
+      if (e.target.matches('[data-cs]')) { updateSetting(e.target); if (e.target.type === 'number') e.target.value = fullSet(charEntry(e.target.getAttribute('data-cs-char')).set).seed; return; }
       var up = e.target.getAttribute('data-cv-file');
       if (up) { var f = e.target.files && e.target.files[0]; e.target.value = ''; pickFor(up, f); return; }
       var m = e.target.getAttribute('data-cv-mode'), v = e.target.getAttribute('data-cv-voice');
@@ -873,8 +948,10 @@
       } else return;
       saveCast(); renderAll();
     });
-    castHost.addEventListener('input', function (e) { if (e.target.matches('[data-cs]')) updateSetting(e.target); });
+    castHost.addEventListener('input', function (e) { if (e.target.matches('input[type=range][data-cs]')) updateSetting(e.target); });
     castHost.addEventListener('click', function (e) {
+      var pr = e.target.closest('[data-cs-preset]');
+      if (pr && !pr.disabled) { applyCharPreset(pr.getAttribute('data-cs-char'), Number(pr.getAttribute('data-cs-preset'))); return; }
       var t = e.target.closest('[data-cs-toggle]');
       if (t) { var cid = t.getAttribute('data-cs-toggle'); openSet[cid] = !openSet[cid]; renderCast(); return; }
       var rs = e.target.closest('[data-cs-reset]');
@@ -930,7 +1007,7 @@
       generate: function () { generate(false); },
       cancel: cancel,
       summary: summary,
-      listsChanged: function () { if (st.active && !st.run) renderAll(); },
+      listsChanged: function () { if (st.active && !st.run) renderAll(); else updateRetry(); },
       resume: resume,
       modelChanged: function () { if (st.active) renderCast(); }
     });

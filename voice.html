@@ -15,10 +15,10 @@
   <meta name="mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
   <meta name="apple-mobile-web-app-title" content="YT Blue">
-  <link rel="stylesheet" href="css/style.css?v=9">
+  <link rel="stylesheet" href="css/style.css?v=10">
   <script src="js/core.js" defer></script>
-  <script src="js/voice.js?v=9" defer></script>
-  <script src="js/voice-story.js?v=12" defer></script>
+  <script src="js/voice.js?v=10" defer></script>
+  <script src="js/voice-story.js?v=13" defer></script>
 </head>
 <body data-page="voice">
   <header class="topbar">
@@ -249,13 +249,13 @@
             <h2 id="castTitle" style="margin:0">Cast voices</h2>
             <button class="btn btn-ghost btn-sm" type="button" id="castRefreshBtn">🔄 Refresh lists</button>
           </div>
-          <p class="muted small" style="margin:8px 0 6px">Pick a built-in voice or a clone reference for each character. Set a character to <b>Clone</b> to upload a new reference for them (choose file, then Upload). Open <b>🎚️ Voice settings</b> on a character to give them their own temperature, speed and expression — every character starts at the defaults. Format and text splitting come from Voice settings. Choices are saved per story.</p>
+          <p class="muted small" style="margin:8px 0 6px">Pick a built-in voice or a clone reference for each character. Set a character to <b>Clone</b> to upload a new reference for them (choose file, then Upload). Open <b>🎚️ Voice settings</b> on a character for all of their settings — presets, delivery, expression, language and text processing. They follow the active model, and every character starts at the defaults. Choices are saved per story.</p>
           <p class="small ref-tips-inline">Best results: 10–20 seconds of clean speech, one speaker, no music, no reverb, no background noise. Only clone voices you own or have permission to use.</p>
           <div class="cast-voices" id="castRows"></div>
         </section>
 
         <!-- ===== Settings ===== -->
-        <section class="card" aria-labelledby="setTitle">
+        <section class="card" aria-labelledby="setTitle" id="settingsCard">
           <h2 id="setTitle">Voice settings</h2>
           <p class="muted small" style="margin:0 0 12px">Speech is made as a background job on your server, so long scripts are fine — the page checks back every few seconds.</p>
 
@@ -347,6 +347,7 @@
         <span class="spacer"></span>
         <span class="muted small" id="genSummary"></span>
       </div>
+      <div class="notice warn remote-busy" id="remoteBusy" role="status" aria-live="polite" hidden></div>
       <div class="gen-progress" id="genProgress" hidden>
         <div class="progress indeterminate"><i></i></div>
         <div class="gen-text">

@@ -673,3 +673,20 @@ input[type="range"] { min-height: 32px; }            /* finger-friendly */
 .cs-field input[type="number"] { max-width: 140px; }
 .cs-note { margin: 0; font-size: .76rem; color: var(--muted); }
 .cs-panel .btn { justify-self: start; }
+
+/* ---------- Another user is generating ---------- */
+.status-pill[data-state="busy"] { color: var(--warn); border-color: rgba(251, 191, 36, .5); }
+.status-pill[data-state="busy"]::before { animation: pulse 1.6s ease-in-out infinite; }
+.remote-busy { margin: 12px 0 0; }
+.cs-panel { gap: 0; }
+.cs-group { padding: 10px 0; border-top: 1px solid var(--line-soft); display: grid; gap: 10px; }
+.cs-group:first-child { border-top: 0; padding-top: 4px; }
+.cs-head { font-size: .72rem; font-weight: 800; letter-spacing: .1em; text-transform: uppercase; color: var(--sky); }
+.cs-head .cs-model { text-transform: none; letter-spacing: 0; font-weight: 600; color: var(--faint); }
+.cs-chips { gap: 6px; }
+.cs-chips .chip-btn { padding: 5px 10px; font-size: .78rem; }
+.cs-field small { font-size: .74rem; }
+.cs-field.is-off { opacity: .5; }
+.cs-field select { width: 100%; }
+.cs-check { margin: 0; }
+.cs-panel > .cs-note { margin: 4px 0 8px; }
