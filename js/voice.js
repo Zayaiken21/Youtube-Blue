@@ -1051,6 +1051,7 @@
   function applyModelUI() {
     var t = activeModel(), c = caps();
     renderTags();
+    if (storyHooks && storyHooks.modelChanged) storyHooks.modelChanged();   // character settings follow the model
     $('exaggerationField').hidden = !c.exaggeration;
     $('cfgField').hidden = !c.cfg;
     $('expressionNote').textContent = !t ? '' :
@@ -1629,6 +1630,11 @@
     end: function () { stopGenerating(); },
     showAudio: function (blob, ext, prefix) { showAudio(blob, ext, prefix); },
     db: idb, normalizeUrl: function (u) { return normalizeUrl(u); },
+    // Per-character voice settings (Story mode): defaults, ranges, model caps, labels.
+    caps: function () { return caps(); },
+    voiceDefaults: function () { return { temperature: DEFAULTS.temperature, speed: DEFAULTS.speed, exaggeration: DEFAULTS.exaggeration, cfg: DEFAULTS.cfg, seed: DEFAULTS.seed }; },
+    ranges: { temperature: [TEMP_MIN, TEMP_MAX, 0.05], speed: [SPEED_MIN, SPEED_MAX, 0.01], exaggeration: [EXAG_MIN, EXAG_MAX, 0.05], cfg: [CFG_MIN, CFG_MAX, 0.05] },
+    clampTo: clampTo, clampSpeed: clampSpeed, tempLabel: tempLabel, speedLabel: speedLabel, exagLabel: exagLabel,
     errorBox: function () { return $('genError'); },
     SHORT_TIMEOUT_MS: SHORT_TIMEOUT_MS, AUDIO_TIMEOUT_MS: AUDIO_TIMEOUT_MS, JOB_POLL_MS: JOB_POLL_MS, JOB_MAX_FAILS: JOB_MAX_FAILS
   };
