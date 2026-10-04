@@ -547,3 +547,49 @@ code { font-family: var(--mono); font-size: .88em; background: #081732; border: 
 
 .audio-player { width: 100%; margin-top: 12px; border-radius: 12px; min-height: 54px; }
 input:disabled, select:disabled, textarea:disabled { opacity: .5; cursor: not-allowed; }
+
+/* ---------- Voice Studio: speed scale, error details, story mode ---------- */
+.speed-scale { display: flex; justify-content: space-between; font-size: .72rem; color: var(--faint); margin-top: 2px; }
+.speed-scale i { font-style: normal; }
+
+.err-details { margin-top: 10px; }
+.err-details summary { cursor: pointer; font-weight: 700; font-size: .85rem; color: var(--muted); }
+.err-raw {
+  margin: 8px 0; padding: 10px 12px; max-height: 240px; overflow: auto;
+  background: #04122a; border: 1px solid var(--line); border-radius: 10px;
+  font-family: var(--mono); font-size: .8rem; line-height: 1.5; white-space: pre-wrap; overflow-wrap: anywhere; color: var(--text);
+}
+
+.ref-tips { font-size: .86rem; }
+.ref-length { margin-top: 6px; padding: 6px 10px; border-radius: 8px; background: #081732; border: 1px solid var(--line-soft); color: var(--muted); }
+
+.gen-mode-card { padding: 12px 14px; }
+.gen-mode-card .seg { width: 100%; }
+.gen-mode-card .seg button { flex: 1 1 200px; }
+
+.story-lines { list-style: none; margin: 0; padding: 0; display: grid; gap: 6px; max-height: 460px; overflow-y: auto; }
+.story-lines li {
+  display: grid; grid-template-columns: auto minmax(0, 1fr) auto; gap: 10px; align-items: start;
+  padding: 8px 10px; border-radius: 10px; background: #081732; border: 1px solid var(--line-soft);
+  border-left: 4px solid var(--c, var(--line));
+}
+.story-lines li.scene { grid-template-columns: 1fr; background: transparent; border: 0; border-top: 1px dashed var(--line); border-radius: 0; padding: 6px 2px 0; color: var(--sky); font-weight: 700; font-size: .82rem; }
+.story-lines .num { font-variant-numeric: tabular-nums; color: var(--faint); font-size: .8rem; min-width: 1.6em; }
+.story-lines .who { font-weight: 800; font-size: .82rem; }
+.story-lines .say { font-size: .88rem; color: var(--muted); overflow-wrap: anywhere; }
+.story-lines .st { font-size: .74rem; font-weight: 800; white-space: nowrap; padding: 2px 8px; border-radius: 999px; background: var(--surface-3); color: var(--muted); }
+.story-lines .st[data-s="queued"] { color: var(--accent); }
+.story-lines .st[data-s="running"] { color: var(--warn); }
+.story-lines .st[data-s="done"] { color: var(--ok); }
+.story-lines .st[data-s="failed"] { color: #fecaca; background: rgba(248, 113, 113, .15); }
+.story-lines .seg-actions { display: flex; gap: 4px; margin-top: 4px; flex-wrap: wrap; }
+.story-lines .seg-actions button, .story-lines .seg-actions a { font-size: .74rem; padding: 3px 8px; border-radius: 7px; border: 1px solid var(--line); background: var(--surface-2); color: var(--text); text-decoration: none; cursor: pointer; }
+
+.cast-voices { display: grid; gap: 10px; }
+.cast-voice { padding: 10px 12px; border-radius: 12px; background: #081732; border: 1px solid var(--line-soft); border-left: 5px solid var(--c, var(--primary)); display: grid; gap: 8px; }
+.cast-voice .cv-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.cast-voice .cv-name { font-weight: 800; overflow-wrap: anywhere; }
+.cast-voice .cv-meta { font-size: .76rem; color: var(--faint); }
+.cast-voice .cv-row { display: grid; grid-template-columns: minmax(0, 0.8fr) minmax(0, 1.4fr); gap: 8px; }
+@media (max-width: 420px) { .cast-voice .cv-row { grid-template-columns: minmax(0, 1fr); } }
+.cast-voice .cv-warn { font-size: .78rem; color: var(--warn); }

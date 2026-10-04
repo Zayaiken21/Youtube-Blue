@@ -1,11 +1,11 @@
 /* Youtube Blue — service worker
    Network first (so your edits show up right away), cache as offline backup.
    Bump CACHE when you want installed copies to drop old files. */
-const CACHE = 'yt-blue-v3';
+const CACHE = 'yt-blue-v4';
 const ASSETS = [
   './', 'index.html', 'design.html', 'analytics.html', 'stories.html', 'voice.html',
   'css/style.css',
-  'js/core.js', 'js/home.js', 'js/design.js', 'js/analytics.js', 'js/stories.js', 'js/voice.js',
+  'js/core.js', 'js/home.js', 'js/design.js', 'js/analytics.js', 'js/stories.js', 'js/voice.js', 'js/voice-story.js',
   'manifest.webmanifest',
   'icons/logo.svg', 'icons/icon-192.png', 'icons/icon-512.png', 'icons/maskable-512.png',
   'icons/apple-touch-icon.png', 'icons/favicon-32.png'
@@ -32,7 +32,11 @@ self.addEventListener('fetch', (e) => {
   // The live backend address must always come straight from the network.
   if (url.pathname.endsWith('/backend-config.json')) return;
   e.respondWith(
-    fetch(req)
+    // 'no-cache' revalidates with the server every time, so a reload always
+    // gets the newest site files (GitHub Pages otherwise lets browsers reuse
+    // them for up to 10 minutes).
+    // (Page navigations can't be re-created with options, so fetch their URL.)
+    (req.mode === 'navigate' ? fetch(req.url, { cache: 'no-cache', credentials: 'same-origin' }) : fetch(req, { cache: 'no-cache' }))
       .then((res) => {
         if (res && res.ok) {
           const copy = res.clone();

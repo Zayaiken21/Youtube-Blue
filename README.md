@@ -11,6 +11,7 @@ A blue creator toolkit for designing a YouTube channel, tracking analytics, and 
 | Analytics — video log, KPIs, goals, charts, insights, CSV import/export | `analytics.html` | `js/analytics.js` |
 | Story Studio — templates, characters (+), one-voice / multi-voice, teleprompter | `stories.html` | `js/stories.js` |
 | Voice Studio — Chatterbox text-to-speech, predefined voices, voice cloning, download | `voice.html` | `js/voice.js` |
+| Voice Studio · Story mode — multi-voice story narration in script order | `voice.html` | `js/voice-story.js` |
 
 Shared pieces:
 
@@ -54,11 +55,17 @@ The browser never calls Chatterbox's `/tts`. It sends `POST /jobs`, checks `GET 
 
 **Voice cloning**
 
-Upload a 5–30 second WAV/MP3 of one speaker. It goes to `POST /upload_reference` as multipart field `files`; the page then refreshes the reference list and selects the new file. Jobs send that filename as `reference_audio_filename`.
+Best results: 10–20 seconds of clean speech, one speaker, no music, no reverb, no background noise (the page warns about very short or over-30-second clips). The file goes to `POST /upload_reference` as multipart field `files`. The page then re-reads `GET /get_reference_files` and only selects the file — and only enables Generate — once it's in that list; otherwise it says the reference isn't available to the TTS engine yet. Before every clone job it checks the list again. Clone jobs send only `reference_audio_filename`; predefined jobs send only `predefined_voice_id`.
+
+If a job fails, the exact `job.error` from the server is shown in an expandable details area with a **Copy Error** button.
+
+**Story mode (multiple voices)**
+
+Switch to **Story · multiple voices** to voice a Story Studio script. Give each character a built-in voice or a clone reference (saved per story). Each spoken line — or a speaker's back-to-back lines — becomes its own job; up to 3 are sent at once, and every clip keeps its place in the script. When all lines are done, the browser stitches them into one WAV in story order, with your chosen pause between lines and at scene changes. Each line's clip can also be played or downloaded on its own, and **Retry failed lines** re-sends only the lines that failed. The server has one CPU, so sending several jobs keeps it busy without gaps; it doesn't make each line faster.
 
 **Settings**
 
-Defaults are WAV, chunk size 400 (350–450 works best on CPU; the server accepts 50–500), temperature 0.8, speed 1.0 and seed 0 (random).
+Defaults are WAV, chunk size 400 (350–450 works best on CPU; the server accepts 50–500), temperature 0.75, speed 1.00 and seed 0 (random). Speed is limited to 0.97–1.05 (Slower · Natural · Faster · Fast) because stronger time-stretching distorts the voice; for slower speech, use punctuation and pauses instead.
 
 **Notes**
 
@@ -66,7 +73,7 @@ Defaults are WAV, chunk size 400 (350–450 works best on CPU; the server accept
 - **Manual backend override** is a fallback only. An address is saved only after it passes `/health` and `/model-info`. The page still prefers `backend-config.json`, uses the saved address only if that fails, and **Back to automatic** clears it.
 - **Cancel Generation** stops waiting. The job API has no cancel route, so Chatterbox finishes that job in the background. If a future backend publishes `"job_cancel_template"` (e.g. `…/jobs/{job_id}/cancel`) in `backend-config.json`, Cancel will also call it.
 - Uploaded references live only in the current Colab session; re-upload after a restart.
-- The service worker never caches `backend-config.json` or any tunnel request.
+- The service worker never caches `backend-config.json` or any tunnel request, and always checks GitHub Pages for newer site files, so a reload shows the latest version.
 - Story Studio → **Send to Voice Studio** imports the spoken lines. In Voice Studio you can also import one character's lines at a time to voice each with a different voice.
 - No tokens or secrets live in this site. The GitHub token stays in Colab secrets.
 

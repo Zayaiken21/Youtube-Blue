@@ -17,12 +17,16 @@
 
   /* ---------- Constants ---------- */
   var DEFAULT_TAGS = ['laugh', 'chuckle', 'sigh', 'gasp', 'cough', 'clear throat', 'sniff', 'groan', 'shush'];
-  var SETTINGS_VERSION = 2;
+  var SETTINGS_VERSION = 3;
   var DEFAULTS = {
     mode: 'predefined', voiceId: '', reference: '',
-    format: 'wav', chunk: 400, temperature: 0.8, speed: 1, seed: 0, split: true
+    format: 'wav', chunk: 400, temperature: 0.75, speed: 1, seed: 0, split: true
   };
   var CHUNK_MIN = 50, CHUNK_MAX = 500;          // server-side limits for chunk_size
+  // Speed is a time-stretch: outside this band it audibly distorts the voice.
+  var SPEED_MIN = 0.97, SPEED_MAX = 1.05;
+  var REF_SHORT_SEC = 5, REF_LONG_SEC = 30;     // reference clip guidance (server rejects > 30 s)
+  var LIST_STALE_MS = 15000;                    // re-fetch voice/reference lists when older than this
   var HEALTH_INTERVAL_MS = 60000;               // gentle background check while idle
   var HEALTH_TIMEOUT_MS = 45000;                // one health/list request — never generation
   var CONFIG_TIMEOUT_MS = 20000;
@@ -65,19 +69,36 @@
     orphanJob: null,     // a job we stopped waiting for that may still be running
     jobToken: 0,
     preparing: false,
-    cloneAvailable: true
+    cloneAvailable: true,
+    refFiles: null,      // last reference list the server returned (null = not loaded yet)
+    voices: [],          // last predefined voice list [{display_name, filename}]
+    voicesAt: 0, refsAt: 0
   };
 
   function loadSettings() {
     var saved = YB.store.get('voice', {});
-    if (saved.v !== SETTINGS_VERSION) {
+    var v = Number(saved.v) || 0;
+    if (v < 2) {
       // Earlier versions defaulted to MP3 + chunk 240 for the old /tts path.
       if (saved.format === 'mp3') saved.format = DEFAULTS.format;
       if (saved.chunk === 240) saved.chunk = DEFAULTS.chunk;
       delete saved.delivery;
-      saved.v = SETTINGS_VERSION;
     }
-    return Object.assign({}, DEFAULTS, saved);
+    if (v < 3 && saved.temperature === 0.8) saved.temperature = DEFAULTS.temperature; // new safer default
+    saved.v = SETTINGS_VERSION;
+    var s = Object.assign({}, DEFAULTS, saved);
+    s.speed = clampSpeed(s.speed);   // e.g. an old 0.90 / 0.95 becomes 0.97
+    return s;
+  }
+
+  function clampSpeed(v) {
+    v = Math.round((Number(v) || 1) * 100) / 100;
+    return Math.min(SPEED_MAX, Math.max(SPEED_MIN, v));
+  }
+  function speedLabel(v) {
+    v = clampSpeed(v);
+    var name = v <= 0.97 ? 'Slower' : v < 1 ? 'Slightly slower' : v === 1 ? 'Natural' : v < 1.03 ? 'Slightly faster' : v < 1.05 ? 'Faster' : 'Fast';
+    return v.toFixed(2) + '× · ' + name;
   }
 
   function $(id) { return document.getElementById(id); }
@@ -200,21 +221,32 @@
     'ref-missing': 'A new Colab session starts without your uploads. Upload the reference file again.',
     'voice-missing': 'Press Refresh Voices and pick a voice from the updated list.',
     'format': 'Choose WAV, MP3 or Opus.',
-    'upload': 'Use a clean WAV or MP3 clip of one speaker, about 5–30 seconds long.',
+    'upload': 'Use a clean WAV or MP3 clip of one speaker, about 10–20 seconds long.',
+    'ref-pending': 'Wait a moment and press Refresh References. If it still isn\'t listed, upload it again.',
     'validation': 'Check the voice settings (chunk size must be 50–500).',
     'lost': 'The connection dropped while waiting — the tunnel or Colab may have restarted. Press Refresh Backend, then try again.',
     'job-lost': 'The job server no longer knows this job — it was probably restarted. Press Refresh Backend and generate again.',
     'busy': 'It\'s probably still finishing an earlier job. New jobs wait and run slower until it\'s done.',
     'clone-unavailable': 'Your job server needs the /upload_reference and /get_reference_files routes (see the README).',
-    'tts': 'Try again, or shorten the script. Details are in the browser console.',
+    'tts': 'If it repeats: try a cleaner 10–20 s reference clip, a different voice, or shorter sentences. The exact error is below.',
     'http': 'Details are in the browser console.'
   };
 
+  // err.raw (e.g. a failed job's exact job.error) is shown in an expandable
+  // details area with a Copy Error button.
   function showNotice(el, err, level) {
     if (!err) { el.hidden = true; el.innerHTML = ''; return; }
     el.className = 'notice ' + (level || 'error');
-    el.innerHTML = '<b>' + YB.esc(err.message) + '</b>' + YB.esc(HELP[err.kind] || '');
+    el.innerHTML = '<b>' + YB.esc(err.message) + '</b>' + YB.esc(HELP[err.kind] || '') + errorDetailsHtml(err.raw);
     el.hidden = false;
+  }
+
+  function errorDetailsHtml(raw) {
+    raw = raw == null ? '' : String(raw).trim();
+    if (!raw) return '';
+    return '<details class="err-details"><summary>Backend error details</summary>' +
+      '<pre class="err-raw">' + YB.esc(raw) + '</pre>' +
+      '<button class="btn btn-ghost btn-sm" type="button" data-copy-error>📋 Copy Error</button></details>';
   }
 
   /* ---------- Status / UI state ---------- */
@@ -229,10 +261,17 @@
   }
   function onlineLabel() { return app.source === 'manual' ? 'Connected' : 'Online'; }
 
+  // A clone reference counts only once it's in the list the server returned.
+  function refReady() {
+    return !!settings.reference && Array.isArray(app.refFiles) && app.refFiles.indexOf(settings.reference) !== -1;
+  }
+
   function updateControls() {
     var busy = app.generating;
-    $('generateBtn').disabled = busy || app.uploading || app.preparing;
-    $('generateBtn').textContent = busy ? '⏳ Generating…' : '🎙️ Generate Speech';
+    var story = storyHooks && storyHooks.active();
+    var blocked = story ? !storyHooks.canGenerate() : (settings.mode === 'clone' && !refReady());
+    $('generateBtn').disabled = busy || app.uploading || app.preparing || blocked;
+    $('generateBtn').textContent = busy ? '⏳ Generating…' : story ? '🎭 Generate Story Audio' : '🎙️ Generate Speech';
     $('cancelBtn').disabled = !busy;
     $('testBtn').disabled = busy;
     $('refreshBackendBtn').disabled = busy;
@@ -404,6 +443,7 @@
           return typeof v === 'string' ? { display_name: v.replace(/\.(wav|mp3)$/i, ''), filename: v } : { display_name: v.display_name || v.filename, filename: v.filename };
         }).filter(function (v) { return v.filename; });
         YB.store.set('voiceList', voices);
+        app.voicesAt = Date.now();
         renderVoices(voices, voices.length + ' voices');
         if (!quiet) YB.toast('Voices updated');
       })
@@ -430,9 +470,11 @@
     var ids = voices.map(function (v) { return v.filename; });
     if (settings.voiceId && ids.indexOf(settings.voiceId) !== -1) sel.value = settings.voiceId;
     else { settings.voiceId = sel.value; saveSettings(); }
+    app.voices = voices;
     app.voicesLoaded = true;
     $('voiceCount').textContent = note;
     renderSummary();
+    if (storyHooks) storyHooks.listsChanged();
   }
 
   function useCachedVoices() {
@@ -443,23 +485,29 @@
   }
 
   /* ---------- Reference files (voice clone) ---------- */
+  // Resolves to the server's list (array), or null if it couldn't be fetched.
   function loadReferences(quiet) {
-    if (!app.backend || app.generating) return Promise.resolve();
+    if (!app.backend) return Promise.resolve(null);
     return call(route('refs'), {}, HEALTH_TIMEOUT_MS)
       .then(function (res) { if (!res.ok) return httpError(res, 'refs').then(function (e) { throw e; }); return readJson(res); })
       .then(function (files) {
-        app.cloneAvailable = true; updateControls();
-        renderReferences(Array.isArray(files) ? files : []);
+        files = (Array.isArray(files) ? files : []).map(String);
+        app.cloneAvailable = true;
+        app.refFiles = files; app.refsAt = Date.now();
+        renderReferences(files);
+        updateControls();
         if (!quiet) YB.toast('References updated');
+        return files;
       })
       .catch(function (err) {
         err = networkError(err);
         if (err.status === 404 || err.status === 405) {
-          app.cloneAvailable = false; updateControls();
+          app.cloneAvailable = false; app.refFiles = []; updateControls();
           $('referenceSelect').innerHTML = '<option value="">Not available on this job server</option>';
-          return;
+          return null;
         }
         if (!quiet) showNotice($('genError'), err);
+        return null;
       });
   }
 
@@ -468,11 +516,12 @@
     sel.innerHTML = '<option value="">' + (files.length ? 'Choose a saved reference…' : 'No references on the server yet') + '</option>' +
       files.map(function (f) { return '<option value="' + YB.esc(f) + '">' + YB.esc(f) + '</option>'; }).join('');
     if (settings.reference && files.indexOf(settings.reference) !== -1) sel.value = settings.reference;
-    else if (settings.reference && app.state === 'online') {
+    else if (settings.reference) {
       // the stored filename is gone (new Colab session) — forget it
       setReference('');
       setUploadState('idle', 'Your previous reference isn\'t on this server session. Upload it again.');
     }
+    if (storyHooks) storyHooks.listsChanged();
   }
 
   function setReference(name) {
@@ -480,6 +529,17 @@
     saveSettings();
     $('uploadedReferenceName').textContent = settings.reference || 'None';
     if ($('referenceSelect').value !== settings.reference) $('referenceSelect').value = settings.reference;
+    renderSummary();
+    updateControls();
+  }
+
+  // Lists change on the server (uploads from elsewhere, a Colab restart), so
+  // re-fetch them whenever they're about to be used and are a little old.
+  function refreshListsIfStale(which) {
+    if (!app.backend || app.generating || app.state === 'offline' || app.busy) return;
+    var now = Date.now();
+    if (which !== 'voices' && now - app.refsAt > LIST_STALE_MS) { app.refsAt = now; loadReferences(true); }
+    if (which !== 'refs' && now - app.voicesAt > LIST_STALE_MS) { app.voicesAt = now; loadVoices(true); }
   }
 
   function setUploadState(state, text) {
@@ -526,12 +586,15 @@
         });
       })
       .then(function (serverName) {
-        setReference(serverName);
-        return loadReferences(true).then(function () {
+        // Only use the file once the TTS engine's own list includes it.
+        setUploadState('busy', 'Uploaded — checking the server can use ' + serverName + '…');
+        return loadReferences(true).then(function (files) {
+          if (!files || files.indexOf(serverName) === -1) {
+            throw makeErr('ref-pending', 'Reference audio was uploaded but is not available to the TTS engine yet.');
+          }
           setReference(serverName); // select the new file in the refreshed list
-          setUploadState('done', '✓ Uploaded as ' + serverName);
+          setUploadState('done', '✓ Uploaded and ready: ' + serverName);
           showNotice($('genError'), null);
-          renderSummary();
           return serverName;
         });
       })
@@ -562,6 +625,9 @@
     $('predefinedVoiceSection').hidden = settings.mode !== 'predefined';
     $('cloneVoiceSection').hidden = settings.mode !== 'clone';
     renderSummary();
+    updateControls();
+    // Switching modes shows the server's current list, not an old one.
+    refreshListsIfStale(settings.mode === 'clone' ? 'refs' : 'voices');
   }
 
   function fillSettings() {
@@ -572,7 +638,7 @@
     $('generationSeed').value = settings.seed;
     $('splitText').checked = !!settings.split;
     $('tempVal').textContent = Number(settings.temperature).toFixed(2);
-    $('speedVal').textContent = Number(settings.speed).toFixed(2) + '×';
+    $('speedVal').textContent = speedLabel(settings.speed);
     $('chunkSize').disabled = !settings.split;
   }
 
@@ -678,6 +744,7 @@
   /* ---------- Generation (async jobs only — never POST /tts) ---------- */
   function renderSummary() {
     var el = $('genSummary'); if (!el) return;
+    if (storyHooks && storyHooks.active()) { el.textContent = storyHooks.summary(); return; }
     var voice = settings.mode === 'clone'
       ? (settings.reference ? 'Clone: ' + settings.reference : 'Clone: no reference yet')
       : ($('predefinedVoiceSelect').selectedOptions[0] && $('predefinedVoiceSelect').value ? $('predefinedVoiceSelect').selectedOptions[0].textContent : 'No voice selected');
@@ -742,8 +809,19 @@
     setTimeout(function () { if (!app.generating) checkHealth(known ? { silent: true } : { loadLists: true }); }, known ? 4000 : 0);
   }
 
+  // Confirms a clone reference is in the server's list right now. Uses a fresh
+  // GET /get_reference_files; if that can't be fetched (Chatterbox busy), the
+  // last list the server returned this session.
+  function verifyReferences(names) {
+    return loadReferences(true).then(function (files) {
+      var list = files || app.refFiles || [];
+      return names.filter(function (n) { return list.indexOf(n) === -1; });
+    });
+  }
+
   function generate() {
     if (app.generating || app.job || app.preparing) return;   // never two jobs at once
+    if (storyHooks && storyHooks.active()) { storyHooks.generate(); return; }
     showNotice($('genError'), null);
     var text = $('scriptText').value.trim();
     if (!app.backend) { showNotice($('genError'), makeErr('offline', 'Backend is not connected.')); return; }
@@ -755,9 +833,16 @@
     } else if (!app.cloneAvailable) {
       showNotice($('genError'), makeErr('clone-unavailable', 'Voice cloning isn\'t available on this job server.'), 'warn'); return;
     } else if (!settings.reference) {
-      // a file is chosen but not uploaded yet — upload it first
-      if ($('voiceSampleFile').files && $('voiceSampleFile').files[0]) ready = uploadReference().then(Boolean);
-      else { showNotice($('genError'), makeErr('ref-missing', 'Upload a reference recording (or pick a saved one) first.'), 'warn'); return; }
+      showNotice($('genError'), makeErr('ref-missing', 'Choose a reference file first — upload one or pick a saved one.'), 'warn'); return;
+    } else {
+      // Clone jobs only go out for a reference the TTS engine can see right now.
+      ready = verifyReferences([settings.reference]).then(function (missing) {
+        if (!missing.length) return true;
+        setReference('');
+        setUploadState('error', 'That reference isn\'t on the server any more — upload it again.');
+        showNotice($('genError'), makeErr('ref-missing', 'Reference file "' + missing[0] + '" isn\'t on the server right now.'));
+        return false;
+      });
     }
 
     app.preparing = true; updateControls();
@@ -784,6 +869,7 @@
 
   function cancelGeneration() {
     if (!app.generating) return;
+    if (storyHooks && storyHooks.running()) { storyHooks.cancel(); return; }
     app.jobToken++;                          // ignore any reply still in flight
     var id = app.job && app.job.id;
     var serverCancel = id ? requestServerCancel(id) : false;
@@ -899,24 +985,32 @@
   }
 
   // The job API reports Chatterbox failures as text like:
-  //   Chatterbox HTTP 404: {"detail":"Reference audio file 'x.wav' not found."}
-  function jobFailure(text) {
+  //   Chatterbox HTTP 500: {"detail":"TTS engine failed to synthesize audio for chunk 1."}
+  // The summary is made readable; the exact job.error is always kept in err.raw
+  // so it shows in the expandable details (with Copy Error).
+  function jobFailure(text, voiceMode) {
     text = String(text || '');
-    console.error('[Voice Studio] job failed:', text.slice(0, 2000));
+    console.error('[Voice Studio] job failed:', text.slice(0, 4000));
+    var e = summarizeFailure(text, voiceMode || settings.mode);
+    e.raw = text || '(the server returned no error text)';
+    return e;
+  }
+
+  function summarizeFailure(text, voiceMode) {
     var m = /HTTP (\d{3}):\s*([\s\S]*)$/.exec(text);
     var status = m ? Number(m[1]) : 0, detail = '';
     if (m) {
       try {
         var j = JSON.parse(m[2]);
         detail = typeof j.detail === 'string' ? j.detail : Array.isArray(j.detail) ? j.detail.map(function (d) { return (d.loc ? d.loc[d.loc.length - 1] + ': ' : '') + d.msg; }).join('; ') : '';
-      } catch (e) { detail = /^\s*</.test(m[2]) ? '' : m[2].slice(0, 200); }
+      } catch (err) { detail = /^\s*</.test(m[2]) ? '' : m[2].slice(0, 200); }
     }
-    if (status === 404) return settings.mode === 'clone' ? makeErr('ref-missing', detail || 'Reference file not found on the server.') : makeErr('voice-missing', detail || 'That voice was not found on the server.');
+    if (status === 404) return voiceMode === 'clone' ? makeErr('ref-missing', detail || 'Reference file not found on the server.') : makeErr('voice-missing', detail || 'That voice was not found on the server.');
     if (status === 503) return makeErr('model', detail || 'The Chatterbox model is not loaded.');
     if (status === 422) return /output_format/i.test(detail) ? makeErr('format', 'That output format isn\'t supported.') : makeErr('validation', detail || 'The server rejected one of the settings.');
-    if (status) return makeErr('tts', detail || ('Chatterbox returned an error (HTTP ' + status + ').'));
+    if (status) return makeErr('tts', 'Speech generation failed: ' + (detail || ('Chatterbox returned HTTP ' + status + '.')));
     if (/connection|refused|max retries|timed out/i.test(text)) return makeErr('tts', 'The job server couldn\'t reach Chatterbox — it may have crashed or restarted.');
-    return makeErr('tts', text && text.length < 200 && !/^\s*</.test(text) ? text : 'Speech generation failed on the server.');
+    return makeErr('tts', 'Speech generation failed on the server.');
   }
 
   function finishJob(err) {
@@ -972,14 +1066,14 @@
     return d.getFullYear() + '-' + p(d.getMonth() + 1) + '-' + p(d.getDate()) + '-' + p(d.getHours()) + p(d.getMinutes()) + p(d.getSeconds());
   }
 
-  function showAudio(blob, ext) {
+  function showAudio(blob, ext, prefix) {
     if (app.audioUrl) URL.revokeObjectURL(app.audioUrl);   // no Blob URL leaks
     app.audioUrl = URL.createObjectURL(blob);
     var player = $('audioPreview');
     player.src = app.audioUrl;
     var dl = $('downloadAudioBtn');
     dl.href = app.audioUrl;
-    dl.download = 'youtube-blue-voice-' + fileStamp(new Date()) + '.' + ext;
+    dl.download = (prefix || 'youtube-blue-voice') + '-' + fileStamp(new Date()) + '.' + ext;
     $('audioInfo').textContent = ext.toUpperCase() + ' · ' + bytesLabel(blob.size);
     player.onloadedmetadata = function () {
       if (isFinite(player.duration)) $('audioInfo').textContent = ext.toUpperCase() + ' · ' + mmss(player.duration) + ' · ' + bytesLabel(blob.size);
@@ -995,6 +1089,52 @@
     $('downloadAudioBtn').href = '#';
     $('audioOutputSection').hidden = true;
   }
+
+  // Reads the chosen reference clip's length in the browser and warns when it's
+  // outside what cloning handles well.
+  function checkClipLength(file) {
+    var url = URL.createObjectURL(file), probe = new Audio(), note = $('refDurationNote');
+    function done(msg) { URL.revokeObjectURL(url); if (!msg) return; note.textContent = msg; note.hidden = false; }
+    probe.preload = 'metadata';
+    probe.onloadedmetadata = function () {
+      var d = probe.duration;
+      if (!isFinite(d)) return done('');
+      if (d < REF_SHORT_SEC) done('⚠️ This clip is only ' + d.toFixed(1) + ' s — very short references usually clone poorly. Aim for 10–20 seconds.');
+      else if (d > REF_LONG_SEC) done('⚠️ This clip is ' + Math.round(d) + ' s — the server may reject references longer than 30 seconds. Trim it to 10–20 seconds.');
+      else done(d < 10 ? 'ℹ️ ' + d.toFixed(1) + ' s — usable, but 10–20 seconds gives better results.' : '✓ ' + Math.round(d) + ' s — a good length.');
+    };
+    probe.onerror = function () { done(''); };
+    probe.src = url;
+  }
+
+  /* ---------- Shared core for Story (multi-voice) mode — js/voice-story.js ---------- */
+  var storyHooks = null;
+  window.YBVoice = {
+    registerStory: function (hooks) { storyHooks = hooks; updateControls(); },
+    call: call, route: route, jobRoute: jobRoute, readJson: readJson, httpError: httpError,
+    networkError: networkError, makeErr: makeErr, jobFailure: jobFailure, showNotice: showNotice,
+    verifyReferences: verifyReferences, refreshListsIfStale: refreshListsIfStale,
+    loadVoices: loadVoices, loadReferences: loadReferences,
+    settings: function () { return settings; },
+    pendingStory: function () { return app.pendingStory || ''; },
+    clampChunk: clampChunk, knownTags: knownTags, storiesList: storiesList,
+    voices: function () { return app.voices; },
+    refFiles: function () { return app.refFiles; },
+    cloneAvailable: function () { return app.cloneAvailable; },
+    backend: function () { return app.backend; },
+    isBusy: function () { return app.generating || app.preparing || !!app.job || app.uploading; },
+    updateControls: updateControls,
+    // Story runs use the same locks as single generation: no health polling,
+    // Generate disabled, Cancel enabled, status pill shows progress.
+    begin: function (label) { if (app.generating) return false; app.generating = true; stopPolling(); app.startedAt = Date.now();
+      showNotice($('genError'), null); $('genProgress').hidden = false; setState('generating', label || 'Generating');
+      tickElapsed(); clearInterval(app.elapsedTimer); app.elapsedTimer = setInterval(tickElapsed, 1000); return true; },
+    progress: function (pill, title, detail) { setState('generating', pill); $('genStatusText').textContent = title; $('genDetail').textContent = detail; },
+    end: function () { stopGenerating(); },
+    showAudio: function (blob, ext, prefix) { showAudio(blob, ext, prefix); },
+    errorBox: function () { return $('genError'); },
+    SHORT_TIMEOUT_MS: SHORT_TIMEOUT_MS, AUDIO_TIMEOUT_MS: AUDIO_TIMEOUT_MS, JOB_POLL_MS: JOB_POLL_MS, JOB_MAX_FAILS: JOB_MAX_FAILS
+  };
 
   /* ---------- Events ---------- */
   function bind() {
@@ -1055,11 +1195,19 @@
     // voice
     $('voiceModeSeg').addEventListener('click', function (e) { var b = e.target.closest('[data-mode]'); if (b) setMode(b.getAttribute('data-mode')); });
     $('predefinedVoiceSelect').addEventListener('change', function () { settings.voiceId = this.value; saveSettings(); renderSummary(); });
+    // Opening a list re-fetches it if it's a little old, so new server files show up without a manual refresh.
+    ['focus', 'pointerdown'].forEach(function (ev) {
+      $('predefinedVoiceSelect').addEventListener(ev, function () { refreshListsIfStale('voices'); });
+      $('referenceSelect').addEventListener(ev, function () { refreshListsIfStale('refs'); });
+    });
     $('refreshVoicesBtn').addEventListener('click', function () { loadVoices(false); });
     $('voiceSampleFile').addEventListener('change', function () {
       var f = this.files && this.files[0];
       $('localFileName').textContent = f ? f.name + ' (' + bytesLabel(f.size) + ')' : 'None';
-      if (f) setUploadState('idle', 'Ready to upload — click Upload Reference.');
+      $('refDurationNote').hidden = true;
+      if (!f) return;
+      setUploadState('idle', 'Ready to upload — click Upload Reference.');
+      checkClipLength(f);
     });
     $('uploadRefBtn').addEventListener('click', uploadReference);
     $('clearRefBtn').addEventListener('click', clearReference);
@@ -1067,14 +1215,13 @@
     $('referenceSelect').addEventListener('change', function () {
       setReference(this.value);
       if (this.value) setUploadState('done', '✓ Using saved reference ' + this.value);
-      renderSummary();
     });
 
     // settings
     $('outputFormat').addEventListener('change', function () { settings.format = this.value; saveSettings(); renderSummary(); });
     $('chunkSize').addEventListener('change', function () { settings.chunk = clampChunk(this.value); this.value = settings.chunk; saveSettings(); updateScriptMeta(); });
     $('temperature').addEventListener('input', function () { settings.temperature = Number(this.value); $('tempVal').textContent = settings.temperature.toFixed(2); saveSettings(); });
-    $('speedFactor').addEventListener('input', function () { settings.speed = Number(this.value); $('speedVal').textContent = settings.speed.toFixed(2) + '×'; saveSettings(); });
+    $('speedFactor').addEventListener('input', function () { settings.speed = clampSpeed(this.value); $('speedVal').textContent = speedLabel(settings.speed); saveSettings(); });
     $('generationSeed').addEventListener('change', function () { settings.seed = Math.max(0, Math.round(Number(this.value) || 0)); this.value = settings.seed; saveSettings(); });
     $('splitText').addEventListener('change', function () { settings.split = this.checked; $('chunkSize').disabled = !this.checked; saveSettings(); updateScriptMeta(); });
     $('resetSettingsBtn').addEventListener('click', function () {
@@ -1091,6 +1238,15 @@
     $('replayBtn').addEventListener('click', function () { var a = $('audioPreview'); a.currentTime = 0; var p = a.play(); if (p && p.catch) p.catch(function () {}); });
     $('clearAudioBtn').addEventListener('click', clearAudio);
     $('downloadAudioBtn').addEventListener('click', function (e) { if (!app.audioUrl) e.preventDefault(); });
+
+    window.addEventListener('yb-voice-summary', renderSummary);   // story mode switched off
+
+    // Copy Error (any expandable backend-error box on the page)
+    document.addEventListener('click', function (e) {
+      var b = e.target.closest('[data-copy-error]'); if (!b) return;
+      var pre = b.closest('.err-details') && b.closest('.err-details').querySelector('.err-raw');
+      if (pre) YB.copy(pre.textContent);
+    });
 
     // lifecycle
     document.addEventListener('visibilitychange', function () {
@@ -1115,6 +1271,7 @@
     var pending = YB.store.get('voiceImport', null);
     if (pending && pending.storyId) {
       YB.store.remove('voiceImport');
+      app.pendingStory = pending.storyId;
       $('importBox').open = true;
       renderImport(pending.storyId);
       importFromStory(pending.storyId, pending.speaker || 'all', true);
