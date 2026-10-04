@@ -73,6 +73,21 @@ The latest generated audio stays on the Voice screen, after reloads too, until a
 
 The server makes one voice at a time. While idle, the page checks `GET /state` every few seconds (the job server only, never Chatterbox). If a generation is running that isn't yours, the status shows **In use · another user**, a notice explains it, and Generate, Again, model switching, reference uploads and list refreshes are locked. Your script, voices and character settings stay editable. Everything unlocks by itself when the server is free. A job you stopped waiting for shows as **Busy · finishing** instead, even after a reload.
 
+**Voice library (Presets · Our Voices · My Voices · Built-in voices)**
+
+One **Voice** picker (and the same picker on every Story character) lists:
+
+- **Presets:** audio files in `Voices/Preset Voices/` on GitHub. Add a WAV or MP3 there and it shows for everyone; the file name is the voice name.
+- **Our Voices:** files in `Voices/Our Voices/`, voices people chose to share.
+- **My Voices:** voices imported with **➕ Import a voice**. They're stored in the app's own storage on that device only: private, never uploaded to GitHub.
+- **Built-in voices:** the server's own voices.
+
+Picking a Preset, Our Voices or My Voices voice needs no setup. Right before generating, the page sends that voice to the server once per server session, confirms the server lists it, then the job clones it. After a Colab restart it's sent again automatically.
+
+**Share with everyone** is off by default. Turning it on (with a "this is my voice / I have permission" check) saves the file and links to the `Voices/Our Voices` upload page on GitHub. Once the file is added there, it shows for everyone. The site never writes to GitHub itself.
+
+`Voices/index.json` lists the library and is rebuilt by the **Voice library index** GitHub Action whenever a file in `Voices/` changes. If it's missing, the page reads the folders through the public GitHub API instead.
+
 **Model engine**
 
 Pick ⚡ Turbo, 🎙 Original or 🌍 Multilingual (only models the server reports as available can be chosen). Switching runs in the background: the page sends `POST /model-switch-jobs` and checks `GET /model-switch-jobs/{id}` every ~3 s (Preparing → Unloading → Loading), then refreshes model info, voices and references. The model the server reports in `/model-info` always wins over the saved preference. The controls follow the active model:

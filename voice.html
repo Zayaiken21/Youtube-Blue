@@ -15,10 +15,11 @@
   <meta name="mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
   <meta name="apple-mobile-web-app-title" content="YT Blue">
-  <link rel="stylesheet" href="css/style.css?v=10">
+  <link rel="stylesheet" href="css/style.css?v=11">
   <script src="js/core.js" defer></script>
-  <script src="js/voice.js?v=10" defer></script>
-  <script src="js/voice-story.js?v=13" defer></script>
+  <script src="js/voice.js?v=11" defer></script>
+  <script src="js/voice-library.js?v=1" defer></script>
+  <script src="js/voice-story.js?v=14" defer></script>
 </head>
 <body data-page="voice">
   <header class="topbar">
@@ -210,37 +211,34 @@
         <!-- ===== Voice ===== -->
         <section class="card" aria-labelledby="voiceTitle" id="voiceCard">
           <h2 id="voiceTitle">Voice</h2>
-          <div class="seg" id="voiceModeSeg" role="radiogroup" aria-label="Voice mode">
-            <button type="button" role="radio" data-mode="predefined" aria-checked="true" class="on">🗣️ Predefined Voice</button>
-            <button type="button" role="radio" data-mode="clone" aria-checked="false">🧬 Voice Clone</button>
+          <label class="field"><span>Voice</span><select id="voicePick"><option value="">Loading voices…</option></select></label>
+          <p class="small muted voice-pick-note" id="voicePickNote"></p>
+          <div class="row" style="margin-top:8px">
+            <button class="btn btn-ghost btn-sm" type="button" id="refreshVoicesBtn">🔄 Refresh Voices</button>
+            <span class="muted small" id="voiceCount"></span>
           </div>
 
-          <div id="predefinedVoiceSection" style="margin-top:14px">
-            <label class="field"><span>Voice</span><select id="predefinedVoiceSelect"><option value="">Connect to load voices…</option></select></label>
-            <div class="row" style="margin-top:10px">
-              <button class="btn btn-ghost btn-sm" type="button" id="refreshVoicesBtn">🔄 Refresh Voices</button>
-              <span class="muted small" id="voiceCount"></span>
-            </div>
-          </div>
-
-          <div id="cloneVoiceSection" style="margin-top:14px" hidden>
-            <div class="notice warn" id="cloneUnavailable" hidden style="margin:0 0 12px"><b>Voice cloning isn't reachable on this job server.</b>It needs the upload and reference-list routes. Predefined voices work normally.</div>
-            <div class="notice ref-tips" style="margin:0 0 10px"><b>Best results: 10–20 seconds of clean speech, one speaker, no music, no reverb, no background noise.</b>WAV or MP3. Only clone voices you own or have permission to use.</div>
-            <label class="field"><span>Reference audio</span><input id="voiceSampleFile" type="file" accept=".wav,.mp3,audio/wav,audio/x-wav,audio/mpeg"></label>
+          <details class="import-box voice-import" id="voiceImportBox">
+            <summary>➕ Import a voice</summary>
+            <div class="notice ref-tips" style="margin:12px 0 10px"><b>Best results: 10–20 seconds of clean speech, one speaker, no music, no reverb, no background noise.</b>WAV or MP3, up to 30 seconds. Only import voices you own or have permission to use.</div>
+            <label class="field"><span>Audio file</span><input id="voiceSampleFile" type="file" accept=".wav,.mp3,audio/wav,audio/x-wav,audio/mpeg"></label>
             <div class="small muted" style="margin-top:6px">Selected: <b id="localFileName">None</b></div>
             <div class="small ref-length" id="refDurationNote" hidden></div>
+            <label class="field" style="margin-top:10px"><span>Voice name</span><input id="importVoiceName" type="text" maxlength="40" placeholder="e.g. Grandpa Joe" autocomplete="off"></label>
+            <label class="field check-field" style="margin-top:10px"><input id="importShare" type="checkbox"><span>Share with everyone (adds it to Our Voices)</span></label>
+            <label class="field check-field" id="importConsentRow" hidden><input id="importConsent" type="checkbox"><span>This is my voice, or I have permission to share it</span></label>
+            <p class="small muted" style="margin:6px 0 0">Off: the voice stays private in this app on this device only. On: anyone using Youtube Blue can pick it.</p>
             <div class="row" style="margin-top:10px">
-              <button class="btn btn-sm" type="button" id="uploadRefBtn">⬆️ Upload Reference</button>
-              <button class="btn btn-ghost btn-sm" type="button" id="clearRefBtn">✕ Clear Reference</button>
+              <button class="btn btn-sm" type="button" id="importVoiceBtn" disabled>⬆️ Import voice</button>
             </div>
-            <div class="upload-state" id="uploadState" data-state="idle">No reference uploaded yet.</div>
+            <div class="upload-state" id="uploadState" data-state="idle">Choose an audio file to import.</div>
+          </details>
 
-            <label class="field" style="margin-top:12px"><span>Or use a reference already on the server</span><select id="referenceSelect"><option value="">—</option></select></label>
-            <div class="row" style="margin-top:10px">
-              <button class="btn btn-ghost btn-sm" type="button" id="refreshRefsBtn">🔄 Refresh References</button>
-              <span class="small">Using: <b id="uploadedReferenceName">None</b></span>
-            </div>
+          <div class="my-voices" id="myVoicesBox" hidden>
+            <div class="label" style="margin:14px 0 6px">My Voices <span class="muted small">· this device</span></div>
+            <ul class="my-voice-list" id="myVoicesList"></ul>
           </div>
+          <div class="notice share-help" id="shareHelp" hidden></div>
         </section>
 
         <!-- ===== Cast voices (story mode) ===== -->

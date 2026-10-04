@@ -690,3 +690,20 @@ input[type="range"] { min-height: 32px; }            /* finger-friendly */
 .cs-field select { width: 100%; }
 .cs-check { margin: 0; }
 .cs-panel > .cs-note { margin: 4px 0 8px; }
+
+/* ---------- Voice library: picker, import, My Voices ---------- */
+.voice-pick-note { margin: 6px 0 0; min-height: 1em; }
+.voice-import { margin-top: 14px; }
+.my-voice-list { list-style: none; margin: 0; padding: 0; display: grid; gap: 8px; }
+.my-voice-list li { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 8px 10px; border-radius: 12px; background: #081732; border: 1px solid var(--line-soft); flex-wrap: wrap; }
+.my-voice-list .mv-main { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 8px; min-width: 0; }
+.my-voice-list .mv-main b { overflow-wrap: anywhere; }
+.my-voice-list .mv-meta { font-size: .74rem; color: var(--faint); }
+.mv-badge { font-size: .7rem; font-weight: 700; padding: 2px 8px; border-radius: 999px; border: 1px solid var(--line); color: var(--muted); }
+.mv-badge.live { color: var(--ok); border-color: rgba(52, 211, 153, .45); }
+.mv-badge.pending { color: var(--warn); border-color: rgba(251, 191, 36, .45); }
+.my-voice-list .mv-actions { display: flex; gap: 6px; }
+.share-help { margin-top: 12px; }
+.cv-import-toggle { justify-self: start; background: none; border: 0; padding: 2px 0; color: var(--accent); font: inherit; font-size: .8rem; font-weight: 700; cursor: pointer; text-align: left; }
+.cv-share { display: flex; align-items: flex-start; gap: 6px; font-size: .76rem; color: var(--muted); }
+.cv-share input { margin-top: 2px; }

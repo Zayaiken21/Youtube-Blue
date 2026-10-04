@@ -3,7 +3,8 @@
    Story mode for Voice Studio: voices a whole Story Studio script
    with a different voice per character, in script order.
 
-   • Each character gets a built-in voice or a clone reference, plus its
+   • Each character picks a voice from the voice library (Presets, Our
+     Voices, My Voices, built-in — js/voice-library.js) or imports one, plus its
      own voice settings (temperature, speed, seed, and exaggeration / CFG
      when the model has them). Every character starts at the defaults;
      whatever you set is what that character's lines are generated with.
@@ -36,7 +37,7 @@
   var opts = Object.assign({ pause: 400, scenePause: 800, parallel: 2, merge: true }, YB.store.get('voiceStoryOpts', {}));
   if ([1, 2, 3].indexOf(Number(opts.parallel)) === -1) { opts.parallel = 2; YB.store.set('voiceStoryOpts', opts); }
   opts.parallel = Number(opts.parallel);
-  var castMap = YB.store.get('voiceCast', {});          // { storyId: { charId: { mode, id, set? } } }
+  var castMap = YB.store.get('voiceCast', {});          // { storyId: { charId: { key, set? } } }
   var st = {
     active: YB.store.get('voiceGenMode', 'single') === 'story',
     storyId: '',
@@ -93,30 +94,31 @@
   }
 
   /* ---------- Cast voices ---------- */
+  function lib() { return V.library(); }
+  function allKeys() { var L = lib(); return L ? L.keys() : (V.voices() || []).map(function (b) { return 'builtin:' + b.filename; }); }
   function voiceFor(charId) {
-    var m = castMap[st.storyId] || (castMap[st.storyId] = {});
-    if (!m[charId]) {
-      // Sensible start: narrator gets the single-mode voice, others get distinct built-in voices.
-      var voices = V.voices() || [], used = Object.keys(m).map(function (k) { return m[k].id; });
-      var pick = charId === 'narrator' && V.settings().voiceId ? V.settings().voiceId : '';
-      if (!pick) { var free = voices.find(function (v) { return used.indexOf(v.filename) === -1; }); pick = free ? free.filename : (voices[0] && voices[0].filename) || ''; }
-      if (pick) { m[charId] = { mode: 'predefined', id: pick }; saveCast(); }
-      else return { mode: 'predefined', id: '' };
+    var m = castMap[st.storyId] || (castMap[st.storyId] = {}), cur = m[charId];
+    if (cur && !cur.key && cur.id) {          // older saves: built-in voices carry over, old server references don't
+      if (cur.mode !== 'clone') cur.key = 'builtin:' + cur.id;
+      delete cur.mode; delete cur.id; saveCast();
+    }
+    if (!cur || !cur.key) {
+      // Sensible start: narrator gets the single-voice choice, others get distinct voices (Presets first).
+      var keys = allKeys(), used = Object.keys(m).map(function (k) { return m[k] && m[k].key; }).filter(Boolean);
+      var pick = charId === 'narrator' && V.settings().voiceKey ? V.settings().voiceKey : '';
+      if (!pick) pick = keys.find(function (k) { return used.indexOf(k) === -1; }) || keys[0] || '';
+      if (!pick) return { key: '', set: cur && cur.set };
+      m[charId] = Object.assign(cur || {}, { key: pick }); saveCast();
     }
     return m[charId];
   }
 
   // '' when usable, otherwise why not.
   function voiceProblem(v) {
-    if (!v || !v.id) return 'Choose a voice.';
-    if (v.mode === 'clone') {
-      if (!V.cloneAvailable()) return 'Voice cloning isn\'t available on this job server.';
-      var refs = V.refFiles();
-      if (Array.isArray(refs) && refs.indexOf(v.id) === -1) return 'This reference isn\'t on the server right now — upload it again or pick another.';
-    } else {
-      var voices = V.voices() || [];
-      if (voices.length && !voices.some(function (x) { return x.filename === v.id; })) return 'This voice isn\'t on the server — pick another.';
-    }
+    if (!v || !v.key) return 'Choose a voice.';
+    var L = lib(), ok = L ? L.has(v.key) : null;
+    if (ok === false) return 'This voice isn\'t available any more — pick another one.';
+    if (L && L.groupOf(v.key) !== 'builtin' && !V.cloneAvailable()) return 'This server can\'t take voice uploads — pick a built-in voice.';
     return '';
   }
 
@@ -260,44 +262,40 @@
     if (!s) { host.innerHTML = '<p class="muted small">Pick a story first.</p>'; return; }
     var ids = speakersUsed();
     if (!ids.length) { host.innerHTML = '<p class="muted small">This story has no spoken lines yet.</p>'; return; }
-    var voices = V.voices() || [], refs = V.refFiles(), cloneOk = V.cloneAvailable();
+    var L = lib();
     host.innerHTML = ids.map(function (id) {
       var c = who(s, id), v = voiceFor(id), problem = voiceProblem(v);
       var n = lineSegs().filter(function (g) { return g.speaker === id; }).reduce(function (t, g) { return t + g.lines; }, 0);
-      var options;
-      if (v.mode === 'clone') {
-        options = !cloneOk ? '<option value="">Not available on this server</option>'
-          : !Array.isArray(refs) ? '<option value="' + YB.esc(v.id) + '">Loading references…</option>'
-          : '<option value="">Choose a reference…</option>' + refs.map(function (f) { return '<option value="' + YB.esc(f) + '"' + (f === v.id ? ' selected' : '') + '>' + YB.esc(f) + '</option>'; }).join('');
-      } else {
-        options = !voices.length ? '<option value="' + YB.esc(v.id) + '">' + YB.esc(v.id || 'Loading voices…') + '</option>'
-          : voices.map(function (x) { return '<option value="' + YB.esc(x.filename) + '"' + (x.filename === v.id ? ' selected' : '') + '>' + YB.esc(x.display_name) + '</option>'; }).join('');
-      }
+      var options = L ? L.optionsHtml(v.key) : (V.voices() || []).map(function (x) { var k = 'builtin:' + x.filename; return '<option value="' + YB.esc(k) + '"' + (k === v.key ? ' selected' : '') + '>' + YB.esc(x.display_name) + '</option>'; }).join('');
       return '<div class="cast-voice" style="--c:' + YB.esc(c.color || '#1e7bff') + '">' +
         '<div class="cv-head"><span class="cv-name">' + YB.esc(c.name) + '</span><span class="cv-meta">' + n + ' line' + (n === 1 ? '' : 's') + '</span></div>' +
-        '<div class="cv-row">' +
-        '<select data-cv-mode="' + YB.esc(id) + '" aria-label="Voice type for ' + YB.esc(c.name) + '"><option value="predefined"' + (v.mode === 'predefined' ? ' selected' : '') + '>Built-in voice</option><option value="clone"' + (v.mode === 'clone' ? ' selected' : '') + '>Clone</option></select>' +
-        '<select data-cv-voice="' + YB.esc(id) + '" aria-label="Voice for ' + YB.esc(c.name) + '">' + options + '</select>' +
-        '</div>' + (problem && v.id ? '<div class="cv-warn">' + YB.esc(problem) + '</div>' : '') +
-        (v.mode === 'clone' ? uploadHtml(id, c.name, cloneOk) : '') +
+        '<select data-cv-voice="' + YB.esc(id) + '" aria-label="Voice for ' + YB.esc(c.name) + '"' + (st.run || st.preparing ? ' disabled' : '') + '>' + (options || '<option value="">Loading voices…</option>') + '</select>' +
+        (problem && v.key ? '<div class="cv-warn">' + YB.esc(problem) + '</div>' : '') +
+        importHtml(id, c.name) +
         settingsHtml(id, c.name, v) + '</div>';
     }).join('');
   }
 
-  // Per-character reference upload (Clone only) — same steps as the single
-  // narrator: choose a file, then Upload reference. Same upload + checks.
-  var upNotes = {};   // charId → { text, level }
-  var picked = {};    // charId → File chosen but not uploaded yet
+  // Per-character "Import a voice": choose file → Import (saved to My Voices on
+  // this device and picked for this character). Optional share with everyone.
+  var upNotes = {};    // charId → { text, level }
+  var picked = {};     // charId → File chosen, not imported yet
+  var openImport = {}; // charId → import row open
+  var shareFor = {};   // charId → share checkbox
   function sizeLabel(n) { return n < 1048576 ? Math.max(1, Math.round(n / 1024)) + ' KB' : (n / 1048576).toFixed(1) + ' MB'; }
-  function uploadHtml(id, name, cloneOk) {
-    var off = !!st.run || V.isBusy() || V.remoteBusy() || !cloneOk, note = upNotes[id], f = picked[id];
+  function importHtml(id, name) {
+    var cid = YB.esc(id);
+    if (!openImport[id]) return '<button type="button" class="cv-import-toggle" data-cv-import-open="' + cid + '">➕ Import a voice for ' + YB.esc(name) + '</button>';
+    var off = !!st.run || !!importing[id], note = upNotes[id], f = picked[id];
     return '<div class="cv-upload">' +
       '<div class="cv-up-row">' +
       '<label class="btn btn-ghost btn-xs cv-pick' + (off ? ' is-disabled' : '') + '">📁 Choose file' +
-      '<input class="cv-file-input" type="file" accept=".wav,.mp3,audio/wav,audio/x-wav,audio/mpeg" data-cv-file="' + YB.esc(id) + '" aria-label="Choose a reference clip for ' + YB.esc(name) + '"' + (off ? ' disabled' : '') + '></label>' +
-      '<button type="button" class="btn btn-xs cv-send" data-cv-upload="' + YB.esc(id) + '" aria-label="Upload reference for ' + YB.esc(name) + '"' + (off || !f ? ' disabled' : '') + '>⬆️ Upload</button>' +
+      '<input class="cv-file-input" type="file" accept=".wav,.mp3,audio/wav,audio/x-wav,audio/mpeg" data-cv-file="' + cid + '" aria-label="Choose a voice clip for ' + YB.esc(name) + '"' + (off ? ' disabled' : '') + '></label>' +
+      '<button type="button" class="btn btn-xs cv-send" data-cv-upload="' + cid + '" aria-label="Import voice for ' + YB.esc(name) + '"' + (off || !f ? ' disabled' : '') + '>⬆️ Import</button>' +
+      '<button type="button" class="btn btn-ghost btn-xs" data-cv-import-close="' + cid + '" aria-label="Close import">✕</button>' +
       '</div>' +
       '<div class="cv-file-name">Selected: <b>' + (f ? YB.esc(f.name) + ' (' + sizeLabel(f.size) + ')' : 'None') + '</b></div>' +
+      '<label class="cv-share"><input type="checkbox" data-cv-share="' + cid + '"' + (shareFor[id] ? ' checked' : '') + (off ? ' disabled' : '') + '> 🌐 Share with everyone — it\'s my voice or I have permission</label>' +
       (note ? '<div class="cv-up-note" data-level="' + YB.esc(note.level) + '">' + YB.esc(note.text) + '</div>' : '') +
       '</div>';
   }
@@ -307,29 +305,33 @@
   function pickFor(id, file) {
     if (!file) return;
     picked[id] = file;
-    setUpNote(id, 'Ready — tap Upload.', '');
+    setUpNote(id, 'Ready — tap Import. Off-share voices stay private on this device.', '');
     V.clipLength(file).then(function (r) {
       if (picked[id] !== file || !r.text) return;
-      setUpNote(id, 'Ready — tap Upload. ' + r.text, r.level === 'warn' ? 'warn' : '');
+      setUpNote(id, 'Ready — tap Import. ' + r.text, r.level === 'warn' ? 'warn' : '');
     });
   }
 
-  function uploadFor(id, file) {
-    if (!file || st.run || V.isBusy() || V.remoteBusy()) return;
-    var lenText = '';
-    V.clipLength(file).then(function (r) {
-      lenText = r.text || '';
-      return V.sendReference(file, function (msg) { setUpNote(id, msg + (lenText ? '  ' + lenText : ''), 'busy'); });
-    }).then(function (serverName) {
+  var importing = {};
+  function importFor(id, file) {
+    var L = lib();
+    if (!file || st.run || !L || importing[id]) return;
+    var share = !!shareFor[id];
+    importing[id] = true;
+    setUpNote(id, 'Saving "' + file.name + '" to My Voices…', 'busy');
+    L.importVoice(file, '', share).then(function (res) {
+      importing[id] = false;
       var map = castMap[st.storyId] || (castMap[st.storyId] = {});
-      map[id] = { mode: 'clone', id: serverName, set: map[id] && map[id].set };     // this character now uses the new clone
+      map[id] = Object.assign(map[id] || {}, { key: res.key });     // this character now uses the new voice
       saveCast();
       if (picked[id] === file) delete picked[id];
-      setUpNote(id, '✓ Uploaded and ready: ' + serverName + (lenText ? '  ' + lenText : ''), lenText.indexOf('⚠️') === 0 ? 'warn' : 'ok');
+      shareFor[id] = false;
+      setUpNote(id, '✓ Imported "' + res.voice.name + '" to My Voices and picked it.' + (res.length.text ? '  ' + res.length.text : ''), res.length.level === 'warn' ? 'warn' : 'ok');
+      if (share) L.shareMine(res.voice.id);
       renderAll();
     }, function (err) {
+      importing[id] = false;
       setUpNote(id, err.message, 'error');
-      if (err.raw || err.kind !== 'upload') V.showNotice(V.errorBox(), err);
     });
   }
 
@@ -434,7 +436,7 @@
       segs.forEach(function (g, i) {
         if (g.type !== 'line' || g.status === 'failed') return;
         if (g.status === 'done' && blobs[i]) { g.blob = blobs[i]; g.url = URL.createObjectURL(blobs[i]); return; }
-        if (!g.voice) g.voice = JSON.parse(JSON.stringify(voiceFor(g.speaker)));
+        if (!g.voice || !g.voice.id) { g.status = 'failed'; g.error = V.makeErr('validation', 'This line lost its voice — press Retry failed lines.'); return; }
         if (g.jobId) { g.status = g.status === 'queued' ? 'queued' : 'running'; run.inflight.push(i); }
         else if (g.handedAt) { g.status = 'queued'; run.inflight.push(i); }   // job ID comes from the worker (checked on the next poll)
         else { g.status = 'idle'; run.queue.push(i); }
@@ -541,7 +543,7 @@
   }
 
   function generate(onlyFailed) {
-    if (st.run || V.isBusy()) return;
+    if (st.run || st.preparing || V.isBusy()) return;
     if (V.remoteBusy()) { YB.toast('Another user is generating — this unlocks when the server is free'); return; }
     var box = V.errorBox();
     V.showNotice(box, null);
@@ -550,29 +552,38 @@
     var bad = problems();
     if (bad.length) { V.showNotice(box, V.makeErr('validation', bad[0]), 'warn'); return; }
 
-    // Clone references must be in the server's list right now.
-    var clones = [];
-    speakersUsed().forEach(function (id) { var v = voiceFor(id); if (v.mode === 'clone' && clones.indexOf(v.id) === -1) clones.push(v.id); });
-    var check = clones.length ? V.verifyReferences(clones) : Promise.resolve([]);
-    $('generateBtn').disabled = true;
-    check.then(function (missing) {
-      if (missing.length) {
-        renderCast(); V.updateControls();
-        V.showNotice(box, V.makeErr('ref-missing', 'Reference file "' + missing[0] + '" isn\'t on the server right now.'));
-        return;
-      }
-      start(onlyFailed);
+    // Get every voice ready on the server first (library voices are uploaded
+    // once per server session); built-in voices need nothing.
+    var used = [], L = lib(), resolved = {};
+    speakersUsed().forEach(function (id) { var k = voiceFor(id).key; if (used.indexOf(k) === -1) used.push(k); });
+    st.preparing = true; renderCast(); V.updateControls();
+    var chain = Promise.resolve();
+    used.forEach(function (k) {
+      chain = chain.then(function () {
+        return (L ? L.resolve(k, function (msg) { $('storyRunNote').textContent = msg; }) : Promise.resolve({ mode: 'predefined', id: k.replace(/^builtin:/, '') }))
+          .then(function (r) { resolved[k] = r; });
+      });
+    });
+    chain.then(function () {
+      st.preparing = false; $('storyRunNote').textContent = '';
+      start(onlyFailed, resolved);
+      renderCast(); V.updateControls();
+    }, function (err) {
+      st.preparing = false; $('storyRunNote').textContent = '';
+      renderCast(); V.updateControls();
+      V.showNotice(box, V.networkError(err), err.kind === 'validation' || err.kind === 'voice-missing' ? 'warn' : undefined);
     });
   }
 
-  function start(onlyFailed) {
+  function start(onlyFailed, resolved) {
     var queue = [];
     st.segs.forEach(function (g, i) {
       if (g.type !== 'line') return;
       if (onlyFailed && g.status !== 'failed') return;
       if (!onlyFailed) { if (g.url) URL.revokeObjectURL(g.url); g.url = null; g.blob = null; }
       if (g.status === 'done' && onlyFailed) return;
-      g.voice = JSON.parse(JSON.stringify(voiceFor(g.speaker)));
+      var v = voiceFor(g.speaker);
+      g.voice = Object.assign({}, resolved[v.key], { key: v.key, set: v.set ? JSON.parse(JSON.stringify(v.set)) : undefined });   // { mode, id, key, set }
       g.status = 'idle'; g.error = null; g.jobId = null; g.fails = 0; g.handedAt = 0;
       queue.push(i);
     });
@@ -793,6 +804,7 @@
 
   function fail(i, err) {
     var run = st.run, g = st.segs[i];
+    if (err && err.kind === 'ref-missing' && g.voice && g.voice.key && lib()) lib().forget(g.voice.key);
     g.status = 'failed'; g.error = err;
     if (run) run.inflight = run.inflight.filter(function (x) { return x !== i; });
     saveRun();
@@ -928,7 +940,7 @@
     $('storyMerge').addEventListener('change', function () { opts.merge = this.checked; saveOpts(); rebuild(); });
     $('storyRetryBtn').addEventListener('click', function () { generate(true); });
     $('castRefreshBtn').addEventListener('click', function () {
-      Promise.all([V.loadVoices(true), V.loadReferences(true)]).then(function () { renderCast(); V.updateControls(); YB.toast('Voice lists refreshed'); });
+      Promise.all([V.loadVoices(true), lib() ? lib().refresh(true) : null]).then(function () { renderCast(); V.updateControls(); YB.toast('Voice lists refreshed'); });
     });
 
     var castHost = $('castRows');
@@ -936,16 +948,12 @@
       if (e.target.matches('[data-cs]')) { updateSetting(e.target); if (e.target.type === 'number') e.target.value = fullSet(charEntry(e.target.getAttribute('data-cs-char')).set).seed; return; }
       var up = e.target.getAttribute('data-cv-file');
       if (up) { var f = e.target.files && e.target.files[0]; e.target.value = ''; pickFor(up, f); return; }
-      var m = e.target.getAttribute('data-cv-mode'), v = e.target.getAttribute('data-cv-voice');
+      var sh = e.target.getAttribute('data-cv-share');
+      if (sh) { shareFor[sh] = e.target.checked; return; }
+      var v = e.target.getAttribute('data-cv-voice');
+      if (!v) return;
       var map = castMap[st.storyId] || (castMap[st.storyId] = {});
-      if (m) {
-        var mode = e.target.value;
-        var first = mode === 'clone' ? ((V.refFiles() || [])[0] || '') : ((V.voices() || [])[0] || {}).filename || '';
-        map[m] = { mode: mode, id: first, set: map[m] && map[m].set };
-        if (mode === 'clone') V.refreshListsIfStale('refs'); else { delete picked[m]; delete upNotes[m]; }
-      } else if (v) {
-        map[v] = { mode: (map[v] && map[v].mode) || 'predefined', id: e.target.value, set: map[v] && map[v].set };
-      } else return;
+      map[v] = Object.assign(map[v] || {}, { key: e.target.value });
       saveCast(); renderAll();
     });
     castHost.addEventListener('input', function (e) { if (e.target.matches('input[type=range][data-cs]')) updateSetting(e.target); });
@@ -960,12 +968,16 @@
         if (rmap[rid]) { delete rmap[rid].set; saveCast(); }
         renderCast(); return;
       }
+      var io = e.target.closest('[data-cv-import-open]');
+      if (io) { openImport[io.getAttribute('data-cv-import-open')] = true; renderCast(); return; }
+      var ic = e.target.closest('[data-cv-import-close]');
+      if (ic) { var xid = ic.getAttribute('data-cv-import-close'); openImport[xid] = false; delete picked[xid]; delete upNotes[xid]; renderCast(); return; }
       var b = e.target.closest('[data-cv-upload]'); if (!b || b.disabled) return;
       var id = b.getAttribute('data-cv-upload');
-      uploadFor(id, picked[id]);
+      importFor(id, picked[id]);
     });
     castHost.addEventListener('focusin', function (e) {
-      if (e.target.matches('[data-cv-voice]')) V.refreshListsIfStale('both');
+      if (e.target.matches('[data-cv-voice]')) { V.refreshListsIfStale('voices'); if (lib()) lib().refreshIfStale(); }
     });
 
     $('storySegments').addEventListener('click', function (e) {
@@ -996,6 +1008,7 @@
     $('storyParallel').value = String(opts.parallel);
     $('storyMerge').checked = !!opts.merge;
     bind();
+    if (lib()) lib().onChange(function () { if (st.active && !st.run && !st.preparing) renderAll(); });
     if ('serviceWorker' in navigator) {
       navigator.serviceWorker.ready.then(function (r) { swReg = r; }, function () {});
       navigator.serviceWorker.addEventListener('message', onSwMessage);
@@ -1003,7 +1016,7 @@
     V.registerStory({
       active: function () { return st.active; },
       running: function () { return !!st.run; },
-      canGenerate: function () { return !st.run && problems().length === 0; },
+      canGenerate: function () { return !st.run && !st.preparing && problems().length === 0; },
       generate: function () { generate(false); },
       cancel: cancel,
       summary: summary,

@@ -17,9 +17,9 @@
 
   /* ---------- Constants ---------- */
   var DEFAULT_TAGS = ['laugh', 'chuckle', 'sigh', 'gasp', 'cough', 'clear throat', 'sniff', 'groan', 'shush'];
-  var SETTINGS_VERSION = 4;
+  var SETTINGS_VERSION = 5;
   var DEFAULTS = {
-    mode: 'predefined', voiceId: '', reference: '',
+    voiceKey: '',          // 'builtin:<file>' | 'preset:<file>' | 'shared:<file>' | 'mine:<id>' (js/voice-library.js)
     format: 'wav', chunk: 400, temperature: 0.75, speed: 1, seed: 0, split: true,
     exaggeration: 0.5, cfg: 0.5, language: 'en', preferredModel: ''
   };
@@ -126,6 +126,9 @@
       delete saved.delivery;
     }
     if (v < 3 && saved.temperature === 0.8) saved.temperature = DEFAULTS.temperature; // new safer default
+    // v5: one voice picker. A built-in voice carries over; old server references don't.
+    if (!saved.voiceKey && saved.voiceId && saved.mode !== 'clone') saved.voiceKey = 'builtin:' + saved.voiceId;
+    delete saved.mode; delete saved.voiceId; delete saved.reference;
     saved.v = SETTINGS_VERSION;
     var s = Object.assign({}, DEFAULTS, saved);
     s.speed = clampSpeed(s.speed);   // e.g. an old 0.90 / 0.95 becomes 0.97
@@ -164,6 +167,7 @@
 
   function $(id) { return document.getElementById(id); }
   var saveSettings = YB.debounce(function () { YB.store.set('voice', settings); }, 250);
+  function saveSettingsNow() { YB.store.set('voice', settings); }   // closing the app must never drop a change
   var saveScript = YB.debounce(function () { YB.store.set('voiceScript', $('scriptText').value); }, 400);
 
   /* ---------- Small helpers ---------- */
@@ -338,11 +342,6 @@
   }
   function onlineLabel() { return app.source === 'manual' ? 'Connected' : 'Online'; }
 
-  // A clone reference counts only once it's in the list the server returned.
-  function refReady() {
-    return !!settings.reference && Array.isArray(app.refFiles) && app.refFiles.indexOf(settings.reference) !== -1;
-  }
-
   function isSwitching() { return !!app.switching || app.remoteSwitching; }
 
   function updateControls() {
@@ -350,7 +349,7 @@
     var switching = isSwitching();
     var locked = busy || switching;                      // no voice/model changes mid-job or mid-switch
     var story = storyHooks && storyHooks.active();
-    var blocked = story ? !storyHooks.canGenerate() : (settings.mode === 'clone' && !refReady());
+    var blocked = story ? !storyHooks.canGenerate() : !settings.voiceKey;
     var remote = app.remoteBusy && !busy;                // someone else's generation is using the server
     $('generateBtn').disabled = locked || remote || app.uploading || app.preparing || blocked;
     $('generateBtn').textContent = busy ? '⏳ Generating…' : switching ? '⏳ Switching model…' : remote ? (app.ownBg ? '⏳ Server finishing…' : '⏳ Another user is generating…') : story ? '🎭 Generate Story Audio' : '🎙️ Generate Speech';
@@ -358,17 +357,12 @@
     $('testBtn').disabled = locked;
     $('refreshBackendBtn').disabled = busy;
     $('refreshVoicesBtn').disabled = locked || remote;
-    $('refreshRefsBtn').disabled = locked || remote;
     $('againBtn').disabled = locked || remote;
     $('authTunnelBtn').hidden = !isLocalTunnel(app.backend);
     $('openBackendBtn').disabled = !app.backend;
     $('openDocsBtn').disabled = !app.backend;
-    $('uploadRefBtn').disabled = locked || remote || app.uploading || !app.cloneAvailable;
-    $('voiceSampleFile').disabled = locked;
-    $('cloneUnavailable').hidden = app.cloneAvailable;
-    $('predefinedVoiceSelect').disabled = locked;
-    $('referenceSelect').disabled = locked;
-    document.querySelectorAll('#voiceModeSeg button, #presetChips button').forEach(function (b) { b.disabled = locked; });
+    $('voicePick').disabled = locked || app.preparing;
+    document.querySelectorAll('#presetChips button').forEach(function (b) { b.disabled = locked; });
     renderEngineCards();
   }
 
@@ -814,30 +808,47 @@
         err = networkError(err);
         // Chatterbox busy (or a hiccup): keep the last list this server gave us.
         if (useCachedVoices()) { if (!quiet) YB.toast('Couldn\'t refresh — showing the last loaded voice list'); return; }
-        $('predefinedVoiceSelect').innerHTML = '<option value="">Voices unavailable — press Refresh Voices</option>';
+        app.voicesFailed = true; renderPicker();
         $('voiceCount').textContent = '';
         if (!quiet) showNotice($('genError'), err);
       });
   }
 
   function renderVoices(voices, note) {
-    var sel = $('predefinedVoiceSelect');
-    if (!voices.length) {
-      sel.innerHTML = '<option value="">No predefined voices on the server</option>';
-      $('voiceCount').textContent = '';
-      return;
-    }
-    sel.innerHTML = voices.map(function (v) {
-      return '<option value="' + YB.esc(v.filename) + '">' + YB.esc(v.display_name) + '</option>';
-    }).join('');
-    var ids = voices.map(function (v) { return v.filename; });
-    if (settings.voiceId && ids.indexOf(settings.voiceId) !== -1) sel.value = settings.voiceId;
-    else { settings.voiceId = sel.value; saveSettings(); }
     app.voices = voices;
-    app.voicesLoaded = true;
-    $('voiceCount').textContent = note;
-    renderSummary();
+    app.voicesLoaded = true; app.voicesFailed = false;
+    $('voiceCount').textContent = voices.length ? note : 'No built-in voices on the server';
+    renderPicker();
     if (storyHooks) storyHooks.listsChanged();
+  }
+
+  /* ---------- Voice picker: Presets · Our Voices · My Voices · Chatterbox built-in ---------- */
+  var library = null;   // js/voice-library.js
+  function renderPicker() {
+    var sel = $('voicePick');
+    if (!library) {    // library script missing: built-in voices only
+      sel.innerHTML = app.voices.map(function (v) { return '<option value="builtin:' + YB.esc(v.filename) + '">' + YB.esc(v.display_name) + '</option>'; }).join('') || '<option value="">Connect to load voices…</option>';
+    } else sel.innerHTML = library.optionsHtml(settings.voiceKey);
+    // Keep the saved voice; if it's definitely gone, fall back to the first one listed.
+    if (settings.voiceKey && library && library.has(settings.voiceKey) === false) settings.voiceKey = '';
+    if (!settings.voiceKey || !sel.querySelector('option[value="' + cssEsc(settings.voiceKey) + '"]')) {
+      var first = sel.querySelector('option[value]:not([value=""]):not([disabled])');
+      if (first && (!settings.voiceKey || (library && library.has(settings.voiceKey) === false))) settings.voiceKey = first.value;
+    }
+    if (settings.voiceKey) sel.value = settings.voiceKey;
+    if (library && library.counts()) $('voiceCount').textContent = library.counts();
+    saveSettings();
+    renderPickNote();
+    renderSummary(); updateControls();
+  }
+  function cssEsc(v) { return String(v).replace(/["\\]/g, '\\$&'); }
+  function renderPickNote(text) {
+    var el = $('voicePickNote'); if (!el) return;
+    el.textContent = text || (library ? library.note(settings.voiceKey) : '');
+  }
+  function selectVoice(key) {
+    settings.voiceKey = key || ''; saveSettingsNow();
+    renderPicker();
   }
 
   function useCachedVoices() {
@@ -865,8 +876,7 @@
       .catch(function (err) {
         err = networkError(err);
         if (err.status === 404 || err.status === 405) {
-          app.cloneAvailable = false; app.refFiles = []; updateControls();
-          $('referenceSelect').innerHTML = '<option value="">Not available on this job server</option>';
+          app.cloneAvailable = false; app.refFiles = []; updateControls(); renderPicker();
           return null;
         }
         if (!quiet) showNotice($('genError'), err);
@@ -874,27 +884,9 @@
       });
   }
 
-  function renderReferences(files) {
-    var sel = $('referenceSelect');
-    sel.innerHTML = '<option value="">' + (files.length ? 'Choose a saved reference…' : 'No references on the server yet') + '</option>' +
-      files.map(function (f) { return '<option value="' + YB.esc(f) + '">' + YB.esc(f) + '</option>'; }).join('');
-    if (settings.reference && files.indexOf(settings.reference) !== -1) sel.value = settings.reference;
-    else if (settings.reference) {
-      // the stored filename is gone (new Colab session) — forget it
-      setReference('');
-      setUploadState('idle', 'Your previous reference isn\'t on this server session. Upload it again.');
-    }
-    if (storyHooks) storyHooks.listsChanged();
-  }
-
-  function setReference(name) {
-    settings.reference = name || '';
-    saveSettings();
-    $('uploadedReferenceName').textContent = settings.reference || 'None';
-    if ($('referenceSelect').value !== settings.reference) $('referenceSelect').value = settings.reference;
-    renderSummary();
-    updateControls();
-  }
+  // Server reference files aren't listed for picking any more (the voice
+  // library uploads what it needs); the list is still used to verify uploads.
+  function renderReferences() { if (storyHooks) storyHooks.listsChanged(); }
 
   // Lists change on the server (uploads from elsewhere, a Colab restart), so
   // re-fetch them whenever they're about to be used and are a little old.
@@ -903,12 +895,6 @@
     var now = Date.now();
     if (which !== 'voices' && now - app.refsAt > LIST_STALE_MS) { app.refsAt = now; loadReferences(true); }
     if (which !== 'refs' && now - app.voicesAt > LIST_STALE_MS) { app.voicesAt = now; loadVoices(true); }
-  }
-
-  function setUploadState(state, text) {
-    var el = $('uploadState');
-    el.setAttribute('data-state', state);
-    el.textContent = text;
   }
 
   // POST multipart "files" → server stores it under a (sanitized) filename →
@@ -964,46 +950,7 @@
         function (err) { app.uploading = false; updateControls(); throw networkError(err); });
   }
 
-  function uploadReference() {
-    var input = $('voiceSampleFile');
-    var file = input.files && input.files[0];
-    if (app.uploading || app.generating || isSwitching()) return Promise.resolve(null);
-    return sendReference(file, function (msg) { setUploadState('busy', msg); })
-      .then(function (serverName) {
-        setReference(serverName); // select the new file in the refreshed list
-        setUploadState('done', '✓ Uploaded and ready: ' + serverName);
-        showNotice($('genError'), null);
-        return serverName;
-      }, function (err) {
-        setUploadState('error', err.message);
-        if (err.kind !== 'upload' || file) showNotice($('genError'), err);
-        return null;
-      });
-  }
-
-  function clearReference() {
-    setReference('');
-    $('voiceSampleFile').value = '';
-    $('localFileName').textContent = 'None';
-    setUploadState('idle', 'No reference uploaded yet.');
-    renderSummary();
-  }
-
   /* ---------- Voice mode / settings ---------- */
-  function setMode(mode) {
-    settings.mode = mode === 'clone' ? 'clone' : 'predefined'; saveSettings();
-    $('voiceModeSeg').querySelectorAll('[data-mode]').forEach(function (b) {
-      var on = b.getAttribute('data-mode') === settings.mode;
-      b.classList.toggle('on', on); b.setAttribute('aria-checked', on ? 'true' : 'false');
-    });
-    $('predefinedVoiceSection').hidden = settings.mode !== 'predefined';
-    $('cloneVoiceSection').hidden = settings.mode !== 'clone';
-    renderSummary();
-    updateControls();
-    // Switching modes shows the server's current list, not an old one.
-    refreshListsIfStale(settings.mode === 'clone' ? 'refs' : 'voices');
-  }
-
   function fillSettings() {
     $('outputFormat').value = settings.format;
     $('chunkSize').value = settings.chunk;
@@ -1251,17 +1198,13 @@
   function renderSummary() {
     var el = $('genSummary'); if (!el) return;
     if (storyHooks && storyHooks.active()) { el.textContent = storyHooks.summary(); return; }
-    var voice = settings.mode === 'clone'
-      ? (settings.reference ? 'Clone: ' + settings.reference : 'Clone: no reference yet')
-      : ($('predefinedVoiceSelect').selectedOptions[0] && $('predefinedVoiceSelect').value ? $('predefinedVoiceSelect').selectedOptions[0].textContent : 'No voice selected');
+    var voice = settings.voiceKey ? (library ? library.label(settings.voiceKey) : settings.voiceKey.replace(/^builtin:/, '')) : 'No voice selected';
     el.textContent = voice + ' · ' + String(settings.format).toUpperCase() + (activeModel() ? ' · ' + (MODEL_NAMES[activeModel()] || activeModel()) : '');
   }
 
-  function buildRequest() {
-    return buildGenerationPayload($('scriptText').value, {
-      mode: settings.mode,
-      id: settings.mode === 'predefined' ? $('predefinedVoiceSelect').value : settings.reference
-    });
+  // `voice` is what the library resolved: { mode: 'predefined'|'clone', id }.
+  function buildRequest(voice) {
+    return buildGenerationPayload($('scriptText').value, voice);
   }
 
   var PHASES = {
@@ -1328,31 +1271,24 @@
     if (!text) { showNotice($('genError'), makeErr('validation', 'Add some narration to the script first.'), 'warn'); $('scriptText').focus(); return; }
     if (!prepareText(text)) { showNotice($('genError'), makeErr('validation', 'The script only has reaction tags — add some words to say.'), 'warn'); return; }
 
-    var ready = Promise.resolve(true);
-    if (settings.mode === 'predefined') {
-      if (!$('predefinedVoiceSelect').value) { showNotice($('genError'), makeErr('voice-missing', 'Choose a predefined voice first.'), 'warn'); return; }
-    } else if (!app.cloneAvailable) {
-      showNotice($('genError'), makeErr('clone-unavailable', 'Voice cloning isn\'t available on this job server.'), 'warn'); return;
-    } else if (!settings.reference) {
-      showNotice($('genError'), makeErr('ref-missing', 'Choose a reference file first — upload one or pick a saved one.'), 'warn'); return;
-    } else {
-      // Clone jobs only go out for a reference the TTS engine can see right now.
-      ready = verifyReferences([settings.reference]).then(function (missing) {
-        if (!missing.length) return true;
-        setReference('');
-        setUploadState('error', 'That reference isn\'t on the server any more — upload it again.');
-        showNotice($('genError'), makeErr('ref-missing', 'Reference file "' + missing[0] + '" isn\'t on the server right now.'));
-        return false;
-      });
-    }
+    if (!settings.voiceKey) { showNotice($('genError'), makeErr('voice-missing', 'Choose a voice first.'), 'warn'); return; }
 
+    var key = settings.voiceKey, resolved = null;
     app.preparing = true; updateControls();
-    ready.then(function (ok) {
-      return ok ? checkOrphan() : false;
+    var ready = library ? library.resolve(key, function (msg) { renderPickNote(msg); })
+      : Promise.resolve({ mode: 'predefined', id: key.replace(/^builtin:/, '') });
+    ready.then(function (voice) {
+      resolved = voice; renderPickNote();
+      return checkOrphan();
+    }, function (err) {
+      renderPickNote();
+      showNotice($('genError'), networkError(err), err.kind === 'validation' ? 'warn' : undefined);
+      return false;
     }).then(function (ok) {
       app.preparing = false; updateControls();
-      if (!ok || app.generating) return;
-      runJob(buildRequest());
+      if (!ok || app.generating || !resolved) return;
+      app.jobVoiceKey = key;
+      runJob(buildRequest(resolved));
     });
   }
 
@@ -1492,7 +1428,7 @@
   function jobFailure(text, voiceMode) {
     text = String(text || '');
     console.error('[Voice Studio] job failed:', text.slice(0, 4000));
-    var e = summarizeFailure(text, voiceMode || settings.mode);
+    var e = summarizeFailure(text, voiceMode || (/^builtin:/.test(settings.voiceKey) ? 'predefined' : 'clone'));
     e.raw = text || '(the server returned no error text)';
     return e;
   }
@@ -1518,7 +1454,7 @@
     clearTimeout(app.pollTimer);
     app.job = null; saveActiveJob();
     if (err) {
-      if (err.kind === 'ref-missing') { setReference(''); setUploadState('error', 'Reference missing on the server — upload it again.'); }
+      if (err.kind === 'ref-missing' && library && app.jobVoiceKey) library.forget(app.jobVoiceKey);   // re-uploaded next time
       if (err.kind === 'voice-missing') loadVoices(true);
       showNotice($('genError'), err);
     }
@@ -1672,18 +1608,13 @@
     });
   }
 
-  function checkClipLength(file) {
-    clipLength(file).then(function (r) {
-      var note = $('refDurationNote');
-      if (!r.text) return;
-      note.textContent = r.text; note.hidden = false;
-    });
-  }
-
   /* ---------- Shared core for Story (multi-voice) mode — js/voice-story.js ---------- */
   var storyHooks = null;
   window.YBVoice = {
     registerStory: function (hooks) { storyHooks = hooks; updateControls(); },
+    registerLibrary: function (lib) { library = lib; renderPicker(); },
+    library: function () { return library; },
+    selectVoice: selectVoice, renderPicker: renderPicker, bytesLabel: bytesLabel,
     call: call, route: route, jobRoute: jobRoute, readJson: readJson, httpError: httpError,
     networkError: networkError, makeErr: makeErr, jobFailure: jobFailure, showNotice: showNotice,
     verifyReferences: verifyReferences, refreshListsIfStale: refreshListsIfStale,
@@ -1789,29 +1720,11 @@
     $('importBtn').addEventListener('click', function () { importFromStory($('importStory').value, $('importSpeaker').value); });
 
     // voice
-    $('voiceModeSeg').addEventListener('click', function (e) { var b = e.target.closest('[data-mode]'); if (b) setMode(b.getAttribute('data-mode')); });
-    $('predefinedVoiceSelect').addEventListener('change', function () { settings.voiceId = this.value; saveSettings(); renderSummary(); });
-    // Opening a list re-fetches it if it's a little old, so new server files show up without a manual refresh.
+    $('voicePick').addEventListener('change', function () { settings.voiceKey = this.value; saveSettingsNow(); renderPickNote(); renderSummary(); updateControls(); });
     ['focus', 'pointerdown'].forEach(function (ev) {
-      $('predefinedVoiceSelect').addEventListener(ev, function () { refreshListsIfStale('voices'); });
-      $('referenceSelect').addEventListener(ev, function () { refreshListsIfStale('refs'); });
+      $('voicePick').addEventListener(ev, function () { refreshListsIfStale('voices'); if (library) library.refreshIfStale(); });
     });
-    $('refreshVoicesBtn').addEventListener('click', function () { loadVoices(false); });
-    $('voiceSampleFile').addEventListener('change', function () {
-      var f = this.files && this.files[0];
-      $('localFileName').textContent = f ? f.name + ' (' + bytesLabel(f.size) + ')' : 'None';
-      $('refDurationNote').hidden = true;
-      if (!f) return;
-      setUploadState('idle', 'Ready to upload — click Upload Reference.');
-      checkClipLength(f);
-    });
-    $('uploadRefBtn').addEventListener('click', uploadReference);
-    $('clearRefBtn').addEventListener('click', clearReference);
-    $('refreshRefsBtn').addEventListener('click', function () { loadReferences(false); });
-    $('referenceSelect').addEventListener('change', function () {
-      setReference(this.value);
-      if (this.value) setUploadState('done', '✓ Using saved reference ' + this.value);
-    });
+    $('refreshVoicesBtn').addEventListener('click', function () { loadVoices(false); if (library) library.refresh(true); });
 
     // settings
     $('outputFormat').addEventListener('change', function () { settings.format = this.value; saveSettings(); renderSummary(); });
@@ -1850,7 +1763,9 @@
     });
 
     // lifecycle
+    window.addEventListener('pagehide', saveSettingsNow);
     document.addEventListener('visibilitychange', function () {
+      if (document.hidden) saveSettingsNow();
       if (!document.hidden && app.job) { clearTimeout(app.pollTimer); pollJob(); return; }
       if (document.hidden || app.generating || app.state === 'connecting') return;
       if (isDown()) loadBackendConfig(); else if (app.backend) checkHealth({ silent: true });
@@ -1860,11 +1775,9 @@
   function init() {
     YB.store.remove('voiceBackend');   // retired: tunnel addresses change every session
     fillSettings();
-    setMode(settings.mode);
     saveSettings();
     $('scriptText').value = YB.store.get('voiceScript', '');
-    $('uploadedReferenceName').textContent = settings.reference || 'None';
-    if (settings.reference) setUploadState('done', '✓ Using ' + settings.reference + ' (checking it\'s still on the server…)');
+    useCachedVoices() || renderPicker();
     applyModelUI();
     bind();
     renderImport();
