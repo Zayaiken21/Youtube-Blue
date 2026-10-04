@@ -135,6 +135,7 @@
           </div>
 
           <div id="cloneVoiceSection" style="margin-top:14px" hidden>
+            <div class="notice warn" id="cloneUnavailable" hidden style="margin:0 0 12px"><b>Voice cloning isn't reachable through your job server yet.</b>It needs pass-through routes for uploads and the reference list. Predefined voices work normally.</div>
             <p class="muted small" style="margin:0 0 10px">Upload 5–30 seconds of clean speech (WAV or MP3), one speaker, no music. Only clone voices you own or have permission to use.</p>
             <label class="field"><span>Reference audio</span><input id="voiceSampleFile" type="file" accept=".wav,.mp3,audio/wav,audio/x-wav,audio/mpeg"></label>
             <div class="small muted" style="margin-top:6px">Selected: <b id="localFileName">None</b></div>
@@ -155,7 +156,7 @@
         <!-- ===== Settings ===== -->
         <section class="card" aria-labelledby="setTitle">
           <h2 id="setTitle">Voice settings</h2>
-          <div class="field">
+          <div class="field" id="deliveryField">
             <span>Delivery</span>
             <div class="seg" id="deliverySeg" role="radiogroup" aria-label="Delivery">
               <button type="button" role="radio" data-delivery="stream" class="on" aria-checked="true">📡 Stream (WAV)</button>

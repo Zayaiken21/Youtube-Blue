@@ -2,8 +2,11 @@
    Youtube Blue — voice.js
    Controls the Voice Studio page only: Chatterbox backend
    discovery + health, predefined voices, voice-clone references,
-   script editor, /tts generation (streamed or single file),
-   playback and download.
+   script editor, generation, playback and download.
+   Two backend types:
+     job    — Youtube Blue job API (backend-config "tts_mode": "async-job"):
+              POST /jobs → poll GET /jobs/{id} → GET /jobs/{id}/audio
+     direct — Chatterbox itself: POST /tts (streamed WAV or single file)
    Saved under storage keys "voice", "voiceScript",
    "voiceBackend" (last good address) and "voiceOverride".
    ========================================================= */
@@ -22,6 +25,13 @@
   var HEALTH_TIMEOUT_MS = 45000;                // health checks only — never /tts
   var CONFIG_TIMEOUT_MS = 20000;
   var UPLOAD_TIMEOUT_MS = 180000;
+  var SHORT_TIMEOUT_MS = 60000;                 // job API calls that return immediately
+  var AUDIO_TIMEOUT_MS = 600000;                // fetching a finished audio file
+  var JOB_POLL_MS = 3000, JOB_POLL_MAX_MS = 15000, JOB_MAX_FAILS = 25;
+  // Chatterbox's bundled voices — used when the job API doesn't pass the list through.
+  var FALLBACK_VOICES = ['Abigail', 'Adrian', 'Alexander', 'Alice', 'Austin', 'Axel', 'Connor', 'Cora', 'Elena', 'Eli',
+    'Emily', 'Everett', 'Gabriel', 'Gianna', 'Henry', 'Ian', 'Jade', 'Jeremiah', 'Jordan', 'Julian', 'Layla',
+    'Leonardo', 'Michael', 'Miles', 'Olivia', 'Ryan', 'Taylor', 'Thomas'];
 
   /* ---------- State ---------- */
   var settings = Object.assign({}, DEFAULTS, YB.store.get('voice', {}));
@@ -40,7 +50,16 @@
     healthFails: 0,
     elapsedTimer: null,
     startedAt: 0,
-    voicesLoaded: false
+    voicesLoaded: false,
+    mode: 'direct',      // 'job' = async job API (POST /jobs + polling), 'direct' = Chatterbox /tts
+    modeKnown: false,
+    busy: false,         // job API is up but Chatterbox is busy
+    job: null,           // active job { id, ext, polls, fails }
+    pollTimer: null,
+    orphanJob: null,     // a job we stopped waiting for that may still be running
+    jobToken: 0,
+    preparing: false,
+    cloneAvailable: true
   };
 
   function $(id) { return document.getElementById(id); }
@@ -52,7 +71,6 @@
   function isHttpUrl(u) { return /^https?:\/\/[^\s/]+/i.test(u); }
   function hostOf(u) { try { return new URL(u).hostname; } catch (e) { return ''; } }
   function isLocalTunnel(u) { return /(^|\.)loca\.lt$/i.test(hostOf(u)); }
-  function isCloudflare(u) { return /\.trycloudflare\.com$/i.test(hostOf(u)); }
   function mmss(sec) { sec = Math.max(0, Math.round(sec)); return Math.floor(sec / 60) + ':' + String(sec % 60).padStart(2, '0'); }
   function bytesLabel(n) { return n > 1048576 ? (n / 1048576).toFixed(1) + ' MB' : Math.max(1, Math.round(n / 1024)) + ' KB'; }
 
@@ -73,6 +91,20 @@
       clearTimeout(timer);
       if (err && err.name === 'AbortError') throw makeErr('timeout', 'The backend took too long to answer.');
       throw err;
+    });
+  }
+
+  function infoPath() { return app.mode === 'job' ? '/model-info' : '/api/model-info'; }
+  function isJobMode() { return app.mode === 'job'; }
+
+  // Parse a JSON body, or throw a typed error when a tunnel/HTML page came back instead.
+  function readJson(res) {
+    return res.text().then(function (text) {
+      try { return JSON.parse(text); } catch (e) {
+        console.error('[Voice Studio] expected JSON, got:', text.slice(0, 600));
+        if (/^\s*</.test(text) && isLocalTunnel(app.backend)) throw makeErr('tunnel-auth', 'The LocalTunnel access page answered instead of the server.');
+        throw makeErr('offline', 'The tunnel answered with a web page instead of the server (it may be restarting).');
+      }
     });
   }
 
@@ -111,7 +143,7 @@
       }
       if (ctx === 'upload') return makeErr('upload', detail || ('Upload failed (HTTP ' + s + ').'));
       return makeErr(ctx === 'tts' ? 'tts' : 'http', detail || ('The server returned an error (HTTP ' + s + ').'));
-    });
+    }).then(function (e) { e.status = res.status; return e; });
   }
 
   // Network-level failures (fetch throws) — no HTTP status available.
@@ -135,6 +167,9 @@
     'upload': 'Use a clean WAV or MP3 clip of one speaker, about 5–30 seconds long.',
     'validation': 'Check the voice settings (chunk size must be 50–500).',
     'lost': 'The connection dropped mid-generation — the tunnel or Colab may have restarted. Click Refresh Backend, then try again.',
+    'job-lost': 'The job server no longer knows this job — it was probably restarted. Click Refresh Backend and generate again.',
+    'busy': 'It\'s probably still finishing an earlier job. New jobs will wait and run slower until it\'s done.',
+    'clone-unavailable': 'Add the voice-clone pass-through routes to your job API (see the README), restart it, then click Refresh References.',
     'tts': 'Try again, or shorten the script. Details are in the browser console.',
     'http': 'Details are in the browser console.'
   };
@@ -159,22 +194,29 @@
 
   function updateControls() {
     var busy = app.generating;
-    $('generateBtn').disabled = busy || app.uploading;
+    $('generateBtn').disabled = busy || app.uploading || app.preparing;
     $('generateBtn').textContent = busy ? '⏳ Generating…' : '🎙️ Generate Speech';
     $('cancelBtn').disabled = !busy;
     $('testBtn').disabled = busy;
     $('refreshBackendBtn').disabled = busy;
     $('refreshVoicesBtn').disabled = busy;
     $('refreshRefsBtn').disabled = busy;
-    $('uploadRefBtn').disabled = busy || app.uploading;
     $('againBtn').disabled = busy;
     $('authTunnelBtn').hidden = !isLocalTunnel(app.backend);
     $('openBackendBtn').disabled = !app.backend;
     $('openDocsBtn').disabled = !app.backend;
+    // Job API returns finished files, so streaming doesn't apply there.
+    $('deliveryField').hidden = isJobMode();
+    $('outputFormat').disabled = !isJobMode() && settings.delivery === 'stream';
+    var cloneOff = isJobMode() && !app.cloneAvailable;
+    $('uploadRefBtn').disabled = busy || app.uploading || cloneOff;
+    $('cloneUnavailable').hidden = !cloneOff;
   }
 
   function renderBackendFacts() {
-    $('backendDisplay').textContent = app.backend ? app.backend + (app.source === 'manual' ? '  (manual)' : app.source === 'saved' ? '  (last known)' : '') : 'Not set';
+    $('backendDisplay').textContent = app.backend
+      ? app.backend + (app.source === 'manual' ? '  (manual)' : app.source === 'saved' ? '  (last known)' : '') + (app.modeKnown ? (isJobMode() ? ' · job API' : ' · direct') : '')
+      : 'Not set';
     var info = app.info || {};
     $('modelType').textContent = info.type ? info.type.charAt(0).toUpperCase() + info.type.slice(1) + (info.sample_rate ? ' · ' + (info.sample_rate / 1000) + ' kHz' : '') : '—';
     $('modelDevice').textContent = info.device ? String(info.device).toUpperCase() : '—';
@@ -198,10 +240,10 @@
 
     var override = normalizeUrl(YB.store.get('voiceOverride', ''));
     if (override) {
-      app.backend = override; app.source = 'manual'; app.config = null;
+      app.backend = override; app.source = 'manual'; app.config = null; app.modeKnown = false;
       $('backendUrlInput').value = override;
       renderBackendFacts();
-      return checkHealth({ loadLists: true });
+      return resumeOrCheck({ loadLists: true });
     }
 
     return timedFetch('./backend-config.json?ts=' + Date.now(), { cache: 'no-store' }, CONFIG_TIMEOUT_MS)
@@ -214,25 +256,43 @@
         if (!isHttpUrl(url)) throw makeErr('config-missing', 'backend-config.json has no usable backend_url.');
         var changed = url !== app.backend;
         app.config = cfg; app.backend = url; app.source = 'config';
-        if (changed) app.voicesLoaded = false;
+        if (cfg.tts_mode) { app.mode = cfg.tts_mode === 'async-job' ? 'job' : 'direct'; app.modeKnown = true; }
+        else app.modeKnown = false;
+        if (changed) { app.voicesLoaded = false; app.cloneAvailable = true; }
         YB.store.set('voiceBackend', url);
         $('backendUrlInput').value = url;
         renderBackendFacts();
-        return checkHealth({ loadLists: true });
+        return resumeOrCheck({ loadLists: true });
       })
       .catch(function (err) {
         console.error('[Voice Studio] backend config', err);
         var fallback = normalizeUrl(YB.store.get('voiceBackend', ''));
         if (fallback) {
-          app.backend = fallback; app.source = 'saved'; app.config = null;
+          app.backend = fallback; app.source = 'saved'; app.config = null; app.modeKnown = false;
           renderBackendFacts();
           showNotice($('backendNotice'), makeErr('config-missing', 'Couldn\'t read backend-config.json — trying the last address that worked.'), 'warn');
-          return checkHealth({ loadLists: true, keepNotice: true });
+          return resumeOrCheck({ loadLists: true, keepNotice: true });
         }
         app.backend = ''; app.source = '';
         renderBackendFacts();
         setState('offline', 'No backend');
         showNotice($('backendNotice'), err.kind ? err : makeErr('config-missing', 'Backend configuration is missing.'));
+      });
+  }
+
+  /* ---------- Backend type ---------- */
+  // backend-config.json says "tts_mode": "async-job" for the job API. Without
+  // that hint (manual override / last-known address) we ask the server.
+  function detectMode() {
+    if (app.modeKnown) return Promise.resolve(app.mode);
+    return api('/health', {}, 20000)
+      .then(function (res) { return res.ok ? res.json().catch(function () { return null; }) : null; })
+      .catch(function () { return null; })
+      .then(function (j) {
+        app.mode = j && (j.ok === true || /job/i.test(String(j.service || ''))) ? 'job' : 'direct';
+        app.modeKnown = true;
+        renderBackendFacts(); updateControls(); renderSummary();
+        return app.mode;
       });
   }
 
@@ -247,16 +307,42 @@
     app.healthBusy = true;
     if (!opts.silent) setState('connecting');
 
-    return api('/api/model-info', {}, HEALTH_TIMEOUT_MS)
+    return detectMode()
+      .then(function () {
+        // Job API: /health proves the job server + tunnel are up; /model-info then
+        // reports Chatterbox itself (it may be busy finishing a job).
+        if (!isJobMode()) return null;
+        return api('/health', {}, HEALTH_TIMEOUT_MS).then(function (res) {
+          if (!res.ok) return httpError(res, 'health').then(function (e) { throw e; });
+          return readJson(res);
+        });
+      })
+      .then(function () { return api(infoPath(), {}, HEALTH_TIMEOUT_MS); })
       .then(function (res) {
         if (!res.ok) return httpError(res, 'health').then(function (e) { throw e; });
-        return res.json().catch(function () {
-          throw isLocalTunnel(app.backend) ? makeErr('tunnel-auth', 'The LocalTunnel access page answered instead of Chatterbox.') : makeErr('http', 'The server answered with something that isn\'t Chatterbox.');
-        });
+        return readJson(res);
       })
       .then(function (info) {
         if (app.generating) return; // a generation started meanwhile — ignore
-        app.info = info; app.healthFails = 0;
+        app.healthFails = 0;
+        app.busy = isJobMode() && info.busy_or_unreachable === true;
+        if (app.busy) {
+          // Job server is fine; Chatterbox is just busy (or briefly slow). Not offline.
+          // Show the model details Colab recorded in backend-config.json meanwhile.
+          var cfg = app.config;
+          if (!app.info && cfg && cfg.model_type) {
+            app.info = { loaded: true, type: cfg.model_type, device: cfg.device, sample_rate: cfg.sample_rate,
+              supports_paralinguistic_tags: cfg.supports_paralinguistic_tags, available_paralinguistic_tags: cfg.available_paralinguistic_tags };
+            renderTags();
+          }
+          renderBackendFacts();
+          setState('online', 'Online · busy');
+          showNotice($('backendNotice'), makeErr('busy', 'Chatterbox is busy right now.'), 'warn');
+          // A busy Chatterbox answers nothing until it's done, so don't wait on lists.
+          if (!app.voicesLoaded) useFallbackVoices();
+          return;
+        }
+        app.info = info;
         renderBackendFacts(); renderTags();
         if (info.loaded !== true) {
           setState('error', 'Model not loaded');
@@ -314,8 +400,27 @@
       })
       .catch(function (err) {
         err = networkError(err);
+        // Job API without a voice-list route (or Chatterbox busy behind it):
+        // use the standard voices rather than leaving the menu empty.
+        if (isJobMode()) {
+          if (!app.voicesLoaded || /404|405|Not Found/i.test(err.message + ' ' + (err.status || ''))) useFallbackVoices();
+          if (!quiet) YB.toast('Using the standard voice list');
+          return;
+        }
         if (!quiet) showNotice($('genError'), err);
       });
+  }
+
+  // The job API doesn't expose /get_predefined_voices — offer Chatterbox's standard set.
+  function useFallbackVoices() {
+    var sel = $('predefinedVoiceSelect');
+    sel.innerHTML = FALLBACK_VOICES.map(function (n) { return '<option value="' + n + '.wav">' + n + '</option>'; }).join('');
+    var ids = FALLBACK_VOICES.map(function (n) { return n + '.wav'; });
+    sel.value = ids.indexOf(settings.voiceId) !== -1 ? settings.voiceId : 'Emily.wav';
+    settings.voiceId = sel.value; saveSettings();
+    app.voicesLoaded = true;
+    $('voiceCount').textContent = 'Standard Chatterbox voices';
+    renderSummary();
   }
 
   /* ---------- Reference files (voice clone) ---------- */
@@ -323,8 +428,20 @@
     if (!app.backend || app.generating) return Promise.resolve();
     return api('/get_reference_files', {}, HEALTH_TIMEOUT_MS)
       .then(function (res) { if (!res.ok) return httpError(res, 'refs').then(function (e) { throw e; }); return res.json(); })
-      .then(function (files) { renderReferences(Array.isArray(files) ? files : []); if (!quiet) YB.toast('References updated'); })
-      .catch(function (err) { if (!quiet) showNotice($('genError'), networkError(err)); });
+      .then(function (files) {
+        app.cloneAvailable = true; updateControls();
+        renderReferences(Array.isArray(files) ? files : []);
+        if (!quiet) YB.toast('References updated');
+      })
+      .catch(function (err) {
+        err = networkError(err);
+        if (isJobMode() && /404|405|Not Found/i.test(err.message + ' ' + (err.status || ''))) {
+          app.cloneAvailable = false; updateControls();
+          $('referenceSelect').innerHTML = '<option value="">Not available through the job API yet</option>';
+          return;
+        }
+        if (!quiet) showNotice($('genError'), err);
+      });
   }
 
   function renderReferences(files) {
@@ -367,6 +484,10 @@
 
     return api('/upload_reference', { method: 'POST', body: form }, UPLOAD_TIMEOUT_MS)
       .then(function (res) {
+        if (isJobMode() && (res.status === 404 || res.status === 405)) {
+          app.cloneAvailable = false;
+          throw makeErr('clone-unavailable', 'Your job server doesn\'t accept reference uploads yet.');
+        }
         return res.text().then(function (text) {
           var data = null; try { data = JSON.parse(text); } catch (e) { /* not JSON */ }
           if (!data) { console.error('[Voice Studio] upload response', res.status, text.slice(0, 1000)); throw res.ok ? makeErr('upload', 'Upload returned an unexpected response.') : (res.status === 511 || isLocalTunnel(app.backend) ? makeErr('tunnel-auth', 'The LocalTunnel address needs to be authorized in this browser.') : makeErr('upload', 'Upload failed (HTTP ' + res.status + ').')); }
@@ -420,7 +541,7 @@
       b.classList.toggle('on', on); b.setAttribute('aria-checked', on ? 'true' : 'false');
     });
     var stream = settings.delivery === 'stream';
-    $('outputFormat').disabled = stream;
+    updateControls(); // sets the Format lock (only direct mode + stream locks it to WAV)
     $('deliveryNote').textContent = stream
       ? 'Sends WAV audio as each chunk finishes — shows live progress and keeps the tunnel from timing out on long CPU jobs. Format is always WAV.'
       : 'Returns one file in your chosen format when everything is done. Through a Cloudflare tunnel, jobs that take longer than about 100 seconds can time out — use Stream for long scripts.';
@@ -541,13 +662,13 @@
     var voice = settings.mode === 'clone'
       ? (settings.reference ? 'Clone: ' + settings.reference : 'Clone: no reference yet')
       : ($('predefinedVoiceSelect').selectedOptions[0] && $('predefinedVoiceSelect').value ? $('predefinedVoiceSelect').selectedOptions[0].textContent : 'No voice selected');
-    var fmt = settings.delivery === 'stream' ? 'WAV (streamed)' : settings.format.toUpperCase();
+    var fmt = !isJobMode() && settings.delivery === 'stream' ? 'WAV (streamed)' : settings.format.toUpperCase();
     el.textContent = voice + ' · ' + fmt;
   }
 
   function buildRequest() {
     var text = $('scriptText').value.trim();
-    var stream = settings.delivery === 'stream';
+    var stream = !isJobMode() && settings.delivery === 'stream';
     var body = {
       text: text,
       voice_mode: settings.mode,
@@ -556,9 +677,9 @@
       chunk_size: clampChunk(settings.chunk),
       temperature: Number(settings.temperature),
       speed_factor: Number(settings.speed),
-      seed: Math.max(0, Math.round(Number(settings.seed) || 0)),
-      stream: stream
+      seed: Math.max(0, Math.round(Number(settings.seed) || 0))
     };
+    if (!isJobMode()) body.stream = stream;   // the job API only takes the fields above
     if (settings.mode === 'predefined') body.predefined_voice_id = $('predefinedVoiceSelect').value;
     else body.reference_audio_filename = settings.reference;
     return body;
@@ -586,9 +707,12 @@
     $('genProgress').hidden = true;
     // Resume health checks. Show the last known good state right away; the
     // follow-up check (once the CPU has had a moment) confirms it.
-    setState(app.info && app.info.loaded ? 'online' : 'connecting');
+    var known = app.info && app.info.loaded;
+    setState(known ? 'online' : 'connecting');
     startPolling();
-    setTimeout(function () { if (!app.generating) checkHealth({ silent: true }); }, 4000);
+    // Known-good server: give the CPU a moment first. Never checked yet (we went
+    // straight into a resumed job): check now and load the voice lists.
+    setTimeout(function () { if (!app.generating) checkHealth(known ? { silent: true } : { loadLists: true }); }, known ? 4000 : 0);
   }
 
   // Reads a streamed WAV body, reporting how much audio has arrived.
@@ -633,7 +757,7 @@
   }
 
   function generate() {
-    if (app.generating || app.controller) return;          // never two /tts at once
+    if (app.generating || app.controller || app.job || app.preparing) return;   // never two at once
     showNotice($('genError'), null);
     var text = $('scriptText').value.trim();
     if (!app.backend) { showNotice($('genError'), makeErr('config-missing', 'No backend is connected.')); return; }
@@ -642,15 +766,23 @@
     var ready = Promise.resolve(true);
     if (settings.mode === 'predefined') {
       if (!$('predefinedVoiceSelect').value) { showNotice($('genError'), makeErr('voice-missing', 'Choose a predefined voice first.'), 'warn'); return; }
+    } else if (isJobMode() && !app.cloneAvailable) {
+      showNotice($('genError'), makeErr('clone-unavailable', 'Voice cloning isn\'t available through your job server yet.'), 'warn'); return;
     } else if (!settings.reference) {
       // a file is chosen but not uploaded yet — upload it first
       if ($('voiceSampleFile').files && $('voiceSampleFile').files[0]) ready = uploadReference().then(Boolean);
       else { showNotice($('genError'), makeErr('ref-missing', 'Upload a reference recording (or pick a saved one) first.'), 'warn'); return; }
     }
 
+    app.preparing = true; updateControls();
     ready.then(function (ok) {
+      if (!ok) return false;
+      return isJobMode() ? checkOrphan() : true;
+    }).then(function (ok) {
+      app.preparing = false; updateControls();
       if (!ok || app.generating) return;
       var body = buildRequest();
+      if (isJobMode()) { runJob(body); return; }
       var stream = body.stream;
       var ext = stream ? 'wav' : body.output_format;
       app.controller = new AbortController();               // user cancel only — no timeout
@@ -693,7 +825,199 @@
   }
 
   function cancelGeneration() {
+    if (isJobMode() && app.generating) {
+      // The job API has no cancel endpoint: stop waiting here and remember the
+      // job so we can warn before stacking another one on the CPU.
+      app.jobToken++;
+      if (app.job) app.orphanJob = app.job.id;
+      clearTimeout(app.pollTimer);
+      app.job = null; saveActiveJob();
+      stopGenerating();
+      var el = $('genError');
+      el.className = 'notice warn'; el.hidden = false;
+      el.innerHTML = '<b>Stopped waiting for this job.</b>The job server can\'t cancel a running job, so Chatterbox will finish it in the background — the CPU stays busy until then.';
+      return;
+    }
     if (app.controller) app.controller.abort();
+  }
+
+  /* ---------- Job API generation (POST /jobs → poll → GET audio) ---------- */
+  function saveActiveJob() {
+    if (app.job) YB.store.set('voiceJob', { id: app.job.id, ext: app.job.ext, backend: app.backend, startedAt: app.startedAt });
+    else YB.store.remove('voiceJob');
+  }
+
+  function setJobText(status) {
+    $('genStatusText').textContent = 'Generating speech — CPU generation may take several minutes';
+    $('genDetail').textContent = status === 'queued'
+      ? 'Job queued — waiting for Chatterbox to start…'
+      : 'Generating chunked speech on CPU. Longer scripts can take several minutes. You can leave this page — it picks the job back up when you return.';
+  }
+
+  function runJob(body) {
+    var token = ++app.jobToken;
+    startGenerating();
+    $('genDetail').textContent = 'Sending the job to the server…';
+    console.info('[Voice Studio] POST /jobs', Object.assign({}, body, { text: body.text.length + ' chars' }));
+    api('/jobs', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) }, SHORT_TIMEOUT_MS)
+      .then(function (res) {
+        if (!res.ok) return httpError(res, 'tts').then(function (e) { throw e; });
+        return readJson(res);
+      })
+      .then(function (data) {
+        if (!data || !data.job_id) throw makeErr('tts', 'The job server did not return a job ID.');
+        if (token !== app.jobToken) { app.orphanJob = data.job_id; return; } // cancelled while submitting
+        app.job = { id: data.job_id, ext: body.output_format, fails: 0, delay: JOB_POLL_MS, audioTries: 0 };
+        saveActiveJob();
+        setJobText(data.status || 'queued');
+        scheduleJobPoll();
+      })
+      .catch(function (err) {
+        if (token !== app.jobToken) return;
+        finishJob(networkError(err));
+      });
+  }
+
+  function scheduleJobPoll() {
+    clearTimeout(app.pollTimer);
+    if (app.job) app.pollTimer = setTimeout(pollJob, app.job.delay);
+  }
+
+  function pollJob() {
+    var job = app.job; if (!job) return;
+    api('/jobs/' + encodeURIComponent(job.id) + '?ts=' + Date.now(), {}, SHORT_TIMEOUT_MS)
+      .then(function (res) {
+        if (res.status === 404) {
+          return res.text().then(function (t) {
+            if (/job not found/i.test(t)) throw makeErr('job-lost', 'The server no longer has this job.');
+            throw Object.assign(makeErr('offline', 'Job status page not found.'), { transient: true });
+          });
+        }
+        if (!res.ok) return httpError(res, 'job').then(function (e) { e.transient = true; throw e; });
+        return readJson(res);
+      })
+      .then(function (data) {
+        if (app.job !== job) return;
+        job.fails = 0; job.delay = JOB_POLL_MS;
+        if (data.status === 'complete') return fetchJobAudio(job, data.format);
+        if (data.status === 'failed') { finishJob(jobFailure(data.error)); return; }
+        setJobText(data.status);
+        scheduleJobPoll();
+      })
+      .catch(function (err) {
+        if (app.job !== job) return;
+        err = networkError(err);
+        var transient = err.transient || err.kind === 'offline' || err.kind === 'timeout';
+        if (!transient) { finishJob(err); return; }
+        // Tunnel hiccups are normal on long jobs — keep waiting with backoff.
+        job.fails++;
+        job.delay = Math.min(JOB_POLL_MAX_MS, Math.round(job.delay * 1.5));
+        if (job.fails >= JOB_MAX_FAILS) { finishJob(makeErr('lost', 'Lost contact with the job server while waiting for the audio.')); return; }
+        $('genDetail').textContent = 'Connection hiccup — still waiting for the server (retry ' + job.fails + ')…';
+        scheduleJobPoll();
+      });
+  }
+
+  function fetchJobAudio(job, fmt) {
+    $('genDetail').textContent = 'Speech is ready — downloading the audio…';
+    return api('/jobs/' + encodeURIComponent(job.id) + '/audio', {}, AUDIO_TIMEOUT_MS)
+      .then(function (res) {
+        if (!res.ok) return httpError(res, 'audio').then(function (e) { e.transient = res.status >= 500; throw e; });
+        var ct = (res.headers.get('content-type') || '').toLowerCase();
+        if (/json|html/.test(ct)) return res.text().then(function (t) { console.error('[Voice Studio] audio endpoint returned', t.slice(0, 600)); throw makeErr('tts', 'The server sent something other than audio.'); });
+        return res.blob();
+      })
+      .then(function (blob) {
+        if (app.job !== job) return;
+        if (!blob || blob.size < 100) throw makeErr('tts', 'The server returned an empty audio file.');
+        showAudio(blob, fmt || job.ext);
+        YB.toast('Speech ready');
+        finishJob(null);
+      })
+      .catch(function (err) {
+        if (app.job !== job) return;
+        err = networkError(err);
+        if ((err.transient || err.kind === 'offline' || err.kind === 'timeout') && ++job.audioTries < 4) {
+          $('genDetail').textContent = 'Download interrupted — retrying (' + job.audioTries + ')…';
+          setTimeout(function () { if (app.job === job) fetchJobAudio(job, fmt); }, 3000);
+          return;
+        }
+        finishJob(err);
+      });
+  }
+
+  // The job API reports Chatterbox failures as text like:
+  //   Chatterbox HTTP 404: {"detail":"Reference audio file 'x.wav' not found."}
+  function jobFailure(text) {
+    text = String(text || '');
+    console.error('[Voice Studio] job failed:', text.slice(0, 2000));
+    var m = /HTTP (\d{3}):\s*([\s\S]*)$/.exec(text);
+    var status = m ? Number(m[1]) : 0, detail = '';
+    if (m) {
+      try {
+        var j = JSON.parse(m[2]);
+        detail = typeof j.detail === 'string' ? j.detail : Array.isArray(j.detail) ? j.detail.map(function (d) { return (d.loc ? d.loc[d.loc.length - 1] + ': ' : '') + d.msg; }).join('; ') : '';
+      } catch (e) { detail = /^\s*</.test(m[2]) ? '' : m[2].slice(0, 200); }
+    }
+    if (status === 404) return settings.mode === 'clone' ? makeErr('ref-missing', detail || 'Reference file not found on the server.') : makeErr('voice-missing', detail || 'That voice was not found on the server.');
+    if (status === 503) return makeErr('model', detail || 'The Chatterbox model is not loaded.');
+    if (status === 422) return /output_format/i.test(detail) ? makeErr('format', 'That output format isn\'t supported.') : makeErr('validation', detail || 'The server rejected one of the settings.');
+    if (status) return makeErr('tts', detail || ('Chatterbox returned an error (HTTP ' + status + ').'));
+    if (/connection|refused|max retries|timed out/i.test(text)) return makeErr('tts', 'The job server couldn\'t reach Chatterbox — it may have crashed or restarted.');
+    return makeErr('tts', 'Speech generation failed on the server.');
+  }
+
+  function finishJob(err) {
+    clearTimeout(app.pollTimer);
+    app.job = null; saveActiveJob();
+    if (err) {
+      if (err.kind === 'ref-missing') { setReference(''); setUploadState('error', 'Reference missing on the server — upload it again.'); }
+      if (err.kind === 'voice-missing') loadVoices(true);
+      showNotice($('genError'), err);
+    }
+    stopGenerating();
+  }
+
+  // Before a new job: if a cancelled one is still running, ask first.
+  function checkOrphan() {
+    if (!app.orphanJob) return Promise.resolve(true);
+    var id = app.orphanJob;
+    return api('/jobs/' + encodeURIComponent(id) + '?ts=' + Date.now(), {}, SHORT_TIMEOUT_MS)
+      .then(function (res) { return res.ok ? res.json() : null; })
+      .catch(function () { return null; })
+      .then(function (d) {
+        if (d && (d.status === 'queued' || d.status === 'running')) {
+          return confirm('A job you stopped waiting for is still running on the server. Starting another now makes both slower on the CPU.\n\nStart a new one anyway?');
+        }
+        app.orphanJob = null;
+        return true;
+      });
+  }
+
+  // Reopened the page mid-job? Re-attach to it straight away (before any health
+  // check — a busy CPU makes /model-info slow, and Generate must stay locked).
+  function resumeJob() {
+    var saved = YB.store.get('voiceJob', null);
+    if (!saved || !saved.id) return false;
+    if (normalizeUrl(saved.backend) !== app.backend || !isJobMode()) { YB.store.remove('voiceJob'); return false; }
+    startGenerating();
+    app.startedAt = saved.startedAt || Date.now();
+    tickElapsed();
+    app.job = { id: saved.id, ext: saved.ext || settings.format, fails: 0, delay: 500, audioTries: 0 };
+    $('genDetail').textContent = 'Picking up your job where it left off…';
+    scheduleJobPoll();
+    return true;
+  }
+
+  function resumeOrCheck(opts) {
+    var saved = YB.store.get('voiceJob', null);
+    if (!saved || !saved.id || app.generating) return checkHealth(opts);
+    if (normalizeUrl(saved.backend) !== app.backend) { YB.store.remove('voiceJob'); return checkHealth(opts); }
+    return detectMode().then(function () {
+      app.preparing = false;
+      if (resumeJob()) { setState('generating', 'Generating'); return; }
+      return checkHealth(opts);
+    });
   }
 
   /* ---------- Output ---------- */
@@ -728,7 +1052,9 @@
     $('testBtn').addEventListener('click', function () { checkHealth({ loadLists: true }); });
     $('refreshBackendBtn').addEventListener('click', loadBackendConfig);
     $('authTunnelBtn').addEventListener('click', function () { if (app.backend) window.open(app.backend, '_blank', 'noopener'); });
-    $('openBackendBtn').addEventListener('click', function () { if (app.backend) window.open(app.backend, '_blank', 'noopener'); });
+    $('openBackendBtn').addEventListener('click', function () {
+      if (app.backend) window.open(app.backend + (isJobMode() ? '/health' : ''), '_blank', 'noopener');
+    });
     $('openDocsBtn').addEventListener('click', function () {
       if (!app.backend) return;
       var docs = app.source === 'config' && app.config && isHttpUrl(app.config.api_docs) ? app.config.api_docs : app.backend + '/docs';
@@ -815,10 +1141,11 @@
 
     // lifecycle
     document.addEventListener('visibilitychange', function () {
+      if (!document.hidden && app.job) { clearTimeout(app.pollTimer); pollJob(); return; }
       if (!document.hidden && !app.generating && app.backend && app.state !== 'connecting') checkHealth({ silent: true });
     });
     window.addEventListener('beforeunload', function (e) {
-      if (app.generating) { e.preventDefault(); e.returnValue = ''; }
+      if (app.generating && !isJobMode()) { e.preventDefault(); e.returnValue = ''; }
     });
   }
 
@@ -844,7 +1171,11 @@
 
     updateScriptMeta();
     updateControls();
-    loadBackendConfig().then(startPolling);
+    if (YB.store.get('voiceJob', null)) { app.preparing = true; updateControls(); }
+    loadBackendConfig().then(function () {
+      app.preparing = false; updateControls();
+      if (!app.generating) startPolling();
+    });
   }
 
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', init); else init();
