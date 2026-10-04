@@ -39,64 +39,35 @@ The site always loads the newest files when online. If an installed copy seems s
 
 ## Voice Studio + Chatterbox
 
-Voice Studio talks to your own Chatterbox TTS server (running in Google Colab).
+Voice Studio turns scripts into speech using your own Chatterbox Turbo server in Google Colab.
 
-1. Run the Colab startup cell. It starts Chatterbox, opens a tunnel, and writes the live address into `backend-config.json` in this repo.
-2. Open Voice Studio. It reads `backend-config.json` automatically and shows **Online** only after the server actually answers.
-3. Pick a predefined voice, or switch to **Voice Clone** and upload a 5–30 second WAV/MP3 of one speaker.
-4. Generate, listen, and tap **Download Audio**.
+**How it connects**
 
-### Two backend types
+1. The Colab startup cell starts Chatterbox (private, port 8004), the Youtube Blue job API (port 8010) and a Cloudflare tunnel to 8010, then writes the live address into `backend-config.json`.
+2. Voice Studio loads `backend-config.json?ts=…` with `cache: "no-store"` from this site's own folder, so it works under `/Youtube-Blue/`.
+3. It checks `GET /health` (must return `ok: true`), then `GET /model-info`, and only then shows **Online**. The tunnel's bare root returns `{"detail":"Not Found"}` by design and is never used as a health check.
+4. Voices come from `GET /get_predefined_voices`, and saved clone references from `GET /get_reference_files`.
 
-Voice Studio detects which one you're running from `backend-config.json`:
+**How speech is made**
 
-- **Job API** (`"tts_mode": "async-job"`, the recommended setup): the page sends `POST /jobs`, checks `GET /jobs/{id}` every few seconds, then downloads `GET /jobs/{id}/audio`. Every request is short, so Cloudflare's ~100-second limit never applies, however long the CPU takes. You can leave the page mid-job; it picks the job back up when you return.
-- **Direct Chatterbox** (no `tts_mode`): the page calls `POST /tts`. **Stream (WAV)** is the default here because it starts sending audio right away; **Single file** (MP3/Opus) can time out on long scripts through Cloudflare.
+The browser never calls Chatterbox's `/tts`. It sends `POST /jobs`, checks `GET /jobs/{id}` every ~3 seconds (Queued → Generating speech → Processing audio), then downloads `GET /jobs/{id}/audio`. Every request is short, so Cloudflare's ~100-second limit (HTTP 524) never applies, however long the CPU takes. You can leave the page mid-job; it picks the job back up when you return.
 
-### Voice cloning through the job API
+**Voice cloning**
 
-The job API only forwards `/jobs`, `/health` and `/model-info`, so predefined voices work out of the box (the page falls back to Chatterbox's standard voice list). To enable **Voice Clone**, add these pass-through routes to `chatterbox_job_api.py` and restart it:
+Upload a 5–30 second WAV/MP3 of one speaker. It goes to `POST /upload_reference` as multipart field `files`; the page then refreshes the reference list and selects the new file. Jobs send that filename as `reference_audio_filename`.
 
-```python
-# --- add near the other imports ---
-from fastapi import UploadFile, File
-from fastapi.responses import JSONResponse
-from typing import List
+**Settings**
 
-def _proxy_get(path):
-    try:
-        r = requests.get(f"{CHATTERBOX}{path}", timeout=20)
-        return JSONResponse(status_code=r.status_code, content=r.json())
-    except Exception:
-        raise HTTPException(status_code=503, detail="Chatterbox is busy or unreachable.")
+Defaults are WAV, chunk size 400 (350–450 works best on CPU; the server accepts 50–500), temperature 0.8, speed 1.0 and seed 0 (random).
 
-@app.get("/get_predefined_voices")
-def get_predefined_voices():
-    return _proxy_get("/get_predefined_voices")
+**Notes**
 
-@app.get("/get_reference_files")
-def get_reference_files():
-    return _proxy_get("/get_reference_files")
-
-@app.post("/upload_reference")
-async def upload_reference(files: List[UploadFile] = File(...)):
-    parts = [("files", (f.filename, await f.read(), f.content_type or "application/octet-stream")) for f in files]
-    try:
-        r = requests.post(f"{CHATTERBOX}/upload_reference", files=parts, timeout=180)
-        return JSONResponse(status_code=r.status_code, content=r.json())
-    except Exception:
-        raise HTTPException(status_code=503, detail="Chatterbox is busy or unreachable.")
-```
-
-File uploads in FastAPI need `python-multipart`: run `pip install python-multipart` in Colab before starting the job API.
-
-### Notes
-
-- Chunk size must be 50–500 (server limit).
+- **Refresh Backend** re-reads `backend-config.json` and reconnects. Use it after restarting Colab.
+- **Manual backend override** is a fallback only. An address is saved only after it passes `/health` and `/model-info`. The page still prefers `backend-config.json`, uses the saved address only if that fails, and **Back to automatic** clears it.
+- **Cancel Generation** stops waiting. The job API has no cancel route, so Chatterbox finishes that job in the background. If a future backend publishes `"job_cancel_template"` (e.g. `…/jobs/{job_id}/cancel`) in `backend-config.json`, Cancel will also call it.
 - Uploaded references live only in the current Colab session; re-upload after a restart.
-- The job API can't cancel a job that's already running. **Cancel Generation** stops waiting, and Chatterbox finishes that job in the background.
+- The service worker never caches `backend-config.json` or any tunnel request.
 - Story Studio → **Send to Voice Studio** imports the spoken lines. In Voice Studio you can also import one character's lines at a time to voice each with a different voice.
-- The **Manual backend override** is for recovery only; **Back to automatic** returns to `backend-config.json`.
 - No tokens or secrets live in this site. The GitHub token stays in Colab secrets.
 
 ## Data
