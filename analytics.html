@@ -1,0 +1,154 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>Analytics — Youtube Blue</title>
+  <meta name="description" content="Track views, watch hours, CTR and engagement for every video.">
+  <meta name="theme-color" content="#06101f">
+  <meta name="color-scheme" content="dark">
+  <link rel="manifest" href="manifest.webmanifest">
+  <link rel="icon" href="icons/logo.svg" type="image/svg+xml">
+  <link rel="icon" href="icons/favicon-32.png" sizes="32x32" type="image/png">
+  <link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="apple-mobile-web-app-title" content="YT Blue">
+  <link rel="stylesheet" href="css/style.css">
+  <script src="js/core.js" defer></script>
+  <script src="js/analytics.js" defer></script>
+</head>
+<body data-page="analytics">
+  <header class="topbar">
+    <div class="container topbar-inner">
+      <a class="brand" href="index.html"><img src="icons/logo.svg" alt="" width="34" height="34"><span>Youtube <b>Blue</b></span></a>
+      <nav class="nav" id="nav" aria-label="Main">
+        <div class="nav-head"><img src="icons/logo.svg" alt="" width="30" height="30">Youtube Blue</div>
+        <a href="index.html" data-page="home"><span class="nav-ico">🏠</span>Home</a>
+        <a href="design.html" data-page="design"><span class="nav-ico">🎨</span>Channel Design</a>
+        <a href="analytics.html" data-page="analytics"><span class="nav-ico">📊</span>Analytics</a>
+        <a href="stories.html" data-page="stories"><span class="nav-ico">✍️</span>Story Studio</a>
+        <div class="nav-foot"><button class="btn" type="button" data-install hidden>📲 Add to Home Screen</button></div>
+      </nav>
+      <button class="menu-btn" type="button" aria-label="Open menu" aria-expanded="false" aria-controls="nav"><span></span><span></span><span></span></button>
+    </div>
+  </header>
+  <div class="scrim"></div>
+
+  <main class="page container">
+    <div class="page-head row between">
+      <div>
+        <div class="eyebrow">📊 Analytics</div>
+        <h1>Channel performance</h1>
+        <p>Log each video's numbers (or import a CSV from YouTube Studio → Analytics → Advanced mode → Export) and see what's working.</p>
+      </div>
+      <div class="row">
+        <label class="btn btn-ghost btn-sm" for="csvImport">⬆️ Import CSV</label>
+        <input type="file" id="csvImport" accept=".csv,text/csv" hidden>
+        <button class="btn btn-ghost btn-sm" type="button" id="csvExport">⬇️ Export CSV</button>
+        <button class="btn btn-ghost btn-sm" type="button" id="sampleBtn">🧪 Sample data</button>
+      </div>
+    </div>
+
+    <!-- KPIs -->
+    <section class="grid grid-4" id="kpis" aria-label="Key numbers"></section>
+
+    <!-- Goals -->
+    <section class="card" style="margin-top:16px" aria-labelledby="goalTitle">
+      <div class="row between">
+        <h2 id="goalTitle" style="margin:0">Goals</h2>
+        <button class="btn btn-ghost btn-sm" type="button" id="goalEdit">⚙️ Edit goals</button>
+      </div>
+      <div class="fields" id="goalForm" style="margin-top:12px" hidden>
+        <label class="field"><span>Subscribers before tracked videos</span><input type="number" id="gBase" min="0" inputmode="numeric"></label>
+        <label class="field"><span>Subscriber goal</span><input type="number" id="gSubs" min="1" inputmode="numeric"></label>
+        <label class="field"><span>Watch-hours goal</span><input type="number" id="gHours" min="1" inputmode="numeric"></label>
+        <label class="field"><span>Shorts-views goal</span><input type="number" id="gShorts" min="1" inputmode="numeric"></label>
+      </div>
+      <div class="grid grid-3" id="goals" style="margin-top:12px"></div>
+      <p class="muted small" style="margin:12px 0 0">Defaults are common monetization milestones — check YouTube's current Partner Program rules for the exact requirements in your country.</p>
+    </section>
+
+    <!-- Charts -->
+    <div class="grid grid-2" style="margin-top:16px">
+      <section class="card" aria-labelledby="trendTitle">
+        <div class="row between">
+          <h2 id="trendTitle" style="margin:0">Views by upload date</h2>
+          <div class="seg" id="trendMetric" role="group" aria-label="Chart metric">
+            <button type="button" class="on" data-m="views">Views</button>
+            <button type="button" data-m="watchHours">Hours</button>
+            <button type="button" data-m="subs">Subs</button>
+          </div>
+        </div>
+        <div id="trendChart" style="margin-top:12px"></div>
+      </section>
+      <section class="card" aria-labelledby="topTitle">
+        <h2 id="topTitle">Top 5 videos</h2>
+        <div id="topChart"></div>
+      </section>
+    </div>
+
+    <div class="grid grid-2" style="margin-top:16px">
+      <section class="card" aria-labelledby="formatTitle">
+        <h2 id="formatTitle">Shorts vs long-form</h2>
+        <div id="formatChart"></div>
+      </section>
+      <section class="card" aria-labelledby="dayTitle">
+        <h2 id="dayTitle">Average views by upload day</h2>
+        <div id="dayChart"></div>
+      </section>
+    </div>
+
+    <section class="card" style="margin-top:16px" aria-labelledby="insTitle">
+      <h2 id="insTitle">Insights</h2>
+      <ul class="feature-list" id="insights" style="font-size:.95rem"></ul>
+    </section>
+
+    <!-- Entry form -->
+    <section class="card" style="margin-top:16px" aria-labelledby="formTitle" id="formCard">
+      <h2 id="formTitle">Add a video</h2>
+      <form id="videoForm" autocomplete="off">
+        <div class="fields">
+          <label class="field" style="grid-column:1/-1"><span>Video title *</span><input type="text" name="title" required maxlength="140"></label>
+          <label class="field"><span>Publish date *</span><input type="date" name="date" required></label>
+          <label class="field"><span>Format</span><select name="type"><option value="long">Long-form</option><option value="short">Short</option></select></label>
+          <label class="field"><span>Views</span><input type="number" name="views" min="0" inputmode="numeric"></label>
+          <label class="field"><span>Impressions</span><input type="number" name="impressions" min="0" inputmode="numeric"></label>
+          <label class="field"><span>Click-through rate %</span><input type="number" name="ctr" min="0" max="100" step="0.1" inputmode="decimal"></label>
+          <label class="field"><span>Watch time (hours)</span><input type="number" name="watchHours" min="0" step="0.1" inputmode="decimal"></label>
+          <label class="field"><span>Avg view duration (sec)</span><input type="number" name="avd" min="0" inputmode="numeric"></label>
+          <label class="field"><span>Likes</span><input type="number" name="likes" min="0" inputmode="numeric"></label>
+          <label class="field"><span>Comments</span><input type="number" name="comments" min="0" inputmode="numeric"></label>
+          <label class="field"><span>Subscribers gained</span><input type="number" name="subs" inputmode="numeric"></label>
+        </div>
+        <div class="row end" style="margin-top:14px">
+          <button class="btn btn-ghost" type="button" id="cancelEdit" hidden>Cancel</button>
+          <button class="btn" type="submit" id="saveVideo">＋ Add video</button>
+        </div>
+      </form>
+    </section>
+
+    <!-- Table -->
+    <section class="card" style="margin-top:16px" aria-labelledby="tableTitle">
+      <div class="row between">
+        <h2 id="tableTitle" style="margin:0">All videos</h2>
+        <div class="row">
+          <input type="search" id="search" placeholder="Search titles" style="width:auto;flex:1 1 180px">
+          <button class="btn btn-danger btn-sm" type="button" id="clearAll">Clear all</button>
+        </div>
+      </div>
+      <div class="table-wrap" style="margin-top:12px">
+        <table>
+          <thead><tr id="thead"></tr></thead>
+          <tbody id="tbody"></tbody>
+        </table>
+      </div>
+    </section>
+  </main>
+
+  <footer class="foot">
+    <div class="container">Youtube Blue is an independent creator tool and is not affiliated with or endorsed by YouTube or Google. Your data stays on your device.</div>
+  </footer>
+</body>
+</html>

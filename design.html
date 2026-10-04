@@ -1,0 +1,186 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>Channel Design — Youtube Blue</title>
+  <meta name="description" content="Design your channel banner, profile picture, thumbnails and About section.">
+  <meta name="theme-color" content="#06101f">
+  <meta name="color-scheme" content="dark">
+  <link rel="manifest" href="manifest.webmanifest">
+  <link rel="icon" href="icons/logo.svg" type="image/svg+xml">
+  <link rel="icon" href="icons/favicon-32.png" sizes="32x32" type="image/png">
+  <link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="apple-mobile-web-app-title" content="YT Blue">
+  <link rel="stylesheet" href="css/style.css">
+  <script src="js/core.js" defer></script>
+  <script src="js/design.js" defer></script>
+</head>
+<body data-page="design">
+  <header class="topbar">
+    <div class="container topbar-inner">
+      <a class="brand" href="index.html"><img src="icons/logo.svg" alt="" width="34" height="34"><span>Youtube <b>Blue</b></span></a>
+      <nav class="nav" id="nav" aria-label="Main">
+        <div class="nav-head"><img src="icons/logo.svg" alt="" width="30" height="30">Youtube Blue</div>
+        <a href="index.html" data-page="home"><span class="nav-ico">🏠</span>Home</a>
+        <a href="design.html" data-page="design"><span class="nav-ico">🎨</span>Channel Design</a>
+        <a href="analytics.html" data-page="analytics"><span class="nav-ico">📊</span>Analytics</a>
+        <a href="stories.html" data-page="stories"><span class="nav-ico">✍️</span>Story Studio</a>
+        <div class="nav-foot"><button class="btn" type="button" data-install hidden>📲 Add to Home Screen</button></div>
+      </nav>
+      <button class="menu-btn" type="button" aria-label="Open menu" aria-expanded="false" aria-controls="nav"><span></span><span></span><span></span></button>
+    </div>
+  </header>
+  <div class="scrim"></div>
+
+  <main class="page container">
+    <div class="page-head">
+      <div class="eyebrow">🎨 Channel Design</div>
+      <h1>Brand kit &amp; channel art</h1>
+      <p>Set your name, colors and style once — the banner, profile picture and thumbnail all update together. Everything downloads as a PNG at the exact size YouTube asks for.</p>
+    </div>
+
+    <!-- Brand kit -->
+    <section class="card" aria-labelledby="kitTitle">
+      <h2 id="kitTitle">Brand kit</h2>
+      <div class="fields">
+        <label class="field"><span>Channel name</span><input type="text" id="dName" maxlength="60" autocomplete="off"></label>
+        <label class="field"><span>Tagline</span><input type="text" id="dTagline" maxlength="90" autocomplete="off"></label>
+        <label class="field"><span>Handle</span><input type="text" id="dHandle" maxlength="40" autocomplete="off"></label>
+        <label class="field"><span>Upload schedule (shown on banner)</span><input type="text" id="dSchedule" maxlength="50" placeholder="e.g. New videos every Friday" autocomplete="off"></label>
+      </div>
+      <div class="fields" style="margin-top:12px">
+        <label class="field"><span>Dark color</span><input type="color" id="dC1"></label>
+        <label class="field"><span>Main color</span><input type="color" id="dC2"></label>
+        <label class="field"><span>Accent color</span><input type="color" id="dAccent"></label>
+        <label class="field"><span>Text color</span><input type="color" id="dText"></label>
+      </div>
+      <div class="fields" style="margin-top:12px">
+        <label class="field"><span>Font style</span>
+          <select id="dFont">
+            <option value="sans">Bold modern</option>
+            <option value="rounded">Rounded &amp; friendly</option>
+            <option value="impact">Heavy impact</option>
+            <option value="serif">Classic serif</option>
+            <option value="mono">Typewriter</option>
+          </select>
+        </label>
+        <label class="field"><span>Background</span>
+          <select id="dBg">
+            <option value="gradient">Gradient glow</option>
+            <option value="waves">Ocean waves</option>
+            <option value="dots">Dot grid</option>
+            <option value="rays">Light rays</option>
+            <option value="solid">Solid</option>
+          </select>
+        </label>
+        <label class="field"><span>Photo background (optional)</span><input type="file" id="dPhoto" accept="image/*"></label>
+        <div class="field"><span>Presets</span>
+          <div class="row" id="presets">
+            <button class="btn btn-ghost btn-sm" type="button" data-preset="ocean">Ocean</button>
+            <button class="btn btn-ghost btn-sm" type="button" data-preset="midnight">Midnight</button>
+            <button class="btn btn-ghost btn-sm" type="button" data-preset="sky">Sky</button>
+            <button class="btn btn-ghost btn-sm" type="button" data-preset="ice">Ice</button>
+          </div>
+        </div>
+      </div>
+      <div class="row" style="margin-top:12px">
+        <button class="btn btn-ghost btn-sm" type="button" id="clearPhoto" hidden>✕ Remove photo</button>
+        <span class="muted small" id="photoNote"></span>
+      </div>
+    </section>
+
+    <!-- Banner -->
+    <section class="card" style="margin-top:16px" aria-labelledby="bannerTitle">
+      <div class="row between">
+        <h2 id="bannerTitle" style="margin:0">Channel banner <span class="badge">2560 × 1440</span></h2>
+        <div class="row">
+          <label class="row small muted"><input type="checkbox" id="showSafe" checked> Show safe areas</label>
+          <button class="btn btn-sm" type="button" data-dl="banner">⬇️ Download PNG</button>
+        </div>
+      </div>
+      <p class="card-sub" style="margin-top:8px">Keep text inside the <b style="color:#7dd3fc">center box (1546 × 423)</b> — it's the only part every device shows. TVs show the full image; desktop shows the wide strip.</p>
+      <div class="canvas-frame"><canvas id="cBanner" width="1280" height="720" aria-label="Banner preview"></canvas></div>
+    </section>
+
+    <div class="grid grid-2" style="margin-top:16px">
+      <!-- Avatar -->
+      <section class="card" aria-labelledby="avTitle">
+        <div class="row between">
+          <h2 id="avTitle" style="margin:0">Profile picture <span class="badge">800 × 800</span></h2>
+          <button class="btn btn-sm" type="button" data-dl="avatar">⬇️ PNG</button>
+        </div>
+        <div class="fields" style="margin:12px 0">
+          <label class="field"><span>Letters / emoji</span><input type="text" id="dInitials" maxlength="3" placeholder="Auto" autocomplete="off"></label>
+          <label class="field"><span>Style</span>
+            <select id="dAvStyle">
+              <option value="letters">Letters</option>
+              <option value="play">Play mark + letters</option>
+              <option value="ring">Glow ring</option>
+            </select>
+          </label>
+        </div>
+        <div class="canvas-frame avatar-frame"><canvas id="cAvatar" width="400" height="400" aria-label="Profile picture preview"></canvas></div>
+        <p class="card-sub" style="margin-top:10px;text-align:center">YouTube crops this to a circle.</p>
+      </section>
+
+      <!-- Thumbnail -->
+      <section class="card" aria-labelledby="thTitle">
+        <div class="row between">
+          <h2 id="thTitle" style="margin:0">Thumbnail <span class="badge">1280 × 720</span></h2>
+          <button class="btn btn-sm" type="button" data-dl="thumb">⬇️ PNG</button>
+        </div>
+        <div class="fields" style="margin:12px 0">
+          <label class="field"><span>Big headline</span><input type="text" id="dThumbText" maxlength="48" autocomplete="off"></label>
+          <label class="field"><span>Corner tag</span><input type="text" id="dThumbTag" maxlength="18" placeholder="e.g. PART 2" autocomplete="off"></label>
+          <label class="field"><span>Text side</span>
+            <select id="dThumbSide"><option value="left">Left</option><option value="center">Center</option><option value="right">Right</option></select>
+          </label>
+        </div>
+        <div class="canvas-frame"><canvas id="cThumb" width="640" height="360" aria-label="Thumbnail preview"></canvas></div>
+        <p class="card-sub" style="margin-top:10px">Tip: 3–5 words, huge text, one clear face or subject. The bottom-right corner is covered by the video length.</p>
+      </section>
+    </div>
+
+    <div class="grid grid-2" style="margin-top:16px">
+      <!-- About -->
+      <section class="card" aria-labelledby="aboutTitle">
+        <h2 id="aboutTitle">About section</h2>
+        <label class="field"><span>Channel description</span>
+          <textarea id="dAbout" rows="8" placeholder="Who is this channel for, what do you post, and how often?"></textarea>
+        </label>
+        <div class="counter" id="aboutCount">0 / 1000</div>
+        <div class="row" style="margin-top:8px">
+          <button class="btn btn-ghost btn-sm" type="button" id="aboutDraft">✨ Write a starter draft</button>
+          <button class="btn btn-sm" type="button" id="aboutCopy">📋 Copy</button>
+        </div>
+
+        <h3 style="margin-top:20px">Keywords &amp; tags</h3>
+        <form class="row" id="kwForm" autocomplete="off">
+          <input type="text" id="kwInput" placeholder="Add a keyword and press Enter" style="flex:1 1 200px">
+          <button class="btn btn-sm" type="submit">Add</button>
+        </form>
+        <div class="chips" id="kwChips" style="margin-top:10px"></div>
+        <div class="row" style="margin-top:10px">
+          <span class="muted small" id="kwCount"></span><span class="spacer"></span>
+          <button class="btn btn-ghost btn-sm" type="button" id="kwCopy">📋 Copy keywords</button>
+        </div>
+      </section>
+
+      <!-- Checklist -->
+      <section class="card" aria-labelledby="ckTitle">
+        <div class="row between"><h2 id="ckTitle" style="margin:0">Channel launch checklist</h2><span class="badge" id="ckProgress">0%</span></div>
+        <div class="progress" style="margin:12px 0"><i id="ckBar"></i></div>
+        <ul class="checklist" id="checklist"></ul>
+      </section>
+    </div>
+  </main>
+
+  <footer class="foot">
+    <div class="container">Youtube Blue is an independent creator tool and is not affiliated with or endorsed by YouTube or Google. Your data stays on your device.</div>
+  </footer>
+</body>
+</html>

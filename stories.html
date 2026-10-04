@@ -1,0 +1,170 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>Story Studio — Youtube Blue</title>
+  <meta name="description" content="Write narrated video scripts from templates with a cast of characters, one voice or many.">
+  <meta name="theme-color" content="#06101f">
+  <meta name="color-scheme" content="dark">
+  <link rel="manifest" href="manifest.webmanifest">
+  <link rel="icon" href="icons/logo.svg" type="image/svg+xml">
+  <link rel="icon" href="icons/favicon-32.png" sizes="32x32" type="image/png">
+  <link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="apple-mobile-web-app-title" content="YT Blue">
+  <link rel="stylesheet" href="css/style.css">
+  <script src="js/core.js" defer></script>
+  <script src="js/stories.js" defer></script>
+</head>
+<body data-page="stories">
+  <header class="topbar">
+    <div class="container topbar-inner">
+      <a class="brand" href="index.html"><img src="icons/logo.svg" alt="" width="34" height="34"><span>Youtube <b>Blue</b></span></a>
+      <nav class="nav" id="nav" aria-label="Main">
+        <div class="nav-head"><img src="icons/logo.svg" alt="" width="30" height="30">Youtube Blue</div>
+        <a href="index.html" data-page="home"><span class="nav-ico">🏠</span>Home</a>
+        <a href="design.html" data-page="design"><span class="nav-ico">🎨</span>Channel Design</a>
+        <a href="analytics.html" data-page="analytics"><span class="nav-ico">📊</span>Analytics</a>
+        <a href="stories.html" data-page="stories"><span class="nav-ico">✍️</span>Story Studio</a>
+        <div class="nav-foot"><button class="btn" type="button" data-install hidden>📲 Add to Home Screen</button></div>
+      </nav>
+      <button class="menu-btn" type="button" aria-label="Open menu" aria-expanded="false" aria-controls="nav"><span></span><span></span><span></span></button>
+    </div>
+  </header>
+  <div class="scrim"></div>
+
+  <main class="page container">
+    <div class="page-head">
+      <div class="eyebrow">✍️ Story Studio</div>
+      <h1>Write, cast &amp; narrate</h1>
+      <p>Pick a template, add characters with the <b>+</b> button, and choose whether one narrator voices everyone or each character gets their own voice. Export a clean script, per-voice recording sheets, or read it on the teleprompter.</p>
+    </div>
+
+    <div class="studio">
+      <!-- Story list -->
+      <aside class="card sticky-side" aria-labelledby="listTitle">
+        <div class="row between">
+          <h2 id="listTitle" style="margin:0">Stories</h2>
+          <button class="btn btn-sm" type="button" id="newStory">＋ New</button>
+        </div>
+        <ul class="story-list" id="storyList" style="margin-top:12px"></ul>
+        <div class="row" style="margin-top:12px">
+          <button class="btn btn-ghost btn-sm" type="button" id="dupStory">⧉ Duplicate</button>
+          <button class="btn btn-danger btn-sm" type="button" id="delStory">🗑️ Delete</button>
+        </div>
+      </aside>
+
+      <div class="stack" style="min-width:0">
+        <!-- Story setup -->
+        <section class="card" aria-labelledby="setupTitle">
+          <h2 id="setupTitle">Story setup</h2>
+          <div class="fields">
+            <label class="field" style="grid-column:1/-1"><span>Title</span><input type="text" id="sTitle" maxlength="120" autocomplete="off"></label>
+            <label class="field"><span>Template</span>
+              <select id="sTemplate"></select>
+            </label>
+            <label class="field"><span>Speaking pace (words / min)</span><input type="number" id="sWpm" min="80" max="240" step="5" inputmode="numeric"></label>
+            <label class="field"><span>Target length (minutes)</span><input type="number" id="sTarget" min="0" step="0.5" inputmode="decimal"></label>
+          </div>
+          <p class="muted small" id="templateDesc" style="margin:10px 0 0"></p>
+          <div class="row" style="margin-top:12px">
+            <button class="btn btn-ghost btn-sm" type="button" id="applyTemplate">📋 Load template outline</button>
+          </div>
+
+          <div style="margin-top:18px">
+            <div class="label" style="margin-bottom:6px">Narration</div>
+            <div class="seg" id="modeSeg" role="group" aria-label="Narration mode">
+              <button type="button" data-mode="single">🎙️ One voice</button>
+              <button type="button" data-mode="multi">🎭 Multiple characters</button>
+            </div>
+            <p class="muted small" id="modeDesc" style="margin:8px 0 0"></p>
+          </div>
+        </section>
+
+        <!-- Cast -->
+        <section class="card" aria-labelledby="castTitle">
+          <div class="row between">
+            <h2 id="castTitle" style="margin:0">Characters</h2>
+            <button class="btn btn-plus" type="button" id="addCharTop" aria-label="Add character">+</button>
+          </div>
+          <p class="card-sub" style="margin-top:8px">The Narrator is always in the cast. Add as many characters as your story needs.</p>
+          <div class="cast" id="cast" style="margin-top:12px"></div>
+        </section>
+
+        <!-- Script -->
+        <section class="card" aria-labelledby="scriptTitle">
+          <div class="row between">
+            <h2 id="scriptTitle" style="margin:0">Script</h2>
+            <div class="stat-pills" id="stats"></div>
+          </div>
+          <div class="progress" style="margin:12px 0" title="Length vs target"><i id="targetBar"></i></div>
+          <div class="blocks" id="blocks"></div>
+          <div class="add-bar" style="margin-top:12px">
+            <button class="btn" type="button" data-add="line">＋ Line</button>
+            <button class="btn btn-ghost" type="button" data-add="scene">＋ Scene</button>
+            <button class="btn btn-ghost" type="button" data-add="note">＋ Direction / SFX</button>
+          </div>
+        </section>
+
+        <!-- Export -->
+        <section class="card" aria-labelledby="exportTitle">
+          <h2 id="exportTitle">Use your script</h2>
+          <div class="row">
+            <button class="btn" type="button" id="openPrompter">📺 Teleprompter</button>
+            <button class="btn btn-ghost" type="button" id="dlScript">⬇️ Script (.txt)</button>
+            <button class="btn btn-ghost" type="button" id="dlSheets">⬇️ Voice sheets (.txt)</button>
+            <button class="btn btn-ghost" type="button" id="copyScript">📋 Copy script</button>
+          </div>
+          <p class="muted small" style="margin:10px 0 0">Voice sheets group every line by character with numbers, so each voice actor (or you, switching voices) can record their part in one take.</p>
+          <div id="castBreakdown" style="margin-top:14px"></div>
+        </section>
+      </div>
+    </div>
+  </main>
+
+  <!-- Character modal -->
+  <div class="modal" id="charModal" hidden role="dialog" aria-modal="true" aria-labelledby="charModalTitle">
+    <form class="card modal-box" id="charForm" autocomplete="off">
+      <h2 id="charModalTitle">Add character</h2>
+      <div class="stack">
+        <label class="field"><span>Name *</span><input type="text" name="name" required maxlength="40"></label>
+        <label class="field"><span>Role in the story</span><input type="text" name="role" maxlength="60" placeholder="e.g. Curious bunny, the hero"></label>
+        <label class="field"><span>Voice style</span>
+          <select name="voice">
+            <option>Warm &amp; friendly</option><option>Small / childlike</option><option>Deep &amp; slow</option>
+            <option>High &amp; excited</option><option>Silly / cartoon</option><option>Wise elder</option>
+            <option>Grumpy</option><option>Robot / AI</option><option>Calm storyteller</option><option>Custom (see notes)</option>
+          </select>
+        </label>
+        <label class="field"><span>Voice notes</span><textarea name="notes" rows="3" placeholder="Accent, pace, catchphrase, who records it…"></textarea></label>
+        <div class="field"><span>Color</span><div class="swatches" id="swatches"></div></div>
+      </div>
+      <div class="row end" style="margin-top:16px">
+        <button class="btn btn-ghost" type="button" id="charCancel">Cancel</button>
+        <button class="btn" type="submit" id="charSave">Add character</button>
+      </div>
+    </form>
+  </div>
+
+  <!-- Teleprompter -->
+  <div class="prompter" id="prompter" hidden>
+    <div class="prompter-bar">
+      <button class="btn btn-sm" type="button" id="pPlay">▶ Play</button>
+      <label>Speed <input type="range" id="pSpeed" min="10" max="160" value="50"></label>
+      <label>Size <input type="range" id="pSize" min="70" max="160" value="100"></label>
+      <label><input type="checkbox" id="pMirror"> Mirror</label>
+      <span class="spacer"></span>
+      <button class="btn btn-ghost btn-sm" type="button" id="pClose">✕ Close</button>
+    </div>
+    <div class="prompter-scroll" id="pScroll"><div class="prompter-text" id="pText"></div></div>
+    <div class="prompter-guide" aria-hidden="true"></div>
+  </div>
+
+  <footer class="foot">
+    <div class="container">Youtube Blue is an independent creator tool and is not affiliated with or endorsed by YouTube or Google. Your data stays on your device.</div>
+  </footer>
+</body>
+</html>

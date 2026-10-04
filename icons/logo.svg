@@ -1,0 +1,12 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-label="Youtube Blue logo">
+  <defs>
+    <linearGradient id="ybg" x1="0" y1="0" x2="0.6" y2="1">
+      <stop offset="0" stop-color="#0b2a6b"/>
+      <stop offset="1" stop-color="#1e7bff"/>
+    </linearGradient>
+  </defs>
+  <rect width="512" height="512" rx="112" fill="url(#ybg)"/>
+  <circle cx="256" cy="236" r="140" fill="#ffffff"/>
+  <path d="M222 172 L326 236 L222 300 Z" fill="#1e7bff" stroke="#1e7bff" stroke-width="18" stroke-linejoin="round"/>
+  <path d="M136 410 Q196 378 256 410 T376 410" fill="none" stroke="#7dd3fc" stroke-width="22" stroke-linecap="round"/>
+</svg>

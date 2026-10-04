@@ -1,0 +1,134 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>Youtube Blue — Creator Toolkit</title>
+  <meta name="description" content="Design your channel, track your analytics, and write narrated stories with characters — all in one blue toolkit.">
+  <meta name="theme-color" content="#06101f">
+  <meta name="color-scheme" content="dark">
+  <link rel="manifest" href="manifest.webmanifest">
+  <link rel="icon" href="icons/logo.svg" type="image/svg+xml">
+  <link rel="icon" href="icons/favicon-32.png" sizes="32x32" type="image/png">
+  <link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="apple-mobile-web-app-title" content="YT Blue">
+  <link rel="stylesheet" href="css/style.css">
+  <script src="js/core.js" defer></script>
+  <script src="js/home.js" defer></script>
+</head>
+<body data-page="home">
+  <header class="topbar">
+    <div class="container topbar-inner">
+      <a class="brand" href="index.html"><img src="icons/logo.svg" alt="" width="34" height="34"><span>Youtube <b>Blue</b></span></a>
+      <nav class="nav" id="nav" aria-label="Main">
+        <div class="nav-head"><img src="icons/logo.svg" alt="" width="30" height="30">Youtube Blue</div>
+        <a href="index.html" data-page="home"><span class="nav-ico">🏠</span>Home</a>
+        <a href="design.html" data-page="design"><span class="nav-ico">🎨</span>Channel Design</a>
+        <a href="analytics.html" data-page="analytics"><span class="nav-ico">📊</span>Analytics</a>
+        <a href="stories.html" data-page="stories"><span class="nav-ico">✍️</span>Story Studio</a>
+        <div class="nav-foot"><button class="btn" type="button" data-install hidden>📲 Add to Home Screen</button></div>
+      </nav>
+      <button class="menu-btn" type="button" aria-label="Open menu" aria-expanded="false" aria-controls="nav"><span></span><span></span><span></span></button>
+    </div>
+  </header>
+  <div class="scrim"></div>
+
+  <main class="page container" id="main">
+    <section class="hero">
+      <div>
+        <div class="eyebrow">● Creator toolkit</div>
+        <h1>Build your channel in <b>Youtube Blue</b></h1>
+        <p>Design banners, profile pictures and thumbnails, track how every video performs, and write narrated stories with a full cast of characters — right from your phone, tablet or computer.</p>
+        <div class="row">
+          <a class="btn" href="stories.html">✍️ Start a story</a>
+          <a class="btn btn-ghost" href="design.html">🎨 Design channel</a>
+          <button class="btn btn-ghost install-only-browser" type="button" data-install hidden>📲 Install app</button>
+        </div>
+      </div>
+      <div class="hero-art"><img src="icons/icon-512.png" alt="Youtube Blue logo" width="260" height="260"></div>
+    </section>
+
+    <section class="grid grid-4" aria-label="Your workspace at a glance">
+      <div class="card kpi"><div class="kpi-label">Videos tracked</div><div class="kpi-value" id="statVideos">0</div><div class="kpi-note">in Analytics</div></div>
+      <div class="card kpi"><div class="kpi-label">Total views</div><div class="kpi-value" id="statViews">0</div><div class="kpi-note">across tracked videos</div></div>
+      <div class="card kpi"><div class="kpi-label">Stories</div><div class="kpi-value" id="statStories">0</div><div class="kpi-note">in Story Studio</div></div>
+      <div class="card kpi"><div class="kpi-label">Characters</div><div class="kpi-value" id="statCast">0</div><div class="kpi-note">across all stories</div></div>
+    </section>
+
+    <h2 style="margin-top:32px">Tools</h2>
+    <section class="grid grid-3">
+      <a class="card link" href="design.html">
+        <h3><span class="ico-badge">🎨</span>Channel Design</h3>
+        <p class="muted small">Your brand kit and ready-to-upload art.</p>
+        <ul class="feature-list">
+          <li>Banner at 2560×1440 with device safe-area guides</li>
+          <li>Profile picture (800×800) with circle preview</li>
+          <li>Thumbnail maker (1280×720) with photo upload</li>
+          <li>About-section writer, keywords and launch checklist</li>
+        </ul>
+      </a>
+      <a class="card link" href="analytics.html">
+        <h3><span class="ico-badge">📊</span>Analytics</h3>
+        <p class="muted small">Log or import your numbers and see what works.</p>
+        <ul class="feature-list">
+          <li>Views, watch hours, CTR and engagement totals</li>
+          <li>Views-over-time and top-video charts</li>
+          <li>Shorts vs long-form and best upload day</li>
+          <li>Goal tracker, CSV import (YouTube Studio exports) and export</li>
+        </ul>
+      </a>
+      <a class="card link" href="stories.html">
+        <h3><span class="ico-badge">✍️</span>Story Studio</h3>
+        <p class="muted small">Script templates and a cast you build with “+”.</p>
+        <ul class="feature-list">
+          <li>Templates: 3-act, Shorts, Bible story, animal facts, funny clips, explainer</li>
+          <li>One-voice or multi-character narration modes</li>
+          <li>Runtime estimate, per-voice recording sheets</li>
+          <li>Teleprompter with auto-scroll and mirror mode</li>
+        </ul>
+      </a>
+    </section>
+
+    <section class="grid grid-2" style="margin-top:16px">
+      <div class="card">
+        <h3><span class="ico-badge">📲</span>Add to your home screen</h3>
+        <p class="muted small">Runs full-screen like an app and keeps working offline after the first visit.</p>
+        <div id="installIOS">
+          <strong>iPhone / iPad (Safari)</strong>
+          <ol class="steps muted small">
+            <li>Tap the <b>Share</b> button (square with arrow).</li>
+            <li>Scroll and tap <b>Add to Home Screen</b>.</li>
+            <li>Tap <b>Add</b>.</li>
+          </ol>
+        </div>
+        <div id="installAndroid" style="margin-top:10px">
+          <strong>Android (Chrome) / desktop</strong>
+          <ol class="steps muted small">
+            <li>Tap <b>Install app</b> above, or open the browser <b>⋮</b> menu.</li>
+            <li>Choose <b>Install app</b> or <b>Add to Home screen</b>.</li>
+          </ol>
+        </div>
+        <p class="small" id="installedNote" hidden>✅ You're running the installed app.</p>
+      </div>
+
+      <div class="card">
+        <h3><span class="ico-badge">💾</span>Backup &amp; restore</h3>
+        <p class="muted small">Everything is saved in this browser only. Download a backup to move your work to another device or keep it safe.</p>
+        <div class="row">
+          <button class="btn" type="button" id="backupBtn">⬇️ Download backup</button>
+          <label class="btn btn-ghost" for="restoreInput">⬆️ Restore backup</label>
+          <input type="file" id="restoreInput" accept="application/json,.json" hidden>
+        </div>
+        <p class="muted small" style="margin-top:12px" id="backupInfo"></p>
+      </div>
+    </section>
+  </main>
+
+  <footer class="foot">
+    <div class="container">Youtube Blue is an independent creator tool and is not affiliated with or endorsed by YouTube or Google. Your data stays on your device.</div>
+  </footer>
+</body>
+</html>
