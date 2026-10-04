@@ -1,0 +1,25 @@
+{
+  "backend_url": "https://push-autumn-raymond-amsterdam.trycloudflare.com",
+  "health_endpoint": "https://push-autumn-raymond-amsterdam.trycloudflare.com/health",
+  "model_info": "https://push-autumn-raymond-amsterdam.trycloudflare.com/model-info",
+  "job_endpoint": "https://push-autumn-raymond-amsterdam.trycloudflare.com/jobs",
+  "job_status_template": "https://push-autumn-raymond-amsterdam.trycloudflare.com/jobs/{job_id}",
+  "job_audio_template": "https://push-autumn-raymond-amsterdam.trycloudflare.com/jobs/{job_id}/audio",
+  "tts_mode": "async-job",
+  "model_type": "turbo",
+  "device": "cpu",
+  "sample_rate": 24000,
+  "supports_paralinguistic_tags": true,
+  "available_paralinguistic_tags": [
+    "laugh",
+    "chuckle",
+    "sigh",
+    "gasp",
+    "cough",
+    "clear throat",
+    "sniff",
+    "groan",
+    "shush"
+  ],
+  "updated_at": "2026-10-04T12:38:46.020440+00:00"
+}
