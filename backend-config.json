@@ -1,13 +1,14 @@
 {
-  "backend_url": "https://turner-brooklyn-sister-int.trycloudflare.com",
-  "health_endpoint": "https://turner-brooklyn-sister-int.trycloudflare.com/health",
-  "model_info": "https://turner-brooklyn-sister-int.trycloudflare.com/model-info",
-  "job_endpoint": "https://turner-brooklyn-sister-int.trycloudflare.com/jobs",
-  "job_status_template": "https://turner-brooklyn-sister-int.trycloudflare.com/jobs/{job_id}",
-  "job_audio_template": "https://turner-brooklyn-sister-int.trycloudflare.com/jobs/{job_id}/audio",
-  "reference_upload_endpoint": "https://turner-brooklyn-sister-int.trycloudflare.com/upload_reference",
-  "reference_files_endpoint": "https://turner-brooklyn-sister-int.trycloudflare.com/get_reference_files",
-  "predefined_voices_endpoint": "https://turner-brooklyn-sister-int.trycloudflare.com/get_predefined_voices",
+  "backend_url": "https://dangerous-headset-toolbox-voted.trycloudflare.com",
+  "health_endpoint": "https://dangerous-headset-toolbox-voted.trycloudflare.com/health",
+  "model_info": "https://dangerous-headset-toolbox-voted.trycloudflare.com/model-info",
+  "api_docs": "https://dangerous-headset-toolbox-voted.trycloudflare.com/docs",
+  "job_endpoint": "https://dangerous-headset-toolbox-voted.trycloudflare.com/jobs",
+  "job_status_template": "https://dangerous-headset-toolbox-voted.trycloudflare.com/jobs/{job_id}",
+  "job_audio_template": "https://dangerous-headset-toolbox-voted.trycloudflare.com/jobs/{job_id}/audio",
+  "reference_upload_endpoint": "https://dangerous-headset-toolbox-voted.trycloudflare.com/upload_reference",
+  "reference_files_endpoint": "https://dangerous-headset-toolbox-voted.trycloudflare.com/get_reference_files",
+  "predefined_voices_endpoint": "https://dangerous-headset-toolbox-voted.trycloudflare.com/get_predefined_voices",
   "tts_mode": "async-job",
   "model_loaded": true,
   "model_type": "turbo",
@@ -25,5 +26,7 @@
     "groan",
     "shush"
   ],
-  "updated_at": "2026-10-04T12:57:09.288087+00:00"
+  "chatterbox_port": 8004,
+  "job_api_port": 8010,
+  "updated_at": "2026-10-04T15:07:25.698250+00:00"
 }
