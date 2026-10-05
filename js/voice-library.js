@@ -229,11 +229,7 @@
 
   /* ---------- My Voices (this device) ---------- */
   function saveMine() { YB.store.set(MINE_KEY, mine); }
-  function inOurVoices(name) {
-    // The Colab cell may add " 2", " 3"… when a name is already taken.
-    var n = String(name).trim().toLowerCase(), re = new RegExp('^' + n.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '( \\d+)?$');
-    return (lib.shared || []).some(function (x) { return re.test(x.name.trim().toLowerCase()); });
-  }
+
 
   // Import: checks the file, stores it on this device, returns its key.
   function importVoice(file, name, share) {
@@ -274,12 +270,18 @@
 
   function shareMine(id) {
     var m = mine.find(function (x) { return x.id === id; }); if (!m) return;
-    if (m.share === 'sent' || isLive(m)) return;
+    if (m.share === 'sent' || m.share === 'sending') return;
     m.share = 'queued'; m.shareError = ''; saveMine();
     changed();
     processShares();
   }
-  function isLive(m) { return inOurVoices(m.name) || (!!m.sharedName && inOurVoices(m.sharedName)); }
+  // Live only once this voice was actually sent — a different voice that happens
+  // to share the name must still be shared (it becomes "Name 2").
+  function isLive(m) {
+    if (m.share !== 'sent') return false;
+    var want = String(m.sharedName || m.name).trim().toLowerCase();
+    return (lib.shared || []).some(function (x) { return x.name.trim().toLowerCase() === want; });
+  }
   // POST /share-voice (multipart: file, name, client_id) → { ok, status, name, path }
   function sendShare(m, blob) {
     var form = new FormData();

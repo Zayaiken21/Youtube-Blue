@@ -80,6 +80,16 @@
           "sizes": "192x192"
         }
       ]
+    },
+    {
+      "name": "Upload Scheduler",
+      "url": "./scheduler.html",
+      "icons": [
+        {
+          "src": "icons/icon-192.png",
+          "sizes": "192x192"
+        }
+      ]
     }
   ]
 }

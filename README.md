@@ -22,6 +22,17 @@ Shared pieces:
 
 Each page script only touches its own page, so you can edit one without affecting the others. Each page also saves to its own storage key (`design`, `analytics`, `stories`).
 
+## Upload Scheduler
+
+`scheduler.html` + `js/scheduler.js`: a niche analyzer and weekly upload planner.
+
+- **17 built-in niches** (gaming, tech, finance, comedy, education, fitness, cooking, fashion, travel, music, DIY, automotive, kids/animation, news, pets, motivation, sports), each with weekly Shorts/long-form volume, best days, peak time windows and audience behaviour. Saturation and retention are planning estimates.
+- **＋ Add niche** to create your own (name, volumes, two peak windows, best days, behaviour, saturation, retention). Custom niches can be edited or deleted and are saved on the device.
+- **7-day × 4-block calendar** (Morning, Midday, Afternoon, Night Peak) with an audience-activity heatmap: darker = more viewers, ★ = the niche's best day + time window.
+- **Tap a slot** to add a Short or a Long-Form upload; tap again to remove. Days with more than 3 uploads get a ⚠ badge and a warning (YouTube notifies subscribers about at most 3 uploads per channel in 24 hours).
+- **Live metrics**: weekly uploads, notifications sent (capped per day), Schedule Optimization Rating (% of uploads in best windows) and fit vs. the niche's recommended volume.
+- **✨ Auto-plan** fills the niche's minimum weekly volume into the best slots without breaking the 3-a-day cap.
+
 ## Put it on GitHub Pages
 
 1. Create a new repository (for example `youtube-blue`).

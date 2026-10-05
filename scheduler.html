@@ -1,0 +1,130 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>Upload Scheduler — Youtube Blue</title>
+  <meta name="description" content="Pick your niche, see its best upload windows on a traffic heatmap, and plan a week of Shorts and long-form uploads.">
+  <meta name="theme-color" content="#06101f">
+  <meta name="color-scheme" content="dark">
+  <link rel="manifest" href="manifest.webmanifest">
+  <link rel="icon" href="icons/logo.svg" type="image/svg+xml">
+  <link rel="icon" href="icons/favicon-32.png" sizes="32x32" type="image/png">
+  <link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="apple-mobile-web-app-title" content="YT Blue">
+  <link rel="stylesheet" href="css/style.css?v=16">
+  <script src="js/core.js" defer></script>
+  <script src="js/scheduler.js?v=1" defer></script>
+</head>
+<body data-page="scheduler">
+  <header class="topbar">
+    <div class="container topbar-inner">
+      <a class="brand" href="index.html"><img src="icons/logo.svg" alt="" width="34" height="34"><span>Youtube <b>Blue</b></span></a>
+      <nav class="nav" id="nav" aria-label="Main">
+        <div class="nav-head"><img src="icons/logo.svg" alt="" width="30" height="30">Youtube Blue</div>
+        <a href="index.html" data-page="home"><span class="nav-ico">🏠</span>Home</a>
+        <a href="design.html" data-page="design"><span class="nav-ico">🎨</span>Channel Design</a>
+        <a href="analytics.html" data-page="analytics"><span class="nav-ico">📊</span>Analytics</a>
+        <a href="scheduler.html" data-page="scheduler"><span class="nav-ico">🗓️</span>Upload Scheduler</a>
+        <a href="stories.html" data-page="stories"><span class="nav-ico">✍️</span>Story Studio</a>
+        <a href="voice.html" data-page="voice"><span class="nav-ico">🎙️</span>Voice Studio</a>
+        <div class="nav-foot"><button class="btn" type="button" data-install hidden>📲 Add to Home Screen</button></div>
+      </nav>
+      <button class="menu-btn" type="button" aria-label="Open menu" aria-expanded="false" aria-controls="nav"><span></span><span></span><span></span></button>
+    </div>
+  </header>
+  <div class="scrim"></div>
+
+  <main class="page container">
+    <div class="page-head row between">
+      <div>
+        <div class="eyebrow">🗓️ Upload Scheduler</div>
+        <h1>Niche analyzer &amp; upload planner</h1>
+        <p>Pick your niche. See when its viewers are online. Tap the grid to plan your week.</p>
+      </div>
+      <div class="row">
+        <button class="btn btn-sm" type="button" id="autoPlanBtn">✨ Auto-plan my week</button>
+        <button class="btn btn-danger btn-sm" type="button" id="clearWeekBtn">Clear week</button>
+      </div>
+    </div>
+
+    <!-- ===== Live metrics ===== -->
+    <section class="grid grid-4 sched-kpis" id="kpis" aria-label="Schedule summary" aria-live="polite"></section>
+
+    <div class="sched-layout">
+      <!-- ===== Niche + benchmarks ===== -->
+      <section class="card" aria-labelledby="nicheTitle">
+        <div class="row between">
+          <h2 id="nicheTitle" style="margin:0">Niche</h2>
+          <button class="btn btn-ghost btn-sm" type="button" id="addNicheBtn">＋ Add niche</button>
+        </div>
+        <label class="field" style="margin-top:12px"><span>Your channel's niche</span><select id="nicheSelect"></select></label>
+        <div class="bench" id="bench"></div>
+        <p class="muted small" style="margin:12px 0 0">Saturation and retention are planning estimates, not YouTube data. Times are your viewers' local time.</p>
+      </section>
+
+      <!-- ===== Calendar + heatmap ===== -->
+      <section class="card" aria-labelledby="calTitle">
+        <div class="row between">
+          <h2 id="calTitle" style="margin:0">This week</h2>
+          <div class="heat-legend" aria-hidden="true"><span>Quiet</span><i style="--h:.12"></i><i style="--h:.35"></i><i style="--h:.6"></i><i style="--h:.9"></i><span>Peak</span></div>
+        </div>
+        <p class="muted small" style="margin:6px 0 12px">Darker = more viewers online. ★ = best window for this niche. Tap a slot to add a Short or long-form video.</p>
+        <div class="cal" id="cal" role="grid" aria-label="Weekly upload schedule"></div>
+        <div class="notice warn" id="capWarn" hidden></div>
+        <div class="cal-key">
+          <span><b class="dot dot-short"></b>Short</span>
+          <span><b class="dot dot-long"></b>Long-form</span>
+          <span><b class="cap-badge">⚠</b>Over the 3-a-day notification cap</span>
+        </div>
+      </section>
+    </div>
+  </main>
+
+  <!-- Slot menu -->
+  <div class="slot-menu" id="slotMenu" role="dialog" aria-modal="false" aria-labelledby="slotTitle" hidden>
+    <div class="row between"><b id="slotTitle"></b><button type="button" class="slot-x" id="slotClose" aria-label="Close">✕</button></div>
+    <div class="slot-heat" id="slotHeat"></div>
+    <div class="row slot-add">
+      <button class="btn btn-sm" type="button" data-add="short">＋ Short</button>
+      <button class="btn btn-sm" type="button" data-add="long">＋ Long-Form</button>
+    </div>
+    <ul class="slot-items" id="slotItems"></ul>
+  </div>
+
+  <!-- Add / edit niche -->
+  <div class="modal" id="nicheModal" hidden role="dialog" aria-modal="true" aria-labelledby="nicheFormTitle">
+    <form class="card modal-box" id="nicheForm" autocomplete="off">
+      <h2 id="nicheFormTitle" style="margin-top:0">Add a niche</h2>
+      <label class="field"><span>Name</span><input name="name" required maxlength="60" placeholder="e.g. Faith &amp; Bible Stories for Kids"></label>
+      <div class="fields" style="margin-top:12px">
+        <label class="field"><span>Shorts per week</span><span class="range-pair"><input name="sMin" type="number" min="0" max="50" value="3" aria-label="Shorts per week, minimum"><i>to</i><input name="sMax" type="number" min="0" max="50" value="5" aria-label="Shorts per week, maximum"></span></label>
+        <label class="field"><span>Long-form per week</span><span class="range-pair"><input name="lMin" type="number" min="0" max="20" value="1" aria-label="Long-form per week, minimum"><i>to</i><input name="lMax" type="number" min="0" max="20" value="2" aria-label="Long-form per week, maximum"></span></label>
+      </div>
+      <div class="fields" style="margin-top:12px">
+        <label class="field"><span>Best window 1</span><span class="range-pair"><select name="w1s"></select><i>to</i><select name="w1e"></select></span></label>
+        <label class="field"><span>Best window 2</span><span class="range-pair"><select name="w2s"></select><i>to</i><select name="w2e"></select></span></label>
+      </div>
+      <fieldset class="day-pick"><legend>Best days</legend><div id="dayPick"></div></fieldset>
+      <label class="field" style="margin-top:12px"><span>How the audience behaves</span><textarea name="behavior" rows="2" maxlength="200" placeholder="Short notes on when and how they watch."></textarea></label>
+      <div class="fields" style="margin-top:12px">
+        <label class="field"><span>Saturation (0–100)</span><input name="sat" type="number" min="0" max="100" value="60"></label>
+        <label class="field"><span>Retention target (%)</span><input name="ret" type="number" min="5" max="95" value="40"></label>
+      </div>
+      <div class="row" style="margin-top:16px">
+        <button class="btn" type="submit" id="nicheSave">Add niche</button>
+        <button class="btn btn-ghost" type="button" id="nicheCancel">Cancel</button>
+        <span class="spacer"></span>
+        <button class="btn btn-danger btn-sm" type="button" id="nicheDelete" hidden>Delete</button>
+      </div>
+    </form>
+  </div>
+
+  <footer class="foot">
+    <div class="container">Youtube Blue is an independent creator tool and is not affiliated with or endorsed by YouTube or Google. Benchmarks are planning estimates. Your schedule stays on your device.</div>
+  </footer>
+</body>
+</html>
