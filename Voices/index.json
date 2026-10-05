@@ -1,4 +1,10 @@
 {
   "preset": [],
-  "shared": []
+  "shared": [
+    {
+      "file": "Country_Voice_Compatible.wav",
+      "name": "Country Voice Compatible",
+      "size": 1017906
+    }
+  ]
 }
