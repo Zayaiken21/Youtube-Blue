@@ -1,4 +1,10 @@
 {
-  "preset": [],
+  "preset": [
+    {
+      "file": "Young Male Country Voice.wav",
+      "name": "Young Male Country Voice",
+      "size": 1017906
+    }
+  ],
   "shared": []
 }
