@@ -229,7 +229,11 @@
 
   /* ---------- My Voices (this device) ---------- */
   function saveMine() { YB.store.set(MINE_KEY, mine); }
-
+  function inOurVoices(name) {
+    // The Colab cell may add " 2", " 3"… when a name is already taken.
+    var n = String(name).trim().toLowerCase(), re = new RegExp('^' + n.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '( \\d+)?$');
+    return (lib.shared || []).some(function (x) { return re.test(x.name.trim().toLowerCase()); });
+  }
 
   // Import: checks the file, stores it on this device, returns its key.
   function importVoice(file, name, share) {
@@ -270,18 +274,12 @@
 
   function shareMine(id) {
     var m = mine.find(function (x) { return x.id === id; }); if (!m) return;
-    if (m.share === 'sent' || m.share === 'sending') return;
+    if (m.share === 'sent' || isLive(m)) return;
     m.share = 'queued'; m.shareError = ''; saveMine();
     changed();
     processShares();
   }
-  // Live only once this voice was actually sent — a different voice that happens
-  // to share the name must still be shared (it becomes "Name 2").
-  function isLive(m) {
-    if (m.share !== 'sent') return false;
-    var want = String(m.sharedName || m.name).trim().toLowerCase();
-    return (lib.shared || []).some(function (x) { return x.name.trim().toLowerCase() === want; });
-  }
+  function isLive(m) { return inOurVoices(m.name) || (!!m.sharedName && inOurVoices(m.sharedName)); }
   // POST /share-voice (multipart: file, name, client_id) → { ok, status, name, path }
   function sendShare(m, blob) {
     var form = new FormData();
@@ -434,74 +432,11 @@
 
   }
 
-  /* ---------- Hear a voice before using it ----------
-     Presets / Our Voices / My Voices: the voice sample itself.
-     Built-in voices: the server has no sample file we can fetch, so the first
-     preview makes a short sample through the normal job API; it's then kept on
-     this device (per model) — instant next time, offline too. */
-  var PREVIEW_TEXT = 'Hi there! This is how I sound. I\'m ready to tell your story.';
-  function userErr(text) { var e = new Error(text); e.userMessage = text; return e; }
-  function previewBlob(key) {
-    var k = parse(key), e = entry(key);
-    if (!key) return Promise.reject(userErr('Choose a voice first.'));
-    if (k.source === 'preset' || k.source === 'shared') {
-      var url = e ? e.url : fileUrl(DIRS[k.source], k.id);
-      return fetch(url).then(function (r) { if (!r.ok) throw userErr('Couldn\'t load that voice sample.'); return r.blob(); });
-    }
-    if (k.source === 'mine') return V.db.get('myvoice:' + k.id).then(function (rec) { if (!rec || !rec.blob) throw userErr('That voice isn\'t stored on this device any more.'); return rec.blob; });
-    if (k.source === 'builtin') return builtinPreview(k.id, e ? e.name : k.id.replace(/\.(wav|mp3)$/i, ''));
-    return Promise.reject(userErr('Unknown voice.'));
-  }
-  var previewJobs = {};
-  function builtinPreview(file, name) {
-    var ck = 'preview:' + (V.activeModel() || 'model') + ':' + file;
-    if (previewJobs[ck]) return previewJobs[ck];
-    var p = V.db.get(ck).then(function (cached) {
-      if (cached) return cached;
-      if (V.backend() && (V.isBusy() || V.remoteBusy())) throw userErr('The server is busy right now — try hearing ' + name + ' when it\'s free.');
-      if (!V.backend() || !V.online()) throw userErr('Connect to the server to hear ' + name + ' the first time.');
-      YB.toast('Making a short sample of ' + name + '… (first time only)');
-      V.setPreviewing(true);
-      var body = V.buildPayload(PREVIEW_TEXT, { mode: 'predefined', id: file }, { output_format: 'wav', temperature: 0.75, speed_factor: 1, seed: 0, split_text: false });
-      return V.call(V.route('jobs'), { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) }, V.SHORT_TIMEOUT_MS)
-        .then(function (res) { return res.ok ? V.readJson(res) : V.httpError(res, 'job').then(function (er) { throw er; }); })
-        .then(function (d) { if (!d || !d.job_id) throw userErr('The server didn\'t start the sample.'); return waitForJob(d.job_id); })
-        .then(function (blob) { return V.levelBlob(blob, 'wav'); })
-        .then(function (r) { V.db.put(ck, r.blob); return r.blob; })
-        .catch(function (err) { if (!err.userMessage) err.userMessage = 'Couldn\'t make a sample of ' + name + ': ' + (err.message || 'server error'); throw err; })
-        .then(function (b) { V.setPreviewing(false); return b; }, function (err) { V.setPreviewing(false); throw err; });
-    });
-    previewJobs[ck] = p;
-    p.then(function () { delete previewJobs[ck]; }, function () { delete previewJobs[ck]; });
-    return p;
-  }
-  function waitForJob(id) {
-    return new Promise(function (resolve, reject) {
-      var fails = 0, t0 = Date.now();
-      (function tick() {
-        setTimeout(function () {
-          V.call(V.jobRoute(id) + '?ts=' + Date.now(), {}, V.SHORT_TIMEOUT_MS).then(function (r) {
-            if (!r.ok) throw V.makeErr('unavailable', 'HTTP ' + r.status);
-            return V.readJson(r);
-          }).then(function (d) {
-            fails = 0;
-            if (d.status === 'complete') {
-              return V.call(V.jobRoute(id, true), {}, V.AUDIO_TIMEOUT_MS).then(function (r) { if (!r.ok) throw V.makeErr('http', 'HTTP ' + r.status); return r.blob(); }).then(resolve, reject);
-            }
-            if (d.status === 'failed' || d.status === 'cancelled') return reject(V.jobFailure(d.error, 'predefined'));
-            if (Date.now() - t0 > 10 * 60 * 1000) return reject(userErr('The sample took too long — try again later.'));
-            tick();
-          }).catch(function (err) { if (++fails > 6) reject(err); else tick(); });
-        }, 1500);
-      })();
-    });
-  }
-
   var L = {
     refresh: refresh, refreshIfStale: refreshIfStale,
     optionsHtml: optionsHtml, has: has, label: label, note: note, keys: keys, entry: entry,
     resolve: resolve, forget: forget, onChange: onChange,
-    importVoice: importVoice, shareMine: shareMine, previewBlob: previewBlob,
+    importVoice: importVoice, shareMine: shareMine,
     groupOf: function (key) { return parse(key).source; },
     counts: function () {
       var parts = [], n;

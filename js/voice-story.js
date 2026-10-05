@@ -258,17 +258,9 @@
     v.set = fullSet(set); saveCast(); renderCast();
   }
 
-  // ▶ next to a character's name: hear the voice that character will use.
-  function previewBtn(id, name, key) {
-    if (!takes() || !key) return '';
-    var label = name + "'s voice" + (lib() ? ' (' + lib().label(key).replace(/ · .*$/, '') + ')' : '');
-    return takes().player.button('voice:' + key, label, 'play-btn-sm').replace('<button ', '<button data-cv-preview="' + YB.esc(id) + '" ');
-  }
-
   function renderCast() {
     var s = story(), host = $('castRows');
     if (!s) { host.innerHTML = '<p class="muted small">Pick a story first.</p>'; return; }
-    if (takes()) setTimeout(takes().player.sync, 0);
     var ids = speakersUsed();
     if (!ids.length) { host.innerHTML = '<p class="muted small">This story has no spoken lines yet.</p>'; return; }
     var L = lib();
@@ -277,7 +269,7 @@
       var n = lineSegs().filter(function (g) { return g.speaker === id; }).reduce(function (t, g) { return t + g.lines; }, 0);
       var options = L ? L.optionsHtml(v.key) : (V.voices() || []).map(function (x) { var k = 'builtin:' + x.filename; return '<option value="' + YB.esc(k) + '"' + (k === v.key ? ' selected' : '') + '>' + YB.esc(x.display_name) + '</option>'; }).join('');
       return '<div class="cast-voice" style="--c:' + YB.esc(c.color || '#1e7bff') + '">' +
-        '<div class="cv-head"><span class="cv-title">' + previewBtn(id, c.name, v.key) + '<span class="cv-name">' + YB.esc(c.name) + '</span></span><span class="cv-meta">' + n + ' line' + (n === 1 ? '' : 's') + '</span></div>' +
+        '<div class="cv-head"><span class="cv-name">' + YB.esc(c.name) + '</span><span class="cv-meta">' + n + ' line' + (n === 1 ? '' : 's') + '</span></div>' +
         '<select data-cv-voice="' + YB.esc(id) + '" aria-label="Voice for ' + YB.esc(c.name) + '"' + (st.run || st.preparing ? ' disabled' : '') + '>' + (options || '<option value="">Loading voices…</option>') + '</select>' +
         (problem && v.key ? '<div class="cv-warn">' + YB.esc(problem) + '</div>' : '') +
         importHtml(id, c.name) +
@@ -1009,12 +1001,6 @@
     });
     castHost.addEventListener('input', function (e) { if (e.target.matches('input[type=range][data-cs]')) updateSetting(e.target); });
     castHost.addEventListener('click', function (e) {
-      var pv = e.target.closest('[data-cv-preview]');
-      if (pv) {
-        var vkey = voiceFor(pv.getAttribute('data-cv-preview')).key, L2 = lib();
-        if (vkey && L2 && takes()) takes().player.toggle('voice:' + vkey, function () { return L2.previewBlob(vkey); });
-        return;
-      }
       var pr = e.target.closest('[data-cs-preset]');
       if (pr && !pr.disabled) { applyCharPreset(pr.getAttribute('data-cs-char'), Number(pr.getAttribute('data-cs-preset'))); return; }
       var t = e.target.closest('[data-cs-toggle]');

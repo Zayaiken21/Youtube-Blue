@@ -86,8 +86,6 @@ One **Voice** picker (and the same picker on every Story character) lists:
 - **My Voices:** voices imported with **➕ Import a voice**. They're stored in the app's own storage on that device only: private, never uploaded to GitHub.
 - **Built-in voices:** the server's own voices.
 
-**▶ Hear a voice before using it:** a round play button sits next to the Voice picker and next to every Story character's name. Presets, Our Voices and My Voices play their voice sample right away. Built-in voices have no sample the site can fetch, so the first preview makes a short sample on the server (spinner on the button), then keeps it on the device, so it's instant from then on, offline too. It waits with a clear message while the server is busy.
-
 Picking a Preset, Our Voices or My Voices voice needs no setup. Right before generating, the page sends that voice to the server once per server session, confirms the server lists it, then the job clones it. After a Colab restart it's sent again automatically.
 
 **Share with everyone** is off by default. Turning it on (with a "this is my voice / I have permission" check), or tapping **🌐 Share** on a voice in My Voices, sends the voice to the job server's `POST /share-voice` route (Colab Cell 2). The server commits it to `Voices/Our Voices` with the GitHub token that only lives in Colab, so it shows up for everyone a minute or two later. The site never holds a token. If the server is offline, busy, rate-limited or doesn't have the route yet, the share waits and retries by itself, even after the app is closed and reopened. My Voices shows each step: Waiting / Sharing… / Shared · appearing shortly / In Our Voices.

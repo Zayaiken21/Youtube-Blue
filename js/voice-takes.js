@@ -88,7 +88,7 @@
     }).catch(function (err) {
       if (P.key !== key) return;
       console.warn('[Your audio] play', err);
-      YB.toast(err && err.userMessage ? err.userMessage : err && err.message === 'missing' ? 'That audio isn\'t on this device any more' : 'Couldn\'t play that clip');
+      YB.toast(err && err.message === 'missing' ? 'That audio isn\'t on this device any more' : 'Couldn\'t play that clip');
       stop();
     });
   }
