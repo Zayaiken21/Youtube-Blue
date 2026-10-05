@@ -720,7 +720,7 @@
   // buttons that would compete for the server, show who has it, and unlock by
   // itself once GET /state says the server is free.
   function observeRemoteGen() {
-    if (app.remoteBusy || app.generating || app.job || app.preparing) return;
+    if (app.remoteBusy || app.generating || app.job || app.preparing || app.previewing) return;
     if (Date.now() - app.lastOwnEnd < 8000) return;      // our own job is just wrapping up
     app.remoteBusy = true; app.remoteSince = Date.now(); app.remoteMiss = 0;
     var mark = YB.store.get('voiceOwnBg', null);   // our stopped job, remembered across reloads
@@ -775,7 +775,7 @@
     // Light GET /state check while idle (job server only, never Chatterbox):
     // notices another user's generation or model switch within a few seconds.
     app.stateTimer = setInterval(function () {
-      if (app.generating || app.job || app.preparing || app.remoteBusy || isSwitching() || document.hidden || !app.backend || isDown() || app.stateBusy) return;
+      if (app.generating || app.job || app.preparing || app.previewing || app.remoteBusy || isSwitching() || document.hidden || !app.backend || isDown() || app.stateBusy) return;
       app.stateBusy = true;
       getBackendState().then(function (st) {
         app.stateBusy = false;
@@ -839,9 +839,18 @@
     }
     if (settings.voiceKey) sel.value = settings.voiceKey;
     if (library && library.counts()) $('voiceCount').textContent = library.counts();
+    updatePreviewBtn();
     saveSettings();
     renderPickNote();
     renderSummary(); updateControls();
+  }
+  // ▶ next to the picker plays the selected voice (js/voice-library.js previewBlob).
+  function updatePreviewBtn() {
+    var b = $('voicePreviewBtn'); if (!b) return;
+    b.setAttribute('data-play-key', settings.voiceKey ? 'voice:' + settings.voiceKey : '');
+    b.setAttribute('data-play-label', settings.voiceKey && library ? library.label(settings.voiceKey).replace(/ · .*$/, '') : 'this voice');
+    b.disabled = !settings.voiceKey;
+    if (window.YBTakes) window.YBTakes.player.sync();
   }
   function cssEsc(v) { return String(v).replace(/["\\]/g, '\\$&'); }
   function renderPickNote(text) {
@@ -1829,6 +1838,7 @@
     // Generate disabled, Cancel enabled, status pill shows progress.
     remoteBusy: function () { return app.remoteBusy && !app.generating; },
     online: function () { return app.state === 'online'; },
+    setPreviewing: function (on) { app.previewing = !!on; if (!on) app.lastOwnEnd = Date.now(); },
     noteOwnBackground: function () { markOwnBg(); },
     begin: function (label, startedAt) { if (app.generating) return false; clearRemoteGen(false); app.generating = true; stopPolling(); app.startedAt = startedAt || Date.now();
       showNotice($('genError'), null); $('genProgress').hidden = false; setState('generating', label || 'Generating');
@@ -1917,7 +1927,12 @@
     $('importBtn').addEventListener('click', function () { importFromStory($('importStory').value, $('importSpeaker').value); });
 
     // voice
-    $('voicePick').addEventListener('change', function () { settings.voiceKey = this.value; saveSettingsNow(); renderPickNote(); renderSummary(); updateControls(); });
+    $('voicePick').addEventListener('change', function () { settings.voiceKey = this.value; saveSettingsNow(); renderPickNote(); renderSummary(); updateControls(); updatePreviewBtn(); });
+    $('voicePreviewBtn').addEventListener('click', function () {
+      var key = settings.voiceKey;
+      if (!key || !library || !window.YBTakes) return;
+      window.YBTakes.player.toggle('voice:' + key, function () { return library.previewBlob(key); });
+    });
     ['focus', 'pointerdown'].forEach(function (ev) {
       $('voicePick').addEventListener(ev, function () { refreshListsIfStale('voices'); if (library) library.refreshIfStale(); });
     });
