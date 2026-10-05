@@ -772,3 +772,12 @@ input[type="range"] { min-height: 32px; }            /* finger-friendly */
 /* play button lines up with the take's name (first line), not the whole block */
 .take { align-items: flex-start; }
 .take-main { padding-top: 6px; }
+
+/* ---------- Hear a voice: ▶ beside the picker and each character's name ---------- */
+.voice-pick-row { display: flex; align-items: center; gap: 10px; margin-top: 6px; }
+.voice-pick-row select { flex: 1 1 auto; min-width: 0; }
+.voice-pick-row .play-btn { --size: 40px; }
+.play-btn:disabled { opacity: .45; cursor: not-allowed; }
+.cast-voice .cv-title { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.field > label[for="voicePick"] { font-size: .82rem; font-weight: 700; color: var(--muted); letter-spacing: .02em; }
+.voice-pick-row { margin-top: 0; }

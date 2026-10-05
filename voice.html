@@ -15,12 +15,12 @@
   <meta name="mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
   <meta name="apple-mobile-web-app-title" content="YT Blue">
-  <link rel="stylesheet" href="css/style.css?v=14">
+  <link rel="stylesheet" href="css/style.css?v=15">
   <script src="js/core.js" defer></script>
-  <script src="js/voice.js?v=15" defer></script>
-  <script src="js/voice-library.js?v=3" defer></script>
-  <script src="js/voice-takes.js?v=1" defer></script>
-  <script src="js/voice-story.js?v=17" defer></script>
+  <script src="js/voice.js?v=16" defer></script>
+  <script src="js/voice-library.js?v=4" defer></script>
+  <script src="js/voice-takes.js?v=2" defer></script>
+  <script src="js/voice-story.js?v=18" defer></script>
 </head>
 <body data-page="voice">
   <header class="topbar">
@@ -212,7 +212,12 @@
         <!-- ===== Voice ===== -->
         <section class="card" aria-labelledby="voiceTitle" id="voiceCard">
           <h2 id="voiceTitle">Voice</h2>
-          <label class="field"><span>Voice</span><select id="voicePick"><option value="">Loading voices…</option></select></label>
+          <div class="field"><label for="voicePick">Voice</label>
+            <div class="voice-pick-row">
+              <button type="button" class="play-btn" id="voicePreviewBtn" data-play-key="" data-play-label="this voice" aria-label="Play this voice" aria-pressed="false"><svg class="pi-play" viewBox="0 0 24 24" aria-hidden="true"><path d="M8 5.5v13a1 1 0 0 0 1.5.86l10.2-6.5a1 1 0 0 0 0-1.72L9.5 4.64A1 1 0 0 0 8 5.5z"/></svg><svg class="pi-pause" viewBox="0 0 24 24" aria-hidden="true"><rect x="6.5" y="5" width="4" height="14" rx="1.2"/><rect x="13.5" y="5" width="4" height="14" rx="1.2"/></svg></button>
+              <select id="voicePick"><option value="">Loading voices…</option></select>
+            </div>
+          </div>
           <p class="small muted voice-pick-note" id="voicePickNote"></p>
           <div class="row" style="margin-top:8px">
             <button class="btn btn-ghost btn-sm" type="button" id="refreshVoicesBtn">🔄 Refresh Voices</button>
@@ -247,7 +252,7 @@
             <h2 id="castTitle" style="margin:0">Cast voices</h2>
             <button class="btn btn-ghost btn-sm" type="button" id="castRefreshBtn">🔄 Refresh lists</button>
           </div>
-          <p class="muted small" style="margin:8px 0 6px">Pick a built-in voice or a clone reference for each character. Set a character to <b>Clone</b> to upload a new reference for them (choose file, then Upload). Open <b>🎚️ Voice settings</b> on a character for all of their settings — presets, delivery, expression, language and text processing. They follow the active model, and every character starts at the defaults. Choices are saved per story.</p>
+          <p class="muted small" style="margin:8px 0 6px">Pick a voice for each character, and tap <b>▶</b> next to a name to hear it. Use <b>➕ Import a voice</b> to add your own. Open <b>🎚️ Voice settings</b> on a character for presets, delivery, expression, language and text processing; they follow the active model and start at the defaults. Choices are saved per story.</p>
           <p class="small ref-tips-inline">Best results: 10–20 seconds of clean speech, one speaker, no music, no reverb, no background noise. Only clone voices you own or have permission to use.</p>
           <div class="cast-voices" id="castRows"></div>
         </section>
