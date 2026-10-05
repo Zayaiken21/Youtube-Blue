@@ -711,3 +711,4 @@ input[type="range"] { min-height: 32px; }            /* finger-friendly */
 /* ---------- Loudness levelling toggle ---------- */
 .level-toggle { margin: 12px 0 0; }
 .level-toggle small { display: inline; font-weight: 500; }
+.mv-badge.failed { color: #fecaca; border-color: rgba(248, 113, 113, .45); }

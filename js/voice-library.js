@@ -18,9 +18,11 @@
    server session (the server's reference list must show it before any job
    uses it), then the job clones that voice. Built-in voices are used as is.
 
-   Sharing: the site has no GitHub write access (no tokens in the frontend),
-   so "Share with everyone" prepares the file and the owner adds it to
-   Voices/Our Voices on GitHub — it then appears for everyone.
+   Sharing is automatic: a shared voice is POSTed to the job server's
+   /share-voice route (Colab Cell 2), which commits it to Voices/Our Voices
+   with the GitHub token that only lives in Colab. The site never holds a
+   token. If the server is offline, busy or doesn't have the route yet, the
+   share waits and retries by itself.
    ========================================================= */
 (function () {
   'use strict';
@@ -228,10 +230,10 @@
   /* ---------- My Voices (this device) ---------- */
   function saveMine() { YB.store.set(MINE_KEY, mine); }
   function inOurVoices(name) {
-    var n = String(name).trim().toLowerCase();
-    return (lib.shared || []).some(function (x) { return x.name.trim().toLowerCase() === n; });
+    // The Colab cell may add " 2", " 3"… when a name is already taken.
+    var n = String(name).trim().toLowerCase(), re = new RegExp('^' + n.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '( \\d+)?$');
+    return (lib.shared || []).some(function (x) { return re.test(x.name.trim().toLowerCase()); });
   }
-  function shareFileName(m) { return (m.name.replace(/[\\/:*?"<>|]+/g, '').replace(/\s+/g, ' ').trim() || 'My voice') + '.' + m.ext; }
 
   // Import: checks the file, stores it on this device, returns its key.
   function importVoice(file, name, share) {
@@ -246,7 +248,7 @@
       var id = Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
       return V.db.put('myvoice:' + id, { blob: file, name: name, ext: ext }).then(function (ok) {
         if (!ok) throw V.makeErr('upload', 'This browser wouldn\'t let the app save the voice (private browsing or storage full).');
-        var m = { id: id, name: name, ext: ext, size: file.size, seconds: r.seconds || 0, at: Date.now(), share: !!share };
+        var m = { id: id, name: name, ext: ext, size: file.size, seconds: r.seconds || 0, at: Date.now(), share: share ? 'queued' : false };
         mine.push(m); saveMine();
         changed();
         return { key: 'mine:' + id, voice: m, length: r };
@@ -264,41 +266,88 @@
     changed();
   }
 
-  // Sharing goes through the owner: download the file, then it's added to
-  // Voices/Our Voices on GitHub and appears for everyone.
+  /* ---------- Sharing to Our Voices (automatic) ----------
+     share: false | 'queued' | 'sending' | 'sent' | 'failed'                    */
+  var SHARE_RETRY_MS = 20000, SHARE_WATCH_MS = 15 * 60 * 1000;
+  var shareTimer = null, shareBusy = false, shareBackoffUntil = 0, shareMissing = false;
+  mine.forEach(function (m) { if (m.share === true || m.share === 'sending') m.share = 'queued'; });   // older saves / interrupted send
+
   function shareMine(id) {
     var m = mine.find(function (x) { return x.id === id; }); if (!m) return;
-    V.db.get('myvoice:' + id).then(function (rec) {
-      if (!rec || !rec.blob) { YB.toast('That voice isn\'t stored on this device any more'); return; }
-      m.share = true; saveMine();
-      var url = URL.createObjectURL(rec.blob), a = document.createElement('a');
-      a.href = url; a.download = shareFileName(m); document.body.appendChild(a); a.click(); a.remove();
-      setTimeout(function () { URL.revokeObjectURL(url); }, 4000);
-      showShareHelp(m);
-      changed();
+    if (m.share === 'sent' || isLive(m)) return;
+    m.share = 'queued'; m.shareError = ''; saveMine();
+    changed();
+    processShares();
+  }
+  function isLive(m) { return inOurVoices(m.name) || (!!m.sharedName && inOurVoices(m.sharedName)); }
+  // POST /share-voice (multipart: file, name, client_id) → { ok, status, name, path }
+  function sendShare(m, blob) {
+    var form = new FormData();
+    form.append('file', new File([blob], (m.name.replace(/[^\w\s'-]/g, '').trim() || 'voice') + '.' + m.ext, { type: m.ext === 'mp3' ? 'audio/mpeg' : 'audio/wav' }));
+    form.append('name', m.name);
+    form.append('client_id', m.id);
+    return V.call(V.route('share'), { method: 'POST', body: form }, 180000).then(function (res) {
+      return res.text().then(function (text) {
+        var data = null; try { data = JSON.parse(text); } catch (e) { /* not JSON */ }
+        var detail = data && (typeof data.detail === 'string' ? data.detail : data.error || data.message) || '';
+        if (res.status === 404 || res.status === 405) throw V.makeErr('share-missing', 'The server doesn\'t have sharing yet.');
+        if (res.status === 429) throw V.makeErr('share-limit', detail || 'Too many shares right now — it will try again later.');
+        if (res.status >= 400 && res.status < 500) throw V.makeErr('share-rejected', detail || 'The server didn\'t accept this voice (HTTP ' + res.status + ').');
+        if (!res.ok || !data || data.ok !== true) throw V.makeErr('unavailable', detail || 'The server couldn\'t share it right now (HTTP ' + res.status + ').');
+        return data;
+      });
     });
   }
-  function showShareHelp(m) {
-    var box = $('shareHelp'); if (!box) return;
-    var r = repoInfo(), up = 'https://github.com/' + r.owner + '/' + r.repo + '/upload/main/' + DIRS.shared.split('/').map(encodeURIComponent).join('/');
-    box.hidden = false;
-    box.innerHTML = '<b>Ready to share "' + YB.esc(m.name) + '"</b>' +
-      'The file <b>' + YB.esc(shareFileName(m)) + '</b> was saved to your downloads. To put it in <b>Our Voices</b> for everyone, add it to the <b>' + YB.esc(DIRS.shared) +
-      '</b> folder of the Youtube Blue GitHub repo (or send it to the owner). It shows up for everyone a minute or two after it\'s added.' +
-      '<div class="row" style="margin-top:8px"><a class="btn btn-sm" href="' + up + '" target="_blank" rel="noopener">↗ Open the Our Voices upload page</a>' +
-      '<button class="btn btn-ghost btn-sm" type="button" data-share-close>Done</button></div>';
+  function shareState(m) { return isLive(m) ? 'live' : (m.share || 'private'); }
+
+  // Sends one queued voice at a time, only when the server is online and idle.
+  function processShares() {
+    clearTimeout(shareTimer);
+    var pending = mine.filter(function (m) { return m.share === 'queued'; });
+    var waiting = mine.filter(function (m) { return m.share === 'sent' && !isLive(m) && Date.now() - (m.sharedAt || 0) < SHARE_WATCH_MS; });
+    var wait = Date.now() < shareBackoffUntil ? Math.max(SHARE_RETRY_MS, shareBackoffUntil - Date.now()) : SHARE_RETRY_MS;
+    if (pending.length || waiting.length) shareTimer = setTimeout(function () { if (waiting.length) refresh(true); processShares(); }, wait);
+    if (!pending.length || shareBusy || Date.now() < shareBackoffUntil) { renderMine(); return; }
+    if (!V.backend() || !V.online() || V.isBusy() || V.remoteBusy()) { renderMine(); return; }
+    var m = pending[0];
+    shareBusy = true; m.share = 'sending'; saveMine(); renderMine();
+    V.db.get('myvoice:' + m.id).then(function (rec) {
+      if (!rec || !rec.blob) throw V.makeErr('validation', 'This voice isn\'t stored on this device any more.');
+      return sendShare(m, rec.blob);
+    }).then(function (data) {
+      shareMissing = false;
+      m.share = 'sent'; m.sharedAt = Date.now(); m.sharedName = data.name || m.name; m.shareError = '';
+      YB.toast(data.status === 'already_shared' ? '"' + m.name + '" is already in Our Voices' : '"' + m.name + '" shared — it shows in Our Voices for everyone in a minute or two');
+      refresh(true);
+    }, function (err) {
+      console.warn('[Voice library] share', err);
+      if (err.kind === 'share-missing') { shareMissing = true; m.share = 'queued'; shareBackoffUntil = Date.now() + 5 * 60 * 1000; }   // server not upgraded yet
+      else if (err.kind === 'share-limit') { m.share = 'queued'; shareBackoffUntil = Date.now() + 10 * 60 * 1000; }
+      else if (err.kind === 'share-rejected') { m.share = 'failed'; m.shareError = err.message; }
+      else { m.share = 'queued'; shareBackoffUntil = Date.now() + 60 * 1000; }                          // offline / hiccup: try again soon
+    }).then(function () {
+      shareBusy = false; saveMine(); changed();
+      processShares();
+    });
   }
 
   function renderMine() {
     var box = $('myVoicesBox'), list = $('myVoicesList'); if (!box || !list) return;
     box.hidden = !mine.length;
     list.innerHTML = mine.map(function (m) {
-      var live = inOurVoices(m.name);
-      var badge = live ? '<span class="mv-badge live">In Our Voices</span>' : m.share ? '<span class="mv-badge pending">Shared · waiting to be added</span>' : '<span class="mv-badge">Private</span>';
+      var stt = shareState(m), live = stt === 'live';
+      var waitWhy = shareMissing ? 'Waiting for the server\'s share feature' : !V.backend() || !V.online() ? 'Will share when the server is online' : 'Waiting to share…';
+      var badge = live ? '<span class="mv-badge live">In Our Voices</span>'
+        : stt === 'queued' ? '<span class="mv-badge pending">' + waitWhy + '</span>'
+        : stt === 'sending' ? '<span class="mv-badge pending">Sharing…</span>'
+        : stt === 'sent' ? '<span class="mv-badge pending">Shared · appearing in Our Voices shortly</span>'
+        : stt === 'failed' ? '<span class="mv-badge failed" title="' + YB.esc(m.shareError || '') + '">Couldn\'t share</span>'
+        : '<span class="mv-badge">Private</span>';
       return '<li data-mv="' + YB.esc(m.id) + '"><div class="mv-main"><b>' + YB.esc(m.name) + '</b>' +
         '<span class="mv-meta">' + (m.seconds ? m.seconds.toFixed(1) + ' s · ' : '') + V.bytesLabel(m.size) + ' · ' + m.ext.toUpperCase() + '</span>' + badge + '</div>' +
         '<div class="mv-actions"><button type="button" class="btn btn-ghost btn-xs" data-mv-play="' + YB.esc(m.id) + '" aria-label="Play ' + YB.esc(m.name) + '">▶</button>' +
-        (live ? '' : '<button type="button" class="btn btn-ghost btn-xs" data-mv-share="' + YB.esc(m.id) + '">' + (m.share ? '⬇ Share file' : '🌐 Share') + '</button>') +
+        (stt === 'private' ? '<button type="button" class="btn btn-ghost btn-xs" data-mv-share="' + YB.esc(m.id) + '">🌐 Share</button>'
+          : stt === 'failed' ? '<button type="button" class="btn btn-ghost btn-xs" data-mv-share="' + YB.esc(m.id) + '">↻ Try again</button>' : '') +
         '<button type="button" class="btn btn-ghost btn-xs" data-mv-del="' + YB.esc(m.id) + '" aria-label="Remove ' + YB.esc(m.name) + '">🗑</button></div></li>';
     }).join('');
   }
@@ -363,7 +412,7 @@
         $('voiceSampleFile').value = ''; $('localFileName').textContent = 'None'; $('importVoiceName').value = ''; $('importVoiceName').dataset.auto = ''; $('refDurationNote').hidden = true;
         $('importShare').checked = false; $('importConsent').checked = false; $('importConsentRow').hidden = true;
         V.selectVoice(res.key);
-        if (share) shareMine(res.voice.id);
+        if (share) processShares();
         importReady();
       }, function (err) {
         importing = false; importReady();
@@ -373,10 +422,14 @@
     $('myVoicesList').addEventListener('click', function (e) {
       var b = e.target.closest('button'); if (!b) return;
       if (b.hasAttribute('data-mv-play')) playMine(b.getAttribute('data-mv-play'));
-      else if (b.hasAttribute('data-mv-share')) shareMine(b.getAttribute('data-mv-share'));
+      else if (b.hasAttribute('data-mv-share')) {
+        var sid = b.getAttribute('data-mv-share'), sm = mine.find(function (x) { return x.id === sid; });
+        if (sm && sm.share === 'failed') shareMine(sid);
+        else if (sm && confirm('Share "' + sm.name + '" with everyone?\n\nIt will be added to Our Voices on Youtube Blue for anyone to use. Only share your own voice or one you have permission to share.')) shareMine(sid);
+      }
       else if (b.hasAttribute('data-mv-del')) removeMine(b.getAttribute('data-mv-del'));
     });
-    $('shareHelp').addEventListener('click', function (e) { if (e.target.closest('[data-share-close]')) $('shareHelp').hidden = true; });
+
   }
 
   var L = {
@@ -401,6 +454,7 @@
     renderMine();
     V.registerLibrary(L);
     refresh(false);
+    setTimeout(processShares, 3000);   // pick up shares waiting from before (server may still be connecting)
   }
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', init); else init();
 })();

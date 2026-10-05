@@ -88,7 +88,9 @@ One **Voice** picker (and the same picker on every Story character) lists:
 
 Picking a Preset, Our Voices or My Voices voice needs no setup. Right before generating, the page sends that voice to the server once per server session, confirms the server lists it, then the job clones it. After a Colab restart it's sent again automatically.
 
-**Share with everyone** is off by default. Turning it on (with a "this is my voice / I have permission" check) saves the file and links to the `Voices/Our Voices` upload page on GitHub. Once the file is added there, it shows for everyone. The site never writes to GitHub itself.
+**Share with everyone** is off by default. Turning it on (with a "this is my voice / I have permission" check), or tapping **🌐 Share** on a voice in My Voices, sends the voice to the job server's `POST /share-voice` route (Colab Cell 2). The server commits it to `Voices/Our Voices` with the GitHub token that only lives in Colab, so it shows up for everyone a minute or two later. The site never holds a token. If the server is offline, busy, rate-limited or doesn't have the route yet, the share waits and retries by itself, even after the app is closed and reopened. My Voices shows each step: Waiting / Sharing… / Shared · appearing shortly / In Our Voices.
+
+`POST /share-voice` (multipart: `file`, `name`, `client_id`) → `{"ok": true, "status": "published" | "already_shared", "name", "path"}`. A taken name gets " 2", " 3"…; existing voices are never overwritten. `voice_share_endpoint` in `backend-config.json` can point elsewhere; otherwise `backend_url + /share-voice` is used.
 
 `Voices/index.json` lists the library and is rebuilt by the **Voice library index** GitHub Action whenever a file in `Voices/` changes. If it's missing, the page reads the folders through the public GitHub API instead.
 

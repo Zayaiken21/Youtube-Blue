@@ -15,10 +15,10 @@
   <meta name="mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
   <meta name="apple-mobile-web-app-title" content="YT Blue">
-  <link rel="stylesheet" href="css/style.css?v=12">
+  <link rel="stylesheet" href="css/style.css?v=13">
   <script src="js/core.js" defer></script>
-  <script src="js/voice.js?v=13" defer></script>
-  <script src="js/voice-library.js?v=2" defer></script>
+  <script src="js/voice.js?v=14" defer></script>
+  <script src="js/voice-library.js?v=3" defer></script>
   <script src="js/voice-story.js?v=16" defer></script>
 </head>
 <body data-page="voice">
@@ -225,9 +225,9 @@
             <div class="small muted" style="margin-top:6px">Selected: <b id="localFileName">None</b></div>
             <div class="small ref-length" id="refDurationNote" hidden></div>
             <label class="field" style="margin-top:10px"><span>Voice name</span><input id="importVoiceName" type="text" maxlength="40" placeholder="e.g. Grandpa Joe" autocomplete="off"></label>
-            <label class="field check-field" style="margin-top:10px"><input id="importShare" type="checkbox"><span>Share with everyone (adds it to Our Voices)</span></label>
+            <label class="field check-field" style="margin-top:10px"><input id="importShare" type="checkbox"><span>Share with everyone (adds it to Our Voices automatically)</span></label>
             <label class="field check-field" id="importConsentRow" hidden><input id="importConsent" type="checkbox"><span>This is my voice, or I have permission to share it</span></label>
-            <p class="small muted" style="margin:6px 0 0">Off: the voice stays private in this app on this device only. On: anyone using Youtube Blue can pick it.</p>
+            <p class="small muted" style="margin:6px 0 0">Off: the voice stays private in this app on this device only. On: it's sent to Our Voices for everyone. Takes a minute or two, and waits for the server if it's offline.</p>
             <div class="row" style="margin-top:10px">
               <button class="btn btn-sm" type="button" id="importVoiceBtn" disabled>⬆️ Import voice</button>
             </div>
@@ -238,7 +238,6 @@
             <div class="label" style="margin:14px 0 6px">My Voices <span class="muted small">· this device</span></div>
             <ul class="my-voice-list" id="myVoicesList"></ul>
           </div>
-          <div class="notice share-help" id="shareHelp" hidden></div>
         </section>
 
         <!-- ===== Cast voices (story mode) ===== -->

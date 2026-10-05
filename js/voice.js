@@ -77,7 +77,8 @@
     upload: ['reference_upload_endpoint', '/upload_reference'],
     models: ['models_endpoint', '/models'],
     state: ['backend_state_endpoint', '/state'],
-    modelSwitch: ['model_switch_job_endpoint', '/model-switch-jobs']
+    modelSwitch: ['model_switch_job_endpoint', '/model-switch-jobs'],
+    share: ['voice_share_endpoint', '/share-voice']     // Cell 2: commits a shared voice to Voices/Our Voices
   };
 
   /* ---------- State ---------- */
@@ -1813,6 +1814,7 @@
     // Story runs use the same locks as single generation: no health polling,
     // Generate disabled, Cancel enabled, status pill shows progress.
     remoteBusy: function () { return app.remoteBusy && !app.generating; },
+    online: function () { return app.state === 'online'; },
     noteOwnBackground: function () { markOwnBg(); },
     begin: function (label, startedAt) { if (app.generating) return false; clearRemoteGen(false); app.generating = true; stopPolling(); app.startedAt = startedAt || Date.now();
       showNotice($('genError'), null); $('genProgress').hidden = false; setState('generating', label || 'Generating');
