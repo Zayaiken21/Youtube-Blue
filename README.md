@@ -94,6 +94,12 @@ Picking a Preset, Our Voices or My Voices voice needs no setup. Right before gen
 
 `Voices/index.json` lists the library and is rebuilt by the **Voice library index** GitHub Action whenever a file in `Voices/` changes. If it's missing, the page reads the folders through the public GitHub API instead.
 
+**Your audio (nothing gets lost)**
+
+Every take is saved quietly on the device: each single-voice generation, each Story line the moment it finishes, and every full story track. Nothing is downloaded automatically; it simply stays after a refresh or closing the app. A new generation never wipes earlier ones. Story runs are grouped (full track first, then lines in order). **Clear all** removes every saved take, the player and Story mode's finished lines at the same time.
+
+Every clip has a round ▶ button right next to its name that turns into ❚❚ while playing, with a progress ring. Tap to pause, tap again to resume. Only one clip plays at a time. In Story mode, finished lines can be played while the rest are still generating. The ⬇ icon downloads a clip only when tapped.
+
 **Level loudness (YouTube-ready)**
 
 On by default (switch next to Generate). Every WAV clip, and every Story line on its own, is measured and brought to one speaking level (about -16.5 dB, like a well-mixed narration), so quiet takes come up and all characters match. It changes volume only: one gain for the whole clip, plus a gentle limiter on the rare loudest peaks (at most 3 dB, never above -1 dBFS). On real output the tone stays within about 0.15 dB in every frequency band. If a clip would need more limiting than that, it's raised a little less instead. Audio already within 1 dB of the target, and MP3/Opus output, are left exactly as the server sent them. Switch it off to get the raw server audio.

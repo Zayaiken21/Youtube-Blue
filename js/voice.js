@@ -1437,6 +1437,10 @@
         return levelBlob(blob, ext).then(function (r) {
           if (app.job !== job) return;
           showAudio(r.blob, ext, null, null, gainNote(r));
+          if (window.YBTakes) {
+            var vk = app.jobVoiceKey || settings.voiceKey;
+            window.YBTakes.add({ kind: 'single', title: 'Speech · ' + (library && vk ? library.label(vk).replace(/ · .*$/, '') : 'voice'), text: $('scriptText').value.trim(), blob: r.blob, ext: ext, note: gainNote(r) });
+          }
           YB.toast('Complete — speech ready');
           finishJob(null);
         });
@@ -1711,6 +1715,16 @@
     }
   }
 
+  function syncMainToggle() {
+    var a = $('audioPreview'), b = $('mainPlayToggle'); if (!b) return;
+    var playing = !a.paused && !a.ended;
+    b.classList.toggle('is-playing', playing);
+    b.classList.toggle('is-active', playing || (a.currentTime > 0 && !a.ended));
+    b.setAttribute('aria-pressed', playing ? 'true' : 'false');
+    b.setAttribute('aria-label', (playing ? 'Pause' : 'Play') + ' generated audio');
+    b.style.setProperty('--p', a.duration ? Math.min(100, a.currentTime / a.duration * 100).toFixed(1) : 0);
+  }
+
   function clearAudio() {
     var p = $('audioPreview');
     p.pause(); p.removeAttribute('src'); p.load();
@@ -1931,10 +1945,16 @@
     $('generateBtn').addEventListener('click', generate);
     $('cancelBtn').addEventListener('click', cancelGeneration);
     $('againBtn').addEventListener('click', generate);
-    $('playBtn').addEventListener('click', function () { var p = $('audioPreview').play(); if (p && p.catch) p.catch(function () {}); });
-    $('pauseBtn').addEventListener('click', function () { $('audioPreview').pause(); });
+    // Round play/pause next to "Generated audio": ▶ turns into ❚❚ while playing.
+    $('mainPlayToggle').addEventListener('click', function () {
+      var a = $('audioPreview'); if (!a.getAttribute('src')) return;
+      if (a.paused) { var p = a.play(); if (p && p.catch) p.catch(function () {}); } else a.pause();
+    });
+    ['play', 'playing', 'pause', 'ended', 'timeupdate', 'emptied', 'loadedmetadata'].forEach(function (ev) { $('audioPreview').addEventListener(ev, syncMainToggle); });
     $('replayBtn').addEventListener('click', function () { var a = $('audioPreview'); a.currentTime = 0; var p = a.play(); if (p && p.catch) p.catch(function () {}); });
-    $('clearAudioBtn').addEventListener('click', clearAudio);
+    // Clear all: every saved take, this player and Story mode's finished lines, at once.
+    $('clearAudioBtn').addEventListener('click', function () { if (window.YBTakes) window.YBTakes.clearAll(false); else clearAudio(); });
+    window.addEventListener('yb-audio-cleared', clearAudio);
     $('downloadAudioBtn').addEventListener('click', function (e) { if (!app.audioUrl) e.preventDefault(); });
 
     window.addEventListener('yb-voice-summary', renderSummary);   // story mode switched off

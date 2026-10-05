@@ -45,7 +45,8 @@
     run: null,       // active run { token, queue:[i], inflight:[i], timer, posting, hold, cycle }
     runId: ''        // names this run's saved clips in IndexedDB ("clip:<runId>:<i>")
   };
-  var player = new Audio();
+  function takes() { return window.YBTakes; }
+  function lineKey(i) { return 'line:' + st.runId + ':' + i; }
   var swReg = null;                 // service worker that finishes sending lines after the page closes
   var HANDOFF_WAIT_MS = 120000;     // no word from the worker after this → send the line again
 
@@ -468,18 +469,21 @@
       if (g.type === 'scene') return '<li class="scene">— ' + YB.esc(g.text) + ' —</li>';
       n++;
       var c = who(s, g.speaker), status = g.status || 'idle';
-      var actions = '';
+      var actions = '', play = '';
       if (g.status === 'done' && g.url) {
-        actions = '<div class="seg-actions"><button type="button" data-seg-play="' + i + '">▶ Play</button>' +
-          '<a href="' + g.url + '" download="' + YB.esc(fileBase() + '-line-' + n + '-' + slug(c.name)) + '.wav">⬇ Clip</a></div>';
+        // Small play/pause right next to the name — works while other lines are still generating.
+        play = takes() ? takes().player.button(lineKey(i), (c.name || 'Narrator') + ', line ' + n, 'play-btn-sm').replace('<button ', '<button data-seg-play="' + i + '" ')
+          : '<button type="button" class="play-btn play-btn-sm" data-seg-play="' + i + '" aria-label="Play line ' + n + '">▶</button>';
+        actions = '<div class="seg-actions"><a href="' + g.url + '" download="' + YB.esc(fileBase() + '-line-' + n + '-' + slug(c.name)) + '.wav">⬇ Clip</a></div>';
       } else if (g.status === 'failed' && g.error) {
         actions = '<div class="seg-actions"><span class="small" style="color:#fecaca">' + YB.esc(g.error.message) + '</span></div>';
       }
       return '<li style="--c:' + YB.esc(c.color || '#1e7bff') + '" data-i="' + i + '"><span class="num">' + n + '</span>' +
-        '<div><div class="who">' + YB.esc(c.name) + (g.lines > 1 ? ' <span class="muted small">(' + g.lines + ' lines)</span>' : '') + '</div>' +
+        '<div><div class="who">' + play + '<span class="who-name">' + YB.esc(c.name) + '</span>' + (g.lines > 1 ? ' <span class="muted small">(' + g.lines + ' lines)</span>' : '') + '</div>' +
         '<div class="say">' + YB.esc(g.text.length > 220 ? g.text.slice(0, 217) + '…' : g.text) + '</div>' + actions + '</div>' +
         '<span class="st" data-s="' + status + '">' + statusLabel(status) + '</span></li>';
     }).join('');
+    if (takes()) takes().player.sync();
   }
 
   function renderAll() {
@@ -605,6 +609,7 @@
     if (!begun && !V.begin('Queued')) return;
     if (!onlyFailed || !st.runId) {
       var keepDone = onlyFailed ? st.segs.map(function (g, i) { return g.status === 'done' && g.blob ? i : -1; }).filter(function (i) { return i >= 0; }) : [];
+      if (takes()) takes().player.release('line:');
       st.runId = Date.now().toString(36);
       V.db.delPrefix('sent:');
       V.db.delPrefix('clip:').then(function () { keepDone.forEach(function (i) { V.db.put(clipKey(i), st.segs[i].blob); }); });
@@ -803,6 +808,7 @@
           if (st.run !== run) return;
           g.blob = r.blob; g.url = URL.createObjectURL(r.blob); g.status = 'done'; g.gainDb = r.gainDb;
           V.db.put(clipKey(i), r.blob);
+          saveTake(i);
           done(i);
         });
       })
@@ -811,6 +817,15 @@
         if (++g.fails < 4) { g.status = 'running'; return; }   // retried on the next poll
         fail(i, V.networkError(err));
       });
+  }
+
+  // Every finished line goes to "Your audio" right away (kept until Clear all).
+  function lineNumber(i) { var n = 0; for (var k = 0; k <= i; k++) if (st.segs[k] && st.segs[k].type === 'line') n++; return n; }
+  function saveTake(i) {
+    var g = st.segs[i], s = story(); if (!takes() || !g || !g.blob) return;
+    var n = lineNumber(i), name = who(s, g.speaker).name || 'Narrator';
+    takes().add({ id: st.runId + '-' + i, kind: 'line', group: st.runId, groupTitle: (s && s.title) || 'Story', idx: n,
+      title: 'Line ' + n + ' · ' + name, text: g.text, blob: g.blob, ext: 'wav' });
   }
 
   function done(i) {
@@ -854,6 +869,8 @@
       saveRun('finished');
       V.end();
       V.showAudio(wav, 'wav', fileBase(), V.levelOn() ? 'every line levelled' : '');
+      if (takes()) takes().add({ id: st.runId + '-track', kind: 'story', group: st.runId, groupTitle: (story() && story().title) || 'Story', idx: -1,
+        title: 'Full story track', text: lines.length + ' lines in script order', blob: wav, ext: 'wav' });
       $('storyRunNote').textContent = 'Story track ready — ' + lines.length + ' lines in script order. Each line\'s clip can also be played or downloaded above.';
       YB.toast(run.resumed ? 'Your story finished in the background — audio ready' : 'Complete — story audio ready');
       updateRetry(); V.updateControls();
@@ -1008,8 +1025,10 @@
 
     $('storySegments').addEventListener('click', function (e) {
       var b = e.target.closest('[data-seg-play]'); if (!b) return;
-      var g = st.segs[Number(b.getAttribute('data-seg-play'))];
-      if (g && g.url) { player.src = g.url; player.play().catch(function () {}); }
+      var i = Number(b.getAttribute('data-seg-play')), g = st.segs[i];
+      if (!g || !g.blob) return;
+      if (takes()) takes().player.toggle(lineKey(i), function () { return g.blob; });
+      else { var a = new Audio(g.url); a.play().catch(function () {}); }
     });
 
     // Leaving (app switcher, swipe away, tab closed): send every remaining line
@@ -1019,6 +1038,14 @@
       if (st.run && !st.run.finishing) { clearTimeout(st.run.timer); st.run.timer = setTimeout(pollAll, 200); }
     });
     window.addEventListener('pagehide', flushAll);
+    window.addEventListener('yb-audio-cleared', function () {
+      if (st.run || st.preparing) return;            // a running story keeps going; its lines arrive fresh
+      st.segs.forEach(function (g) { if (g.type === 'line') { if (g.url) URL.revokeObjectURL(g.url); g.url = null; g.blob = null; if (g.status === 'done' || g.status === 'failed') { g.status = 'idle'; g.error = null; } } });
+      V.db.delPrefix('clip:'); V.db.delPrefix('sent:');
+      YB.store.remove(RUN_KEY);
+      $('storyRunNote').textContent = '';
+      renderAll();
+    });
     // Desktop tab/window closing: send the rest now, and only if those sends are
     // still on their way, show the browser's "Leave site?" prompt so they land.
     window.addEventListener('beforeunload', function (e) {

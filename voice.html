@@ -15,11 +15,12 @@
   <meta name="mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
   <meta name="apple-mobile-web-app-title" content="YT Blue">
-  <link rel="stylesheet" href="css/style.css?v=13">
+  <link rel="stylesheet" href="css/style.css?v=14">
   <script src="js/core.js" defer></script>
-  <script src="js/voice.js?v=14" defer></script>
+  <script src="js/voice.js?v=15" defer></script>
   <script src="js/voice-library.js?v=3" defer></script>
-  <script src="js/voice-story.js?v=16" defer></script>
+  <script src="js/voice-takes.js?v=1" defer></script>
+  <script src="js/voice-story.js?v=17" defer></script>
 </head>
 <body data-page="voice">
   <header class="topbar">
@@ -360,18 +361,29 @@
     <!-- ===== Generated audio ===== -->
     <section class="card" style="margin-top:16px" aria-labelledby="outTitle" id="audioOutputSection" hidden>
       <div class="row between">
-        <h2 id="outTitle" style="margin:0">Generated audio</h2>
+        <div class="out-head">
+          <button type="button" class="play-btn play-btn-lg" id="mainPlayToggle" aria-label="Play generated audio" aria-pressed="false"><svg class="pi-play" viewBox="0 0 24 24" aria-hidden="true"><path d="M8 5.5v13a1 1 0 0 0 1.5.86l10.2-6.5a1 1 0 0 0 0-1.72L9.5 4.64A1 1 0 0 0 8 5.5z"/></svg><svg class="pi-pause" viewBox="0 0 24 24" aria-hidden="true"><rect x="6.5" y="5" width="4" height="14" rx="1.2"/><rect x="13.5" y="5" width="4" height="14" rx="1.2"/></svg></button>
+          <h2 id="outTitle" style="margin:0">Generated audio</h2>
+        </div>
         <span class="muted small" id="audioInfo"></span>
       </div>
       <audio id="audioPreview" controls preload="metadata" class="audio-player"></audio>
       <div class="row" style="margin-top:12px">
-        <button class="btn btn-ghost btn-sm" type="button" id="playBtn">▶ Play</button>
-        <button class="btn btn-ghost btn-sm" type="button" id="pauseBtn">❚❚ Pause</button>
         <button class="btn btn-ghost btn-sm" type="button" id="replayBtn">↺ Replay</button>
         <a class="btn btn-sm" id="downloadAudioBtn" href="#" download>⬇️ Download Audio</a>
         <button class="btn btn-ghost btn-sm" type="button" id="againBtn">🔁 Generate Again</button>
-        <button class="btn btn-danger btn-sm" type="button" id="clearAudioBtn">✕ Clear Output</button>
+        <button class="btn btn-danger btn-sm" type="button" id="clearAudioBtn">✕ Clear all</button>
       </div>
+    </section>
+
+    <!-- ===== Your audio (every take, saved on this device) ===== -->
+    <section class="card takes-card" style="margin-top:16px" aria-labelledby="takesTitle" id="takesCard" hidden>
+      <div class="row between">
+        <h2 id="takesTitle" style="margin:0">Your audio <span class="muted small" id="takesCount"></span></h2>
+        <button class="btn btn-danger btn-sm" type="button" id="takesClearBtn">🗑 Clear all</button>
+      </div>
+      <p class="muted small" style="margin:6px 0 12px">Everything you generate is kept on this device, even after closing the app, until you press Clear all.</p>
+      <div id="takesList"></div>
     </section>
   </main>
 
