@@ -17,10 +17,10 @@
   <meta name="apple-mobile-web-app-title" content="YT Blue">
   <link rel="stylesheet" href="css/style.css?v=18">
   <script src="js/core.js" defer></script>
-  <script src="js/voice.js?v=18" defer></script>
+  <script src="js/voice.js?v=19" defer></script>
   <script src="js/voice-library.js?v=6" defer></script>
   <script src="js/voice-takes.js?v=3" defer></script>
-  <script src="js/voice-story.js?v=19" defer></script>
+  <script src="js/voice-story.js?v=20" defer></script>
 </head>
 <body data-page="voice">
   <header class="topbar">
@@ -281,7 +281,7 @@
                 <input id="speedFactor" type="range" min="0.97" max="1.05" step="0.01" list="speedMarks">
                 <datalist id="speedMarks"><option value="0.97"></option><option value="1"></option><option value="1.03"></option><option value="1.05"></option></datalist>
                 <span class="speed-scale" aria-hidden="true"><i>Slower</i><i>Natural</i><i>Faster</i><i>Fast</i></span>
-                <small class="muted">Large speed changes can distort generated speech. For slower delivery, use punctuation and pauses.</small>
+                <small class="muted">Keep 1.00 for the clearest sound — any other speed is stretched afterwards and can sound echoey or far away. For slower delivery, use punctuation and pauses.</small>
               </label>
               <label class="field"><span>Seed (0 = random)</span><input id="generationSeed" type="number" min="0" step="1" inputmode="numeric">
                 <small class="muted">Reuse a fixed seed for more repeatable generations.</small>

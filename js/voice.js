@@ -17,7 +17,7 @@
 
   /* ---------- Constants ---------- */
   var DEFAULT_TAGS = ['laugh', 'chuckle', 'sigh', 'gasp', 'cough', 'clear throat', 'sniff', 'groan', 'shush'];
-  var SETTINGS_VERSION = 5;
+  var SETTINGS_VERSION = 6;
   var DEFAULTS = {
     voiceKey: '',          // 'builtin:<file>' | 'preset:<file>' | 'shared:<file>' | 'mine:<id>' (js/voice-library.js)
     format: 'wav', chunk: 400, temperature: 0.75, speed: 1, seed: 0, split: true, level: true,
@@ -39,9 +39,9 @@
     turbo: [
       ['Natural', { temperature: 0.75, speed: 1.00, chunk: 400 }],
       ['Stable', { temperature: 0.55, speed: 1.00, chunk: 350 }],
-      ['Energetic', { temperature: 0.95, speed: 1.02, chunk: 400 }],
-      ['Comedy', { temperature: 0.90, speed: 1.01, chunk: 350 }],
-      ['Narration', { temperature: 0.65, speed: 0.99, chunk: 400 }]],
+      ['Energetic', { temperature: 0.95, speed: 1.00, chunk: 400 }],
+      ['Comedy', { temperature: 0.90, speed: 1.00, chunk: 350 }],
+      ['Narration', { temperature: 0.65, speed: 1.00, chunk: 400 }]],
     original: [
       ['Natural', { temperature: 0.75, exaggeration: 0.50, cfg: 0.50, speed: 1.00, chunk: 400 }],
       ['Expressive', { temperature: 0.85, exaggeration: 1.00, cfg: 0.50, speed: 1.00, chunk: 400 }],
@@ -50,7 +50,7 @@
     multilingual: [
       ['Natural', { temperature: 0.75, exaggeration: 0.50, speed: 1.00, chunk: 400 }],
       ['Expressive', { temperature: 0.85, exaggeration: 1.00, speed: 1.00, chunk: 400 }],
-      ['Narration', { temperature: 0.65, exaggeration: 0.40, speed: 0.99, chunk: 400 }]]
+      ['Narration', { temperature: 0.65, exaggeration: 0.40, speed: 1.00, chunk: 400 }]]
   };
   // How the reaction-tag chips are grouped (any extra tags from the server go in "More").
   var TAG_GROUPS = [['Laughter', ['laugh', 'chuckle']], ['Reaction', ['sigh', 'gasp', 'groan']], ['Vocal sounds', ['cough', 'clear throat', 'sniff', 'shush']]];
@@ -128,6 +128,9 @@
       delete saved.delivery;
     }
     if (v < 3 && saved.temperature === 0.8) saved.temperature = DEFAULTS.temperature; // new safer default
+    // v6: any speed other than exactly 1.00 is time-stretched on the server, which sounds
+    // echoey / far away. Old presets left 0.99–1.02 behind, so start everyone back at 1.00.
+    if (v < 6) saved.speed = 1;
     // v5: one voice picker. A built-in voice carries over; old server references don't.
     if (!saved.voiceKey && saved.voiceId && saved.mode !== 'clone') saved.voiceKey = 'builtin:' + saved.voiceId;
     delete saved.mode; delete saved.voiceId; delete saved.reference;

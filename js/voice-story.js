@@ -38,6 +38,15 @@
   if ([1, 2, 3].indexOf(Number(opts.parallel)) === -1) { opts.parallel = 2; YB.store.set('voiceStoryOpts', opts); }
   opts.parallel = Number(opts.parallel);
   var castMap = YB.store.get('voiceCast', {});          // { storyId: { charId: { key, set? } } }
+  // One time: put every character back at Speed 1.00 (any other speed is stretched on the
+  // server and sounds echoey). Characters can still be changed by hand afterwards.
+  if (!YB.store.get('voiceSpeedFix1', false)) {
+    Object.keys(castMap).forEach(function (sid) {
+      var m = castMap[sid] || {};
+      Object.keys(m).forEach(function (cid) { if (m[cid] && m[cid].set && m[cid].set.speed != null) m[cid].set.speed = 1; });
+    });
+    YB.store.set('voiceCast', castMap); YB.store.set('voiceSpeedFix1', true);
+  }
   var st = {
     active: YB.store.get('voiceGenMode', 'single') === 'story',
     storyId: '',
@@ -216,7 +225,7 @@
       group('Presets <span class="cs-model">· for ' + YB.esc(V.modelName()) + '</span>', '<div class="chips cs-chips">' + chips + '</div>') +
       group('Delivery',
         slider(id, 'temperature', 'Temperature', a, 'Lower is steadier. Higher adds more variation.') +
-        slider(id, 'speed', 'Speed', a, 'Big speed changes distort speech — use punctuation for slower delivery.') +
+        slider(id, 'speed', 'Speed', a, 'Keep 1.00 for the clearest sound — any other speed is stretched afterwards and can sound echoey.') +
         '<label class="field cs-field"><span>Seed (0 = random)</span><input type="number" min="0" step="1" inputmode="numeric" value="' + a.seed + '" data-cs="seed" data-cs-char="' + cid + '"><small class="muted">Reuse a fixed seed for repeatable results.</small></label>') +
       group('Expression', expression) +
       lang +
