@@ -64,7 +64,7 @@
   var UPLOAD_TIMEOUT_MS = 180000;
   var SHORT_TIMEOUT_MS = 60000;                 // job create / job status (each returns at once)
   var AUDIO_TIMEOUT_MS = 600000;                // fetching a finished audio file
-  var JOB_POLL_MS = 3000, JOB_POLL_MAX_MS = 15000, JOB_MAX_FAILS = 25;
+  var JOB_POLL_MS = 1500, JOB_POLL_MAX_MS = 15000, JOB_MAX_FAILS = 25;
 
   // Where each backend route lives. backend-config.json's own URL wins when it
   // points at the active backend; otherwise backend_url + path.
@@ -600,6 +600,8 @@
     if (app.remoteBusy) { YB.toast('Another user is generating — switch models once the server is free'); return; }
     if (id === activeModel()) { YB.toast((MODEL_NAMES[id] || id) + ' is already active'); return; }
     if (!modelAvailable(id)) { YB.toast((MODEL_NAMES[id] || id) + ' isn\'t available on this server'); return; }
+    var cur = MODEL_NAMES[activeModel()] || 'the current model', next = MODEL_NAMES[id] || id;
+    if (!window.confirm('Switch the server from ' + cur + ' to ' + next + '?\n\nThis changes the voice model for everyone using the server' + (id === 'original' ? ', and Original is slower than Turbo.' : '.'))) return;
     settings.preferredModel = id; saveSettings();   // a preference only — /model-info decides
     showNotice($('modelNotice'), null);
     app.switching = { id: null, model: id, fails: 0, startedAt: Date.now() };
@@ -1554,6 +1556,7 @@
      Anything unexpected → original kept as is. */
   var LEVEL_TARGET_DB = -16.5;      // speech level of the good reference story
   var LEVEL_CEIL = Math.pow(10, -1 / 20), LEVEL_MAX_LIMIT_DB = 3, LEVEL_MIN_DB = -10, LEVEL_MAX_DB = 15, LEVEL_DEADBAND_DB = 1;
+  var LEVEL_NOISE_CEIL_DB = -55;    // background level of the good reference story
 
   function parseWav(buf) {
     var dv = new DataView(buf);
@@ -1616,7 +1619,9 @@
     var gate = Math.max(Math.pow(10, -50 / 10), loud * Math.pow(10, -30 / 10)), sum = 0, k = 0;
     frames.forEach(function (p) { if (p >= gate) { sum += p; k++; } });
     if (k * fl < rate * 0.3) return null;           // under 0.3 s of speech: leave it alone
-    return 10 * Math.log10(sum / k);
+    var sorted = frames.slice().sort(function (a, b) { return a - b; });
+    var floor = sorted[Math.floor(sorted.length * 0.1)] || 0;   // quietest 10 %: room / background noise
+    return { db: 10 * Math.log10(sum / k), floorDb: floor > 0 ? 10 * Math.log10(floor) : -120 };
   }
 
   // Look-ahead limiter: gain envelope reaches the needed reduction before each peak, recovers smoothly.
@@ -1656,10 +1661,14 @@
 
   // In-place on float channels. Returns { gainDb, limitDb } or null when nothing was changed.
   function levelChannels(chans, rate) {
-    var lvl = speechLevelDb(chans, rate);
-    if (lvl === null || !isFinite(lvl)) return null;
+    var m = speechLevelDb(chans, rate);
+    if (!m || !isFinite(m.db)) return null;
+    var lvl = m.db;
     if (Math.abs(LEVEL_TARGET_DB - lvl) < LEVEL_DEADBAND_DB) return null;   // already right: leave every sample as is
     var gainDb = Math.max(LEVEL_MIN_DB, Math.min(LEVEL_MAX_DB, LEVEL_TARGET_DB - lvl));
+    // Never pull background hiss / room sound up past a clean recording's floor:
+    // a noisy clip is raised less (or not at all) so it stays clear, not loud-and-distant.
+    if (gainDb > 0) gainDb = Math.min(gainDb, Math.max(0, LEVEL_NOISE_CEIL_DB - m.floorDb));
     var peak = 0, c, i;
     for (c = 0; c < chans.length; c++) for (i = 0; i < chans[c].length; i++) { var a = Math.abs(chans[c][i]); if (a > peak) peak = a; }
     if (!peak) return null;
