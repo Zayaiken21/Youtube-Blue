@@ -77,6 +77,11 @@
       return tags.indexOf(t) !== -1 ? '[' + t + ']' : ' ';
     }).replace(/\s+/g, ' ').trim();
   }
+  // Spoken lines only (not scene headings): tidy grammar when js/voice-grammar.js is present.
+  function tidy(text) {
+    var s = story(), names = s ? (s.characters || []).map(function (c) { return c.name; }) : [];
+    return text && window.YBGrammar ? window.YBGrammar.fixLine(text, names) : text;
+  }
 
   function buildSegments() {
     var s = story(), out = [];
@@ -85,7 +90,7 @@
     (s.blocks || []).forEach(function (b) {
       if (b.type === 'scene') { if (b.text.trim()) pendingScene = b.text.trim(); return; }
       if (b.type !== 'line') return;
-      var text = clean(b.text);
+      var text = tidy(clean(b.text));
       if (!text || !/[\w]/.test(V.prepareText(text).replace(/\[[^\]]*\]/g, ''))) return;   // nothing speakable
       var speaker = cast(s).some(function (c) { return c.id === b.speaker; }) ? b.speaker : 'narrator';
       if (pendingScene) { out.push({ type: 'scene', text: pendingScene }); pendingScene = ''; }

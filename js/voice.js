@@ -1198,7 +1198,8 @@
     }).map(function (b) {
       return b.text.replace(/\[([^\]]*)\]/g, function (m, inner) { return tags.indexOf(inner.trim().toLowerCase()) !== -1 ? '[' + inner.trim().toLowerCase() + ']' : ' '; })
         .replace(/[ \t]+/g, ' ').trim();
-    }).filter(Boolean).join('\n\n');
+    }).map(function (t) { return t && window.YBGrammar ? window.YBGrammar.fixLine(t, (story.characters || []).map(function (c) { return c.name; })) : t; })   // tidy grammar (js/voice-grammar.js)
+      .filter(Boolean).join('\n\n');
   }
 
   function importFromStory(storyId, speaker, silent) {
@@ -1208,7 +1209,7 @@
     if (!silent && ta.value.trim() && ta.value.trim() !== text && !confirm('Replace the current script with the imported lines?')) return;
     ta.value = text;
     updateScriptMeta(); YB.store.set('voiceScript', text);
-    YB.toast('Imported from Story Studio');
+    YB.toast(window.YBGrammar ? 'Imported from Story Studio · grammar tidied' : 'Imported from Story Studio');
   }
 
   /* ---------- Generation (async jobs only — never POST /tts) ---------- */

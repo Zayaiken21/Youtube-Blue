@@ -145,6 +145,11 @@ Defaults are WAV, chunk size 400 (range 200–500), temperature 0.75, speed 1.00
 - Story Studio → **Send to Voice Studio** imports the spoken lines. In Voice Studio you can also import one character's lines at a time to voice each with a different voice.
 - No tokens or secrets live in this site. The GitHub token stays in Colab secrets.
 
+### Grammar tidy-up when a story moves to Voice Studio
+Every story line that comes into Voice Studio (Import lines, or Story mode) is tidied on the device first, so the voice reads clean sentences: capitals at the start of sentences and on character names, `i` → `I`, missing apostrophes (`dont` → `don't`, `im` → `I'm`), a full stop or `?` at the end of every line, `!!!` → `!`, `..` → `...`, doubled words (`the the`), and spacing around punctuation. It never rewrites words, and `[laugh]`-style tags stay exactly where they are. Your story in Story Studio isn't changed.
+
+**To remove it:** delete `js/voice-grammar.js` and its `<script>` line in `voice.html` (Voice Studio works without it). **To roll the whole site back** to before this feature, use the git tag `backup-before-grammar`: `git checkout backup-before-grammar -- .` then commit.
+
 ## Data
 
 Everything is saved in the browser on each device. Use **Home → Download backup** to move work between devices.
