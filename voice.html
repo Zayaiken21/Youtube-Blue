@@ -15,13 +15,13 @@
   <meta name="mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
   <meta name="apple-mobile-web-app-title" content="YT Blue">
-  <link rel="stylesheet" href="css/style.css?v=21">
+  <link rel="stylesheet" href="css/style.css?v=22">
   <script src="js/core.js" defer></script>
   <script src="js/voice-grammar.js?v=2" defer></script>
-  <script src="js/voice.js?v=21" defer></script>
+  <script src="js/voice.js?v=22" defer></script>
   <script src="js/voice-library.js?v=7" defer></script>
-  <script src="js/voice-takes.js?v=3" defer></script>
-  <script src="js/voice-story.js?v=23" defer></script>
+  <script src="js/voice-takes.js?v=4" defer></script>
+  <script src="js/voice-story.js?v=24" defer></script>
 </head>
 <body data-page="voice">
   <header class="topbar">
@@ -353,7 +353,7 @@
         <span class="spacer"></span>
         <span class="muted small" id="genSummary"></span>
       </div>
-      <label class="field check-field level-toggle"><input id="levelLoudness" type="checkbox" checked><span>🔊 Match volume between clips<small class="muted"> — a light volume match so characters sit at the same level. Chatterbox's sound is kept as is: no limiter or compression. WAV output.</small></span></label>
+      <label class="field check-field level-toggle"><input id="levelLoudness" type="checkbox" checked><span>🔊 Match volume in the full story track<small class="muted"> — off by default. Only the stitched story track is touched; every clip and line is always kept exactly as Chatterbox made it.</small></span></label>
       <div class="notice warn remote-busy" id="remoteBusy" role="status" aria-live="polite" hidden></div>
       <div class="gen-progress" id="genProgress" hidden>
         <div class="progress indeterminate"><i></i></div>
@@ -380,6 +380,7 @@
         <button class="btn btn-ghost btn-sm" type="button" id="replayBtn">↺ Replay</button>
         <a class="btn btn-sm" id="downloadAudioBtn" href="#" download>⬇️ Download Audio</a>
         <button class="btn btn-ghost btn-sm" type="button" id="againBtn">🔁 Generate Again</button>
+        <button class="btn btn-ghost btn-sm" type="button" id="removeAudioBtn">🗑 Remove</button>
         <button class="btn btn-danger btn-sm" type="button" id="clearAudioBtn">✕ Clear all</button>
       </div>
     </section>

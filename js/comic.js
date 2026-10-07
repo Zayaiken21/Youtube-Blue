@@ -18,7 +18,7 @@
 
   /* ---------- Settings ---------- */
   var FORMATS = { short: [1080, 1920], square: [1080, 1080], wide: [1920, 1080] };
-  var DEFAULTS = { light: 228, dark: false, minPanel: 6, format: 'short', fit: 'frame', motion: 'auto', transition: 'fade', transLen: 0.35, tag: '', audioMode: 'none', takeId: '', fitAudio: true, dur: 2.5,
+  var DEFAULTS = { light: 228, dark: false, minPanel: 6, format: 'short', fit: 'frame', motion: 'auto', transition: 'fade', transLen: 0.35, tag: '', audioMode: 'none', takeId: '', dur: 2.5,
     capOn: true, capStyle: 'pop', capSize: 1, capColor: '#ffffff', capHi: '#ffd60a', capPos: 'auto', capWords: 4, capCaps: false,
     capTiming: true, srcLang: 'en', langs: ['en'], showLang: 'en', mmEmail: '' };
   // The most-watched languages on YouTube (pick up to 10).
@@ -188,7 +188,6 @@
       var n = +li.getAttribute('data-step');
       li.classList.toggle('done', n === 1 ? has : n === 2 ? ready : n === 3 ? ready : results.length > 0);
     });
-    $('fitAudioBtn').disabled = !audio.dur || !panels.length;
   }
 
   function renderAll() {
@@ -286,19 +285,11 @@
       S.dur = clamp(+$('allDur').value || 2.5, 0.5, 20); $('allDur').value = S.dur; saveSettings();
       panels.forEach(function (q) { q.dur = S.dur; }); changed();
     });
-    $('fitAudioBtn').addEventListener('click', function () {
-      if (!audio.dur) return;
-      var t = timeline(true); panels.forEach(function (q, i) { q.dur = Math.round(t.durs[i] * 10) / 10; });
-      S.fitAudio = true; $('fitAudio').checked = true; saveSettings(); changed();
-      YB.toast('Panel timing now matches the voice track');
-    });
 
     // sound
     document.querySelectorAll('[data-audio]').forEach(function (b) { b.addEventListener('click', function () { setAudioMode(b.getAttribute('data-audio')); }); });
     $('voiceTake').addEventListener('change', function () { S.takeId = this.value; saveSettings(); loadVoiceTake(); });
     $('audioInput').addEventListener('change', function () { var f = this.files && this.files[0]; if (f) useAudio(f, f.name); });
-    $('fitAudio').checked = !!S.fitAudio;
-    $('fitAudio').addEventListener('change', function () { S.fitAudio = this.checked; saveSettings(); renderAll(); });
 
     // style
     ['format', 'fit', 'motion', 'transition', 'tag'].forEach(function (k) {
@@ -416,22 +407,13 @@
   }
 
   /* ---------- Timeline ---------- */
-  // durs: seconds each panel is on screen (fitted to the voice track when chosen). Transitions overlap the end of a panel.
-  function timeline(forceFit) {
+  // durs: seconds each panel is on screen (your own timing; panels are never stretched to the voice).
+  // The voice track always plays untouched; the video runs until both the panels and the voice are done.
+  function timeline() {
     var durs = panels.map(function (q) { return q.dur || S.dur; });
-    var byCaps = S.capOn && S.capTiming && captionedCount() >= Math.ceil(panels.length / 2);
-    if (byCaps && audio.dur > 0 && (forceFit || S.fitAudio)) {
-      // speech time follows the words: weight each panel by its caption (silent panels get a short beat)
-      durs = panels.map(function (q) { return Math.max(capOf(q, S.srcLang).length, 14); });
-    } else if (byCaps) {
-      // no voice: give every caption enough time to read (≈ 15 characters a second)
+    if (S.capOn && S.capTiming && captionedCount() >= Math.ceil(panels.length / 2)) {
+      // give every caption enough time to be read (≈ 15 characters a second)
       durs = panels.map(function (q, i) { return Math.max(durs[i], capOf(q, S.showLang).length / 15 + 0.6); });
-    }
-    var sum = durs.reduce(function (a, b) { return a + b; }, 0);
-    if ((forceFit || S.fitAudio) && audio.dur > 0 && sum > 0) {
-      var k = (audio.dur + 0.6) / sum;   // a short breath after the last word
-      durs = durs.map(function (d) { return d * k; });
-      sum = audio.dur + 0.6;
     }
     var starts = [], t = 0;
     durs.forEach(function (d) { starts.push(t); t += d; });

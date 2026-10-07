@@ -999,3 +999,9 @@ input[type="range"] { min-height: 32px; }            /* finger-friendly */
 .cx-srt { margin-top: 14px; padding-top: 12px; border-top: 1px solid var(--line-soft); }
 .cx-results { list-style: none; padding: 0; margin: 10px 0 0; display: grid; gap: 6px; }
 .cx-results li { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 6px 8px 6px 12px; border-radius: 10px; background: var(--surface); border: 1px solid var(--line-soft); }
+
+/* Individual delete buttons */
+.take-del { color: #fecaca; border-color: rgba(248, 113, 113, .4); background: rgba(248, 113, 113, .1); }
+.take-del:hover { background: rgba(248, 113, 113, .22); }
+.take .take-dl + .take-del { margin-left: 6px; }
+.story-lines .seg-actions .seg-del { color: #fecaca; border-color: rgba(248, 113, 113, .4); background: rgba(248, 113, 113, .1); }

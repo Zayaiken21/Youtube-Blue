@@ -17,10 +17,10 @@
 
   /* ---------- Constants ---------- */
   var DEFAULT_TAGS = ['laugh', 'chuckle', 'sigh', 'gasp', 'cough', 'clear throat', 'sniff', 'groan', 'shush'];
-  var SETTINGS_VERSION = 7;
+  var SETTINGS_VERSION = 8;
   var DEFAULTS = {
     voiceKey: '',          // 'builtin:<file>' | 'preset:<file>' | 'shared:<file>' | 'mine:<id>' (js/voice-library.js)
-    format: 'wav', chunk: 400, temperature: 0.8, speed: 1, seed: 42, split: true, level: true,   // Chatterbox's own defaults; fixed seed = same voice in every chunk
+    format: 'wav', chunk: 400, temperature: 0.8, speed: 1, seed: 42, split: true, level: false,   // Chatterbox's own defaults; fixed seed = same voice in every chunk
     exaggeration: 0.5, cfg: 0.5, language: 'en', preferredModel: ''
   };
   var CHUNK_MIN = 200, CHUNK_MAX = 500;         // user-facing range (server accepts 50–500)
@@ -133,6 +133,8 @@
     if (v < 6) saved.speed = 1;
     // v7: follow Chatterbox's recommended defaults (temperature 0.8) and a fixed seed so every chunk sounds like the same voice.
     if (v < 7) { if (saved.temperature === 0.75) saved.temperature = 0.8; if (!saved.seed) saved.seed = 42; }
+    // v8: clips are always kept exactly as Chatterbox made them; volume matching is off unless chosen again (story track only).
+    if (v < 8) saved.level = false;
     // v5: one voice picker. A built-in voice carries over; old server references don't.
     if (!saved.voiceKey && saved.voiceId && saved.mode !== 'clone') saved.voiceKey = 'builtin:' + saved.voiceId;
     delete saved.mode; delete saved.voiceId; delete saved.reference;
@@ -1453,7 +1455,8 @@
         if (app.job !== job) return;
         if (!blob || blob.size < 100) throw makeErr('tts', 'The server returned an empty audio file.');
         var ext = fmt || job.ext;
-        return levelBlob(blob, ext).then(function (r) {
+        // Kept exactly as Chatterbox made it — never re-processed.
+        return Promise.resolve({ blob: blob, gainDb: null }).then(function (r) {
           if (app.job !== job) return;
           showAudio(r.blob, ext, null, null, gainNote(r));
           if (window.YBTakes) {
@@ -1708,6 +1711,21 @@
       return { blob: blob, gainDb: null };
     });
   }
+  // Gain (linear) that would bring one line to the common speaking level — used only
+  // while stitching the full story track; the saved line clips are never changed.
+  function matchGain(samples, rate) {
+    var chans = [Float32Array.from(samples)], r = levelChannels(chans, rate);
+    return r ? Math.pow(10, r.gainDb / 20) : 1;
+  }
+  // Undo an earlier volume change (pure gain) so a clip sounds exactly as generated again.
+  function unlevelBlob(blob, gainDb) {
+    return blob.arrayBuffer().then(function (buf) {
+      var w = parseWav(buf); if (!w || !isFinite(gainDb) || !gainDb) return null;
+      var g = Math.pow(10, -gainDb / 20);
+      w.chans.forEach(function (ch) { for (var i = 0; i < ch.length; i++) ch[i] *= g; });
+      return encodeWavPcm(w.chans, w.rate, w.bits, w.float);
+    }).catch(function () { return null; });
+  }
   function gainNote(r) {
     if (!r || r.gainDb === null) return '';
     return r.gainDb === 0 ? 'level already right' : 'levelled ' + (r.gainDb > 0 ? '+' : '') + r.gainDb.toFixed(1) + ' dB';
@@ -1767,6 +1785,14 @@
   function restoreAudio() {
     var seq = app.audioSeq || 0;
     idb.get('lastAudio').then(function (rec) {
+      var m = rec && rec.blob && /levelled ([+-]?\d+(?:\.\d+)?) dB/.exec(rec.note || '');
+      if (!m) return rec;
+      // made with "Match volume" on: put it back to how Chatterbox made it
+      return unlevelBlob(rec.blob, Number(m[1])).then(function (b) {
+        if (!b) return rec;
+        rec.blob = b; rec.note = 'original sound restored'; idb.put('lastAudio', rec); return rec;
+      });
+    }).then(function (rec) {
       if (!rec || !rec.blob || (app.audioSeq || 0) !== seq) return;   // a newer result already showed
       showAudio(rec.blob, rec.ext || 'wav', '', { name: rec.name || 'youtube-blue-voice.' + (rec.ext || 'wav'), at: rec.at, note: rec.note });
     });
@@ -1866,7 +1892,7 @@
     progress: function (pill, title, detail) { setState('generating', pill); $('genStatusText').textContent = title; $('genDetail').textContent = detail; },
     end: function () { stopGenerating(); },
     showAudio: function (blob, ext, prefix, note) { showAudio(blob, ext, prefix, null, note); },
-    levelBlob: levelBlob, gainNote: gainNote, levelOn: function () { return !!settings.level; },
+    levelBlob: levelBlob, gainNote: gainNote, levelOn: function () { return !!settings.level; }, unlevelBlob: unlevelBlob, matchGain: matchGain,
     db: idb, normalizeUrl: function (u) { return normalizeUrl(u); },
     // Per-character voice settings (Story mode): defaults, ranges, model caps, labels.
     caps: function () { return caps(); },
@@ -1989,6 +2015,7 @@
     $('replayBtn').addEventListener('click', function () { var a = $('audioPreview'); a.currentTime = 0; var p = a.play(); if (p && p.catch) p.catch(function () {}); });
     // Clear all: every saved take, this player and Story mode's finished lines, at once.
     $('clearAudioBtn').addEventListener('click', function () { if (window.YBTakes) window.YBTakes.clearAll(false); else clearAudio(); });
+    $('removeAudioBtn').addEventListener('click', function () { if (confirm('Remove this audio from the player? (It stays in Your audio below.)')) clearAudio(); });
     window.addEventListener('yb-audio-cleared', clearAudio);
     $('downloadAudioBtn').addEventListener('click', function (e) { if (!app.audioUrl) e.preventDefault(); });
 

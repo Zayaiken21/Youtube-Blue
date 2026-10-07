@@ -496,7 +496,8 @@
         // Small play/pause right next to the name — works while other lines are still generating.
         play = takes() ? takes().player.button(lineKey(i), (c.name || 'Narrator') + ', line ' + n, 'play-btn-sm').replace('<button ', '<button data-seg-play="' + i + '" ')
           : '<button type="button" class="play-btn play-btn-sm" data-seg-play="' + i + '" aria-label="Play line ' + n + '">▶</button>';
-        actions = '<div class="seg-actions"><a href="' + g.url + '" download="' + YB.esc(fileBase() + '-line-' + n + '-' + slug(c.name)) + '.wav">⬇ Clip</a></div>';
+        actions = '<div class="seg-actions"><a href="' + g.url + '" download="' + YB.esc(fileBase() + '-line-' + n + '-' + slug(c.name)) + '.wav">⬇ Clip</a>' +
+          (st.run ? '' : '<button type="button" class="seg-del" data-seg-del="' + i + '" aria-label="Delete line ' + n + ' audio">🗑 Delete</button>') + '</div>';
       } else if (g.status === 'failed' && g.error) {
         actions = '<div class="seg-actions"><span class="small" style="color:#fecaca">' + YB.esc(g.error.message) + '</span></div>';
       }
@@ -825,8 +826,8 @@
       .then(function (blob) {
         if (st.run !== run) return;
         if (!blob || blob.size < 100) throw V.makeErr('tts', 'The server returned an empty audio file.');
-        // Each line is levelled on its own, so every character comes out at the same volume.
-        return V.levelBlob(blob, 'wav').then(function (r) {
+        // Kept exactly as Chatterbox made it (volume matching only happens in the stitched track).
+        return Promise.resolve({ blob: blob, gainDb: null }).then(function (r) {
           if (st.run !== run) return;
           g.blob = r.blob; g.url = URL.createObjectURL(r.blob); g.status = 'done'; g.gainDb = r.gainDb;
           V.db.put(clipKey(i), r.blob);
@@ -877,7 +878,7 @@
     clearTimeout(run.timer);
     var lines = lineSegs(), failed = lines.filter(function (g) { return g.status === 'failed'; });
     if (failed.length) {
-      st.run = null;
+      st.run = null; setTimeout(renderSegments, 0);
       saveRun('stopped');
       V.end();
       var first = failed[0].error || V.makeErr('tts', 'A line failed.');
@@ -890,7 +891,7 @@
     }
     V.progress('Generating', 'Processing audio…', 'Stitching ' + lines.length + ' clips into one track in story order.');
     stitch().then(function (wav) {
-      st.run = null;
+      st.run = null; setTimeout(renderSegments, 0);
       saveRun('finished');
       V.end();
       V.showAudio(wav, 'wav', fileBase(), V.levelOn() ? 'every line levelled' : '');
@@ -901,7 +902,7 @@
       updateRetry(); V.updateControls();
     }, function (err) {
       console.error('[Voice Studio] stitching failed', err);
-      st.run = null;
+      st.run = null; setTimeout(renderSegments, 0);
       saveRun('stopped');
       V.end();
       V.showNotice(V.errorBox(), V.makeErr('tts', 'Couldn\'t combine the clips in this browser.', { raw: String(err && err.message || err) }));
@@ -922,7 +923,7 @@
     clearTimeout(run.timer);
     var sent = run.inflight.filter(function (i) { return st.segs[i].jobId; }).length;
     run.inflight.concat(run.queue).forEach(function (i) { var g = st.segs[i]; if (g.status !== 'done') { g.status = 'idle'; g.jobId = null; g.handedAt = 0; } });
-    st.run = null;
+    st.run = null; setTimeout(renderSegments, 0);
     saveRun('stopped');
     if (sent) V.noteOwnBackground();   // those jobs are ours, not another user's
     V.end();
@@ -968,7 +969,9 @@
       order.forEach(function (g, i) {
         if (g.type === 'scene') { pendingScene = true; return; }
         if (!first) parts.push(new Float32Array(gap + (pendingScene ? sceneGap : 0)));
-        parts.push(trim(mono(buffers[i])));
+        var line = trim(mono(buffers[i]));
+        if (V.levelOn()) { var gl = V.matchGain(line, SAMPLE_RATE); if (gl !== 1) for (var k = 0; k < line.length; k++) line[k] *= gl; }   // story track only
+        parts.push(line);
         first = false; pendingScene = false;
       });
       parts.push(new Float32Array(Math.round(SAMPLE_RATE * 0.3)));
@@ -1055,6 +1058,17 @@
     });
 
     $('storySegments').addEventListener('click', function (e) {
+      var del = e.target.closest('[data-seg-del]');
+      if (del) {
+        var di = Number(del.getAttribute('data-seg-del')), dg = st.segs[di];
+        if (!dg || st.run || !confirm('Delete this line\'s audio? You can make it again with “Retry failed lines”.')) return;
+        if (takes()) takes().player.release(lineKey(di));
+        if (dg.url) URL.revokeObjectURL(dg.url);
+        V.db.del(clipKey(di));
+        dg.blob = null; dg.url = ''; dg.jobId = null; dg.status = 'failed'; dg.error = { message: 'Deleted — press “Retry failed lines” to make it again.' };
+        saveRun(); renderSegments(); updateRetry();
+        return;
+      }
       var b = e.target.closest('[data-seg-play]'); if (!b) return;
       var i = Number(b.getAttribute('data-seg-play')), g = st.segs[i];
       if (!g || !g.blob) return;

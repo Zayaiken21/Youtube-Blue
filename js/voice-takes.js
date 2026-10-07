@@ -152,6 +152,35 @@
     }, function () { YB.toast('That audio isn\'t on this device any more'); });
   }
 
+  // Deletes one saved take (asks first).
+  function removeTake(id) {
+    var t = takes.find(function (x) { return x.id === id; }); if (!t) return;
+    if (!confirm('Delete "' + t.title + '" from this device?')) return;
+    release('take:' + id);
+    takes = takes.filter(function (x) { return x.id !== id; }); save();
+    V.db.del('take:' + id);
+    render();
+    YB.toast('Deleted');
+  }
+
+  // Clips saved while "Match volume" was on get their original sound back (the change was a plain volume step).
+  function restoreOriginals() {
+    if (YB.store.get('voiceUnlevel1', false) || !V.unlevelBlob) return;
+    var todo = takes.filter(function (t) { return /levelled ([+-]?\d+(?:\.\d+)?) dB/.test(t.note || ''); });
+    todo.reduce(function (p, t) {
+      return p.then(function () {
+        var g = Number(/levelled ([+-]?\d+(?:\.\d+)?) dB/.exec(t.note)[1]);
+        return V.db.get('take:' + t.id).then(function (b) { return b ? V.unlevelBlob(b, g) : null; }).then(function (nb) {
+          if (!nb) return;
+          return V.db.put('take:' + t.id, nb).then(function (ok) { if (ok) { t.note = 'original sound restored'; t.size = nb.size; } });
+        });
+      });
+    }, Promise.resolve()).then(function () {
+      YB.store.set('voiceUnlevel1', true); save(); render();
+      if (todo.length) YB.toast('Restored the original sound of ' + todo.length + ' saved clip' + (todo.length === 1 ? '' : 's'));
+    });
+  }
+
   // Clears every saved take, the main player and Story mode's finished lines — all at once.
   function clearAll(skipConfirm) {
     if (!skipConfirm && !confirm('Clear all generated audio from this device?\n\nThis removes every saved take, line and story track. Download anything you want to keep first.')) return false;
@@ -172,7 +201,8 @@
       '<div class="take-main"><div class="take-title">' + YB.esc(t.title) + '</div>' +
       '<div class="take-meta">' + (t.dur ? mmss(t.dur) + ' · ' : '') + V.bytesLabel(t.size) + ' · ' + String(t.ext).toUpperCase() + ' · ' + when(t.at) + (t.note ? ' · ' + YB.esc(t.note) : '') + '</div>' +
       (t.text ? '<div class="take-text">' + YB.esc(t.text) + '</div>' : '') + '</div>' +
-      '<button type="button" class="take-dl" data-take-dl="' + YB.esc(t.id) + '" aria-label="Download ' + YB.esc(label) + '" title="Download"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 4v10m0 0-4-4m4 4 4-4M5 19h14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg></button></li>';
+      '<button type="button" class="take-dl" data-take-dl="' + YB.esc(t.id) + '" aria-label="Download ' + YB.esc(label) + '" title="Download"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 4v10m0 0-4-4m4 4 4-4M5 19h14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg></button>' +
+      '<button type="button" class="take-dl take-del" data-take-del="' + YB.esc(t.id) + '" aria-label="Delete ' + YB.esc(label) + '" title="Delete"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 7h14M10 11v6M14 11v6M7 7l1 12a1 1 0 0 0 1 1h6a1 1 0 0 0 1-1l1-12M9 7V5a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg></button></li>';
   }
 
   function render() {
@@ -208,6 +238,8 @@
     list.addEventListener('click', function (e) {
       var p = e.target.closest('[data-play-key]');
       if (p) { var id = p.getAttribute('data-play-key').slice(5); toggle('take:' + id, function () { return blobFor(id); }); return; }
+      var x = e.target.closest('[data-take-del]');
+      if (x) { removeTake(x.getAttribute('data-take-del')); return; }
       var d = e.target.closest('[data-take-dl]');
       if (d) download(d.getAttribute('data-take-dl'));
     });
@@ -229,6 +261,7 @@
   };
 
   function init() {
+    restoreOriginals();
     // Drop list entries whose audio is gone (e.g. the browser cleared storage) —
     // only when the database itself is working, so a blocked DB never wipes the list.
     V.db.put('__probe__', 1).then(function (works) {

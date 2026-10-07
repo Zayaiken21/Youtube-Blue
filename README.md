@@ -38,13 +38,13 @@ Each page script only touches its own page, so you can edit one without affectin
 
 1. **Add pages.** Choose one or more images. Panels are found by their white borders (an "XY cut" over the gutters, in `js/comic-panels.js`) and numbered in story order: row by row, left to right, and a tall panel reads with the row it starts in. Black-bordered comics: switch *Border colour* under *Panel detection settings*.
 2. **Check panels.** Tap a box to select it, ✕ to remove it, **✏️ Draw a panel** to add one by dragging, **＋ Whole page** for a single image. *Order & timing* lists every panel with ↑ ↓, seconds and its own camera motion.
-3. **Sound & style.** Use a story or take from Voice Studio (*Your audio*) or any audio file. *Fit panel timing to the voice track* stretches the panels to the voice length. Pick the shape (9:16 Short, 1:1, 16:9), the look (framed on a soft blur, or full screen), camera motion (smart zoom/pan, zoom, pan, still), the transition and an optional channel tag.
+3. **Sound & style.** Use a story or take from Voice Studio (*Your audio*) or any audio file. The voice plays exactly as made; set each panel's seconds yourself under *Order & timing*. Pick the shape (9:16 Short, 1:1, 16:9), the look (framed on a soft blur, or full screen), camera motion (smart zoom/pan, zoom, pan, still), the transition and an optional channel tag.
 4. **Preview & export.** Play the preview, then **🎬 Make the video**. It records in real time with the browser's own recorder: MP4 where the browser supports it (Chrome, Edge, Safari), otherwise WebM. YouTube accepts both. Keep the screen open while it records. Shorts can be up to 3 minutes; the page warns when a Short runs longer.
 
 **Subtitles (on by default).** Every panel has its own caption, so a subtitle never runs across two panels. *Fill captions* shares a Story Studio story's spoken lines across the panels in order (grammar tidied, `[tags]` and scene headings left out), and any caption can be edited under *Order & timing*.
 - **Styles:** Bold pop (the spoken word grows and lights up), Karaoke (words light up as they're said), Clean box, Minimal. You can change the size, text and highlight colours, words per caption (2–8) and ALL CAPS.
 - **Smart position:** for 9:16 the panel moves up a little and the caption sits just under it, above the area YouTube covers with the title and buttons. 1:1 and 16:9 get the same treatment. Top, middle and bottom are there too.
-- **Timing:** *Time each panel by its caption* gives longer lines more time. With a voice track the panels follow the words; without one, every caption gets enough time to be read.
+- **Timing:** *Give each caption time to be read* makes sure no panel is shorter than its caption needs.
 - **Languages:** pick up to 10 of 16 popular languages and press *Translate captions*. It uses the free MyMemory service: about 5,000 characters a day per device, or about 50,000 with an email under *Translation limit*. Translations are saved and can be edited. Choose the subtitle language for the video, or press *Make one video per language*. After exporting, download an `.srt` file per language to upload in YouTube Studio → Subtitles.
 
 Pages, panels, captions and settings are saved on the device (IndexedDB `youtube-blue-comic`).
@@ -129,9 +129,9 @@ Every take is saved quietly on the device: each single-voice generation and ever
 
 Every clip has a round ▶ button right next to its name that turns into ❚❚ while playing, with a progress ring. Tap to pause, tap again to resume. Only one clip plays at a time. In Story mode, finished lines can be played while the rest are still generating. The ⬇ icon downloads a clip only when tapped.
 
-**Level loudness (YouTube-ready)**
+**Match volume (story track only, off by default)**
 
-On by default (switch next to Generate). Every WAV clip, and every Story line on its own, is measured and brought to one speaking level (about -16.5 dB, like a well-mixed narration), so quiet takes come up and all characters match. It changes volume only: one gain for the whole clip, plus a gentle limiter on the rare loudest peaks (at most 3 dB, never above -1 dBFS). On real output the tone stays within about 0.15 dB in every frequency band. If a clip would need more limiting than that, it's raised a little less instead. Audio already within 1 dB of the target, and MP3/Opus output, are left exactly as the server sent them. Switch it off to get the raw server audio.
+Every clip and story line is saved exactly as Chatterbox made it. When *Match volume in the full story track* is on, only the stitched story track gets a light per-line volume step (±6 dB at most, never past a line's own peak). Clips saved earlier while the old setting was on are put back to their original sound automatically.
 
 **Model engine**
 
