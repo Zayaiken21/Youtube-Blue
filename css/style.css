@@ -1013,3 +1013,27 @@ input[type="range"] { min-height: 32px; }            /* finger-friendly */
 .cx-grid-pick { display: inline-flex; align-items: center; gap: 4px; }
 .cx-grid-pick select { width: auto; min-height: 36px; padding: 4px 26px 4px 8px; font-size: 15px; }
 #selTools { border-color: rgba(251, 191, 36, .45); }
+
+/* Comic to Video · looks */
+.cx-mode { width: 100%; margin-bottom: 12px; }
+.cx-mode button { flex: 1 1 200px; }
+.cx-templates { display: grid; gap: 8px; grid-template-columns: repeat(auto-fill, minmax(104px, 1fr)); }
+.cx-tpl { display: flex; flex-direction: column; align-items: center; gap: 4px; padding: 10px 6px; border-radius: 12px; border: 1px solid var(--line); background: #081732; color: var(--muted); font: inherit; font-size: .8rem; font-weight: 700; cursor: pointer; }
+.cx-tpl.on { color: var(--text); border-color: var(--primary-2); box-shadow: var(--glow); }
+.cx-tpl-ico { font-size: 1.35rem; }
+.cx-uploads { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-top: 12px; }
+.cx-file { position: relative; overflow: hidden; }
+.cx-file input { position: absolute; inset: 0; opacity: 0; cursor: pointer; }
+.cx-sample.hl i { background: #ffd60a; color: #111; border-radius: 4px; padding: 0 3px; }
+.cx-sample.bubble { background: #fff; color: #111; border: 2px solid #111; border-radius: 12px; }
+.cx-sample.bubble i { color: #1e5bd8; }
+.cx-sample.neon { color: #fff; text-shadow: 0 0 6px #38bdf8, 0 0 12px #38bdf8; background: #0a0f24; }
+.cx-sample.typewriter { font-family: ui-monospace, Menlo, Consolas, monospace; font-weight: 700; text-shadow: 0 2px 6px rgba(0,0,0,.9); }
+
+/* Voice import: record button */
+.rec-row { display: flex; gap: 8px; align-items: center; min-width: 0; }
+.rec-row input[type="file"] { flex: 1 1 auto; min-width: 0; }
+.rec-btn { flex: none; }
+.rec-btn.is-rec { color: #fff; background: rgba(239, 68, 68, .85); border-color: rgba(239, 68, 68, .9); animation: recPulse 1.2s ease-in-out infinite; }
+@keyframes recPulse { 0%, 100% { box-shadow: 0 0 0 0 rgba(239, 68, 68, .5); } 50% { box-shadow: 0 0 0 6px rgba(239, 68, 68, 0); } }
+#recPreview { width: 100%; margin-top: 8px; }

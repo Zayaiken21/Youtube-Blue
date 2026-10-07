@@ -313,7 +313,7 @@
     return '<div class="cv-upload">' +
       '<div class="cv-up-row">' +
       '<label class="btn btn-ghost btn-xs cv-pick' + (off ? ' is-disabled' : '') + '">📁 Choose file' +
-      '<input class="cv-file-input" type="file" accept=".wav,.mp3,audio/wav,audio/x-wav,audio/mpeg" data-cv-file="' + cid + '" aria-label="Choose a voice clip for ' + YB.esc(name) + '"' + (off ? ' disabled' : '') + '></label>' +
+      '<input class="cv-file-input" type="file" accept="audio/*,.wav,.mp3,.m4a,.aac,.ogg,.opus,.webm,.flac" data-cv-file="' + cid + '" aria-label="Choose a voice clip for ' + YB.esc(name) + '"' + (off ? ' disabled' : '') + '></label>' +
       '<button type="button" class="btn btn-xs cv-send" data-cv-upload="' + cid + '" aria-label="Import voice for ' + YB.esc(name) + '"' + (off || !f ? ' disabled' : '') + '>⬆️ Import</button>' +
       '<button type="button" class="btn btn-ghost btn-xs" data-cv-import-close="' + cid + '" aria-label="Close import">✕</button>' +
       '</div>' +

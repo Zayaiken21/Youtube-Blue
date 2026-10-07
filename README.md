@@ -36,15 +36,22 @@ Each page script only touches its own page, so you can edit one without affectin
 ## Comic to Video
 `comic.html` turns comic pages into a video for YouTube Shorts (2D comics, AI comic grids, animation stills).
 
-1. **Add pages.** Choose one or more images. Panels are found automatically (`js/comic-panels.js`). The page's gutter colour is read from the page itself, so white, off-white or cream, black and coloured gutters all work, as do JPEG scans, transparent PNGs and phone screenshots with bars around the comic. Panels are numbered in story order: row by row, left to right, and a tall panel reads with the row it starts in.
-2. **Check panels.** Tools: **🔍 Find panels** (run detection again), **⊞ Grid** (split the page into rows × columns), **✏️ Draw** (drag a box) and **＋ Whole page**. Tap a box to select it, then **✂ Split top / bottom**, **✂ Split left / right** (cuts along the most gutter-like line) or **🗑 Remove**. *Order & timing* lists every panel with ↑ ↓, seconds and its own camera motion.
-3. **Sound & style.** Use a story or take from Voice Studio (*Your audio*) or any audio file. The voice plays exactly as made; set each panel's seconds yourself under *Order & timing*. Pick the shape (9:16 Short, 1:1, 16:9) and the look. **Guided view**, the default, keeps the real page on screen while the camera glides from panel to panel with the current one lit. The other looks are a framed panel on a soft blur, where a tall panel or whole page is read top to bottom, and full screen. Then pick camera motion (smart zoom/pan, zoom, pan, still), the transition and an optional channel tag.
-4. **Preview & export.** Play the preview, then **🎬 Make the video**. It records in real time with the browser's own recorder: MP4 where the browser supports it (Chrome, Edge, Safari), otherwise WebM. YouTube accepts both. Keep the screen open while it records. Shorts can be up to 3 minutes; the page warns when a Short runs longer.
+1. **Add pages.** Choose *Comic pages* (panels are found) or *Single images* (each picture is one slide, formatted with the same templates). Choose one or more images. Panels are found automatically (`js/comic-panels.js`). The page's gutter colour is read from the page itself, so white, off-white or cream, black and coloured gutters all work, as do JPEG scans, transparent PNGs and phone screenshots with bars around the comic. Panels are numbered in story order: row by row, left to right, and a tall panel reads with the row it starts in.
+2. **Check panels.** Tools: **🔍 Find panels** (run detection again), **✏️ Draw** (drag a box) and **＋ Whole page**. Tap a box to select it, then **✂ Split top / bottom**, **✂ Split left / right** (cuts along the most gutter-like line) or **🗑 Remove**. *Order & timing* lists every panel with ↑ ↓, seconds and its own camera motion.
+3. **Sound & style.** Use a story or take from Voice Studio (*Your audio*) or any audio file; the voice plays exactly as made.
+   - **Camera style:** *One panel at a time* (each panel framed on its own), *Moving camera* (glides from panel to panel, showing only the panel, never the rest of the page) or *One panel at a time · full screen*. Tall panels and whole pages are read top to bottom.
+   - **Templates:** Classic, Comic pop, Cinema, Neon night, Scrapbook, Sunburst and Storybook set the background, panel frame and overlay in one tap. Each can also be changed on its own:
+     - Backgrounds: soft blur, solid, gradient, comic dots, paper, sunburst.
+     - Frames: white comic border, clean, bold comic outline, Polaroid, neon, none.
+     - Overlays: vignette, film grain, comic dots, warm light leak.
+   - **Your own background or overlay (PNG):** upload it and it's fitted to the video shape automatically, keeping its proportions. It's saved on the device.
+   - Shape (9:16, 1:1, 16:9), transition and an optional channel tag.
+4. **Preview & export.** Play the preview, then **🎬 Make the video**. Chrome, Edge and new Safari build the MP4 directly (WebCodecs + `js/vendor/mp4-muxer.min.js`, MIT), usually much faster than the video's length, with a progress bar and time left. Other browsers, or a device that turns out slower than real time, record in real time instead. Shorts can be up to 3 minutes; the page warns when a Short runs longer.
 
 **Subtitles (on by default).** Every panel has its own caption, so a subtitle never runs across two panels. *Fill captions* shares a Story Studio story's spoken lines across the panels in order (grammar tidied, `[tags]` and scene headings left out), and any caption can be edited under *Order & timing*.
-- **Styles:** Bold pop (the spoken word grows and lights up), Karaoke (words light up as they're said), Clean box, Minimal. You can change the size, text and highlight colours, words per caption (2–8) and ALL CAPS.
+- **Styles:** Bold pop, Karaoke, Clean box, Minimal, Highlight bar, Comic bubble, Neon and Typewriter. You can change the size, text and highlight colours, words per caption (2–8) and ALL CAPS.
 - **Smart position:** for 9:16 the panel moves up a little and the caption sits just under it, above the area YouTube covers with the title and buttons. 1:1 and 16:9 get the same treatment. Top, middle and bottom are there too.
-- **Timing:** *Give each caption time to be read* makes sure no panel is shorter than its caption needs.
+- **Steady pace:** captions change at a reading pace (Relaxed, Steady or Quick, in characters a second), not squeezed into a panel's time. A panel stays up until its caption has been read. Captions fade in gently and never run off the screen.
 - **Languages:** pick up to 10 of 16 popular languages and press *Translate captions*. It uses the free MyMemory service: about 5,000 characters a day per device, or about 50,000 with an email under *Translation limit*. Translations are saved and can be edited. Choose the subtitle language for the video, or press *Make one video per language*. After exporting, download an `.srt` file per language to upload in YouTube Studio → Subtitles.
 
 Pages, panels, captions and settings are saved on the device (IndexedDB `youtube-blue-comic`).
@@ -122,6 +129,8 @@ Picking a Preset, Our Voices or My Voices voice needs no setup. Right before gen
 `POST /share-voice` (multipart: `file`, `name`, `client_id`) → `{"ok": true, "status": "published" | "already_shared", "name", "path"}`. A taken name gets " 2", " 3"…; existing voices are never overwritten. `voice_share_endpoint` in `backend-config.json` can point elsewhere; otherwise `backend_url + /share-voice` is used.
 
 `Voices/index.json` lists the library and is rebuilt by the **Voice library index** GitHub Action whenever a file in `Voices/` changes. If it's missing, the page reads the folders through the public GitHub API instead.
+
+**Import or record a voice:** any audio file (MP3, M4A, OGG, WebM, FLAC…) is turned into a WAV in the browser. Anything over 30 seconds is trimmed at the last pause before 29.5 s. **🎙 Record** records from the microphone (up to 30 s, stops by itself) and gives a WAV you can play back before importing. Library voices longer than 30 s are trimmed the same way before they're sent to the server.
 
 **Your audio (nothing gets lost)**
 

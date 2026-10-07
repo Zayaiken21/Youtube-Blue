@@ -15,11 +15,12 @@
   <meta name="mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
   <meta name="apple-mobile-web-app-title" content="YT Blue">
-  <link rel="stylesheet" href="css/style.css?v=23">
+  <link rel="stylesheet" href="css/style.css?v=24">
   <script src="js/core.js" defer></script>
   <script src="js/voice-grammar.js?v=2" defer></script>
   <script src="js/comic-panels.js?v=2" defer></script>
-  <script src="js/comic.js?v=4" defer></script>
+  <script src="js/vendor/mp4-muxer.min.js" defer></script>
+  <script src="js/comic.js?v=6" defer></script>
 </head>
 <body data-page="comic">
   <header class="topbar">
@@ -57,10 +58,14 @@
         <!-- ===== 1 · Pages ===== -->
         <section class="card" aria-labelledby="pagesTitle">
           <h2 id="pagesTitle"><span class="cx-num">1</span>Comic pages</h2>
+          <div class="seg cx-mode" id="uploadMode" role="radiogroup" aria-label="What are you adding?">
+            <button type="button" data-umode="comic" role="radio">📖 Comic pages · find the panels</button>
+            <button type="button" data-umode="images" role="radio">🖼️ Single images · one per slide</button>
+          </div>
           <label class="cx-drop" id="dropZone">
             <input type="file" id="pageFiles" accept="image/*" multiple>
             <span class="cx-drop-ico" aria-hidden="true">🖼️</span>
-            <b>Choose comic images</b>
+            <b id="dropTitle">Choose comic images</b>
             <span class="muted small">or drop them here · PNG, JPG or WebP · several pages play in the order shown</span>
           </label>
           <ul class="cx-pages" id="pageList" aria-label="Pages"></ul>
@@ -98,9 +103,6 @@
               <div class="cx-tool-group">
                 <span class="cx-tool-label">Make panels</span>
                 <button class="btn btn-ghost btn-sm" type="button" id="findBtn">🔍 Find panels</button>
-                <span class="cx-grid-pick"><button class="btn btn-ghost btn-sm" type="button" id="gridBtn">⊞ Grid</button>
-                  <select id="gridRows" aria-label="Rows"><option>1</option><option selected>2</option><option>3</option><option>4</option><option>5</option><option>6</option></select><span class="muted small">×</span>
-                  <select id="gridCols" aria-label="Columns"><option>1</option><option selected>2</option><option>3</option><option>4</option></select></span>
                 <button class="btn btn-ghost btn-sm" type="button" id="drawBtn" aria-pressed="false">✏️ Draw</button>
                 <button class="btn btn-ghost btn-sm" type="button" id="wholePageBtn">＋ Whole page</button>
               </div>
@@ -149,12 +151,37 @@
             </div>
           </div>
 
+          <div class="fields" style="margin-top:16px">
+            <label class="field"><span>Camera style</span>
+              <select id="fit"><option value="frame">One panel at a time</option><option value="guided">Moving camera (glides panel to panel)</option><option value="fill">One panel at a time · full screen</option></select>
+            </label>
+          </div>
+          <div class="cx-group" style="margin-top:14px">
+            <div class="label">Template</div>
+            <div class="cx-templates" id="templates" role="radiogroup" aria-label="Template"></div>
+          </div>
+          <div class="fields" style="margin-top:12px">
+            <label class="field"><span>Background</span>
+              <select id="bg"><option value="blur">Soft blur of the panel</option><option value="solid">Solid colour</option><option value="gradient">Gradient</option><option value="halftone">Comic dots</option><option value="paper">Paper</option><option value="rays">Sunburst</option><option value="custom">My image…</option></select>
+            </label>
+            <label class="field"><span>Background colour</span><input id="bgColor" type="color"></label>
+            <label class="field"><span>Panel frame</span>
+              <select id="frame"><option value="white">White comic border</option><option value="clean">Clean rounded</option><option value="comic">Bold comic outline</option><option value="polaroid">Polaroid</option><option value="neon">Neon glow</option><option value="none">No frame</option></select>
+            </label>
+            <label class="field"><span>Overlay</span>
+              <select id="overlay"><option value="none">None</option><option value="vignette">Vignette</option><option value="grain">Film grain</option><option value="dots">Comic dots</option><option value="leak">Warm light leak</option><option value="custom">My overlay…</option></select>
+            </label>
+          </div>
+          <div class="cx-uploads">
+            <label class="btn btn-ghost btn-sm cx-file">🖼️ Upload background<input type="file" id="bgFile" accept="image/*"></label>
+            <label class="btn btn-ghost btn-sm cx-file">✨ Upload overlay (PNG)<input type="file" id="ovFile" accept="image/*"></label>
+            <button class="btn btn-ghost btn-sm" type="button" id="customClear" hidden>Remove my images</button>
+            <span class="muted small" id="customNote">Your own images are fitted to the video shape automatically, keeping their proportions and style.</span>
+          </div>
+
           <div class="fields" style="margin-top:14px">
             <label class="field"><span>Video shape</span>
               <select id="format"><option value="short">Short · 9:16 (1080×1920)</option><option value="square">Square · 1:1 (1080×1080)</option><option value="wide">Wide · 16:9 (1920×1080)</option></select>
-            </label>
-            <label class="field"><span>Panel look</span>
-              <select id="fit"><option value="guided">Guided view (camera moves across the page)</option><option value="frame">Framed panel on a soft blur</option><option value="fill">Full screen (crops the sides)</option></select>
             </label>
             <label class="field"><span>Camera motion</span>
               <select id="motion"><option value="auto">Smart (zoom &amp; pan to fit each panel)</option><option value="zoom">Slow zoom in</option><option value="pan">Pan across</option><option value="still">Still</option></select>
@@ -196,6 +223,10 @@
               <button type="button" data-cap-style="karaoke" role="radio"><span class="cx-sample karaoke"><i>Words</i> light</span><small>Karaoke</small></button>
               <button type="button" data-cap-style="box" role="radio"><span class="cx-sample box">Clean <i>box</i></span><small>Clean box</small></button>
               <button type="button" data-cap-style="minimal" role="radio"><span class="cx-sample minimal">Minimal</span><small>Minimal</small></button>
+              <button type="button" data-cap-style="highlight" role="radio"><span class="cx-sample hl">Word <i>bar</i></span><small>Highlight bar</small></button>
+              <button type="button" data-cap-style="bubble" role="radio"><span class="cx-sample bubble">Speech <i>bubble</i></span><small>Comic bubble</small></button>
+              <button type="button" data-cap-style="neon" role="radio"><span class="cx-sample neon">Neon <i>glow</i></span><small>Neon</small></button>
+              <button type="button" data-cap-style="typewriter" role="radio"><span class="cx-sample typewriter">Type it_</span><small>Typewriter</small></button>
             </div>
           </div>
 
@@ -212,6 +243,9 @@
             <label class="field"><span>Text colour</span><input id="capColor" type="color"></label>
             <label class="field"><span>Highlight colour</span><input id="capHi" type="color"></label>
             <label class="field check-field"><input type="checkbox" id="capCaps"><span>ALL CAPS</span></label>
+            <label class="field"><span>Caption pace</span>
+              <select id="capPace"><option value="12">Relaxed (young readers)</option><option value="15">Steady</option><option value="18">Quick</option></select>
+            </label>
             <label class="field check-field"><input type="checkbox" id="capTiming"><span>Give each caption time to be read</span></label>
           </div>
 
@@ -253,7 +287,7 @@
         <div class="cx-progress" id="exportProg" hidden>
           <div class="progress"><i id="exportBar"></i></div>
           <div class="row between small"><span id="exportText">Recording…</span><button class="btn btn-ghost btn-sm" type="button" id="cancelBtn">Cancel</button></div>
-          <p class="muted small" style="margin:6px 0 0">The video records in real time, so keep this screen open until it finishes.</p>
+          <p class="muted small" id="exportRealtime" style="margin:6px 0 0" hidden>This browser records in real time, so keep this screen open until it finishes.</p>
         </div>
         <div class="cx-result" id="result" hidden>
           <video id="resultVideo" controls playsinline></video>

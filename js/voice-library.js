@@ -50,6 +50,65 @@
   function hash(t) { var h = 5381; t = String(t); for (var i = 0; i < t.length; i++) h = ((h * 33) ^ t.charCodeAt(i)) >>> 0; return h.toString(36); }
   function fileUrl(dir, file) { return './' + dir.split('/').map(encodeURIComponent).join('/') + '/' + encodeURIComponent(file); }
   function isAudio(name) { return /\.(wav|mp3)$/i.test(name || ''); }
+  function anyAudio(f) { return !!f && (/^audio\//.test(f.type || '') || /^video\/(webm|mp4)/.test(f.type || '') || /\.(wav|mp3|m4a|aac|ogg|oga|opus|webm|flac|mp4|caf|aiff?)$/i.test(f.name || '')); }
+
+  /* ---------- Any audio → WAV ----------
+     The server takes WAV/MP3 up to 30 s. Anything else (M4A, OGG, WebM, a recording…)
+     is decoded in the browser and saved as 16-bit mono WAV; clips over 30 s are cut
+     at the quietest moment before 29.5 s (never mid-word), with a tiny fade. A WAV or
+     MP3 that already fits is kept exactly as it is. */
+  var CUT_SEC = 29.5;
+  function decodeAudio(blob) {
+    var AC = window.AudioContext || window.webkitAudioContext;
+    if (!AC) return Promise.reject(new Error('This browser can\'t read audio files.'));
+    var ac = new AC();
+    return blob.arrayBuffer().then(function (buf) {
+      return new Promise(function (res, rej) { ac.decodeAudioData(buf, res, function () { rej(new Error('That audio file couldn\'t be read. Try a WAV or MP3.')); }); });
+    }).then(function (b) { ac.close().catch(function () {}); return b; }, function (e) { ac.close().catch(function () {}); throw e; });
+  }
+  function quietCut(mono, rate, maxSec) {
+    // the latest quiet moment in the last 6 s before the limit (keeps as much speech as possible)
+    var max = Math.min(mono.length, Math.floor(maxSec * rate)), fl = Math.round(rate * 0.02), frames = [], low = Infinity;
+    for (var s = Math.max(0, max - Math.round(rate * 6)); s + fl <= max; s += fl) {
+      var e = 0; for (var i = s; i < s + fl; i++) e += mono[i] * mono[i];
+      frames.push([s, e]); if (e < low) low = e;
+    }
+    for (var k = frames.length - 1; k >= 0; k--) if (frames[k][1] <= low * 4 + 1e-7) return frames[k][0] + (fl >> 1);
+    return max;
+  }
+  function encodeWav16(mono, rate) {
+    var n = mono.length, buf = new ArrayBuffer(44 + n * 2), dv = new DataView(buf);
+    function str(o, t) { for (var i = 0; i < t.length; i++) dv.setUint8(o + i, t.charCodeAt(i)); }
+    str(0, 'RIFF'); dv.setUint32(4, 36 + n * 2, true); str(8, 'WAVE'); str(12, 'fmt ');
+    dv.setUint32(16, 16, true); dv.setUint16(20, 1, true); dv.setUint16(22, 1, true); dv.setUint32(24, rate, true); dv.setUint32(28, rate * 2, true); dv.setUint16(32, 2, true); dv.setUint16(34, 16, true);
+    str(36, 'data'); dv.setUint32(40, n * 2, true);
+    for (var i = 0, o = 44; i < n; i++, o += 2) { var v = Math.max(-1, Math.min(1, mono[i])); dv.setInt16(o, v < 0 ? v * 0x8000 : v * 0x7fff, true); }
+    return new Blob([buf], { type: 'audio/wav' });
+  }
+  // file → Promise<{ file, converted, trimmed, seconds, from }>
+  function prepareAudio(file, name) {
+    var base = String(name || file.name || 'voice').replace(/\.[a-z0-9]+$/i, '') || 'voice';
+    var fromExt = ((file.name || '').match(/\.([a-z0-9]+)$/i) || [, (file.type || 'audio').split('/').pop()])[1].toUpperCase();
+    return decodeAudio(file).then(function (b) {
+      var keep = isAudio(file.name) && b.duration <= 30.2;
+      if (keep) return { file: file, converted: false, trimmed: false, seconds: b.duration, from: fromExt };
+      var rate = b.sampleRate, mono = new Float32Array(b.length);
+      for (var c = 0; c < b.numberOfChannels; c++) { var d = b.getChannelData(c); for (var i = 0; i < d.length; i++) mono[i] += d[i] / b.numberOfChannels; }
+      var trimmed = b.duration > 30.2, end = trimmed ? quietCut(mono, rate, CUT_SEC) : mono.length;
+      mono = mono.subarray(0, end);
+      var fade = Math.min(mono.length, Math.round(rate * 0.03));
+      if (trimmed) for (var k = 0; k < fade; k++) mono[mono.length - 1 - k] *= k / fade;
+      var wav = encodeWav16(mono, rate);
+      return { file: new File([wav], base + '.wav', { type: 'audio/wav' }), converted: !isAudio(file.name) || !/\.wav$/i.test(file.name), trimmed: trimmed, seconds: mono.length / rate, from: fromExt, original: b.duration };
+    });
+  }
+  function prepNote(r) {
+    if (!r) return '';
+    var parts = [];
+    if (r.converted) parts.push('converted ' + r.from + ' → WAV');
+    if (r.trimmed) parts.push('trimmed ' + Math.round(r.original) + ' s → ' + r.seconds.toFixed(1) + ' s at a pause');
+    return parts.length ? '✓ ' + parts.join(' · ') : '';
+  }
   function repoInfo() {
     // https://<owner>.github.io/<repo>/ → owner/repo (falls back to this project's repo)
     var m = /^([^.]+)\.github\.io$/i.exec(location.hostname), seg = location.pathname.split('/').filter(Boolean)[0];
@@ -216,7 +275,10 @@
       if (known && (!files || files.indexOf(known) !== -1)) return { mode: 'clone', id: known };
       if (onStep) onStep('Getting "' + e.name + '" ready on the server…');
       return blobFor(e).then(function (blob) {
-        var ext = (/\.mp3$/i.test(e.file) || /mpeg/.test(blob.type)) ? 'mp3' : 'wav';
+        // a library voice longer than the server's 30 s is trimmed at a pause first
+        return prepareAudio(new File([blob], e.file || 'voice.wav', { type: blob.type || '' }), e.name).then(function (p) { return p.file; }, function () { return blob; });
+      }).then(function (blob) {
+        var ext = (/\.mp3$/i.test(blob.name || e.file) && !/\.wav$/i.test(blob.name || '')) || (/mpeg/.test(blob.type) && !/\.wav$/i.test(blob.name || '')) ? 'mp3' : 'wav';
         var file = new File([blob], 'yb-' + e.source + '-' + slug(e.name) + '-' + hash(e.key + ':' + (e.size || blob.size)) + '.' + ext, { type: ext === 'mp3' ? 'audio/mpeg' : 'audio/wav' });
         return V.sendReference(file, onStep, own);
       }).then(function (name) {
@@ -233,14 +295,23 @@
 
   // Import: checks the file, stores it on this device, returns its key.
   function importVoice(file, name, share) {
-    if (!file) return Promise.reject(V.makeErr('upload', 'Choose a WAV or MP3 file first.'));
-    if (!isAudio(file.name)) return Promise.reject(V.makeErr('upload', 'Only .wav and .mp3 files can be imported.'));
+    if (!file) return Promise.reject(V.makeErr('upload', 'Choose an audio file first.'));
+    if (!isAudio(file.name)) {
+      if (!anyAudio(file)) return Promise.reject(V.makeErr('upload', 'That isn\'t an audio file. Use WAV, MP3, M4A, OGG or a recording.'));
+      return prepareAudio(file, name).then(function (r) { return importVoice(r.file, name || r.file.name, share); }, function (e) { throw V.makeErr('upload', e.message); });
+    }
     if (file.size > MAX_BYTES) return Promise.reject(V.makeErr('upload', 'That file is too big (' + V.bytesLabel(file.size) + '). Use a 10–20 second clip.'));
     name = String(name || '').trim() || niceName(file.name);
     name = name.slice(0, 40);
     var ext = /\.mp3$/i.test(file.name) ? 'mp3' : 'wav';
     return V.clipLength(file).then(function (r) {
-      if (r.seconds && r.seconds > MAX_SEC + 0.5) throw V.makeErr('upload', 'That clip is ' + Math.round(r.seconds) + ' seconds — the server only accepts up to 30. Trim it to 10–20 seconds and import again.');
+      if (r.seconds && r.seconds > MAX_SEC + 0.5) {
+        // too long: trim at a pause automatically, then import that
+        return prepareAudio(file, name).then(function (p) {
+          if (p.seconds > MAX_SEC + 0.5) throw V.makeErr('upload', 'That clip is too long.');
+          return importVoice(p.file, name, share);
+        });
+      }
       var id = Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
       return V.db.put('myvoice:' + id, { blob: file, name: name, ext: ext }).then(function (ok) {
         if (!ok) throw V.makeErr('upload', 'This browser wouldn\'t let the app save the voice (private browsing or storage full).');
@@ -375,15 +446,89 @@
 
   function setImportState(state, text) { var el = $('uploadState'); if (!el) return; el.setAttribute('data-state', state); el.textContent = text; }
   function importReady() {
-    var f = $('voiceSampleFile').files && $('voiceSampleFile').files[0];
+    var f = pickedFile();
     var shareOk = !$('importShare').checked || $('importConsent').checked;
     $('importVoiceBtn').disabled = !f || !shareOk || importing;
   }
-  var importing = false;
+  var importing = false, prepared = null;   // prepared: { file, … } ready to import (converted / recorded)
+  function pickedFile() { return prepared ? prepared.file : ($('voiceSampleFile').files && $('voiceSampleFile').files[0]); }
+  function usePrepared(r, label) {
+    prepared = r;
+    $('localFileName').textContent = label + ' (' + V.bytesLabel(r.file.size) + ' · ' + r.seconds.toFixed(1) + ' s)';
+    var note = prepNote(r);
+    $('refDurationNote').hidden = true;
+    V.clipLength(r.file).then(function (cl) {
+      var n = $('refDurationNote'); n.textContent = [note, cl.text].filter(Boolean).join('  '); n.hidden = !n.textContent;
+    });
+    var pv = $('recPreview'); if (pv) { if (pv.dataset.url) URL.revokeObjectURL(pv.dataset.url); pv.dataset.url = URL.createObjectURL(r.file); pv.src = pv.dataset.url; pv.hidden = false; }
+    setImportState('idle', 'Ready — press Import voice.');
+    importReady();
+  }
+
+  /* ---------- 🎙 Record a voice (up to 30 s) ---------- */
+  var recState = null;
+  function recSupported() { return !!(navigator.mediaDevices && navigator.mediaDevices.getUserMedia && window.MediaRecorder); }
+  function stopRecording() { if (recState && recState.mr && recState.mr.state === 'recording') recState.mr.stop(); }
+  function startRecording() {
+    if (!recSupported()) { setImportState('error', window.isSecureContext === false ? 'Recording needs a secure (https) page.' : 'This browser can\'t record audio. Choose a file instead.'); return; }
+    var btn = $('recBtn');
+    navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: false, noiseSuppression: true, autoGainControl: false, channelCount: 1 } }).then(function (stream) {
+      var chunks = [], mr;
+      try { mr = new MediaRecorder(stream); } catch (e) { stream.getTracks().forEach(function (t) { t.stop(); }); setImportState('error', 'Recording isn\'t supported here.'); return; }
+      recState = { mr: mr, stream: stream, t0: Date.now(), timer: 0 };
+      mr.ondataavailable = function (e) { if (e.data && e.data.size) chunks.push(e.data); };
+      mr.onstop = function () {
+        clearInterval(recState.timer); stream.getTracks().forEach(function (t) { t.stop(); });
+        btn.classList.remove('is-rec'); btn.textContent = '🎙 Record'; btn.setAttribute('aria-pressed', 'false');
+        var blob = new Blob(chunks, { type: mr.mimeType || 'audio/webm' }); recState = null;
+        if (blob.size < 2000) { setImportState('error', 'Nothing was recorded — check the microphone and try again.'); return; }
+        setImportState('busy', 'Turning the recording into a WAV…');
+        prepareAudio(new File([blob], 'My recording.' + (/mp4/.test(blob.type) ? 'm4a' : /ogg/.test(blob.type) ? 'ogg' : 'webm'), { type: blob.type }), 'My recording').then(function (r) {
+          $('voiceSampleFile').value = '';
+          if (!$('importVoiceName').value.trim() || $('importVoiceName').dataset.auto === '1') { $('importVoiceName').value = 'My recording'; $('importVoiceName').dataset.auto = '1'; }
+          usePrepared(r, '🎙 Recording');
+        }, function (e) { setImportState('error', e.message); });
+      };
+      mr.start(250);
+      btn.classList.add('is-rec'); btn.setAttribute('aria-pressed', 'true');
+      var tick = function () {
+        var s = (Date.now() - recState.t0) / 1000;
+        btn.textContent = '⏹ Stop · ' + Math.floor(s) + ' s';
+        if (s >= 29.5) stopRecording();
+      };
+      tick(); recState.timer = setInterval(tick, 250);
+      setImportState('busy', 'Recording… speak clearly for 10–20 seconds, then press Stop (it stops by itself at 30 s).');
+    }, function (err) {
+      var name = err && err.name;
+      setImportState('error', name === 'NotAllowedError' || name === 'SecurityError'
+        ? 'Microphone access is blocked. Allow the microphone for this site (tap the 🔒 or ⓘ next to the address, or your phone\'s Settings → Safari/Chrome → Microphone) and try again.'
+        : name === 'NotFoundError' ? 'No microphone was found on this device.' : 'The microphone couldn\'t start: ' + (err && err.message || name));
+    });
+  }
+
   function bindImport() {
     if (!$('voiceSampleFile')) return;
+    if ($('recBtn')) {
+      $('recBtn').hidden = !recSupported() && window.isSecureContext !== false;
+      $('recBtn').addEventListener('click', function () { if (recState) stopRecording(); else startRecording(); });
+    }
     $('voiceSampleFile').addEventListener('change', function () {
       var f = this.files && this.files[0];
+      prepared = null; if ($('recPreview')) $('recPreview').hidden = true;
+      if (f && (!isAudio(f.name) || f.size > 0)) {
+        // anything that isn't a WAV/MP3 that fits is converted (and trimmed) right away
+        if (!isAudio(f.name) && anyAudio(f)) {
+          setImportState('busy', 'Converting ' + f.name + ' to WAV…');
+          prepareAudio(f, $('importVoiceName').value || f.name).then(function (r) { usePrepared(r, r.file.name); }, function (e) { setImportState('error', e.message); });
+        } else if (isAudio(f.name)) {
+          V.clipLength(f).then(function (cl) {
+            if (cl.seconds && cl.seconds > MAX_SEC + 0.5) {
+              setImportState('busy', 'Trimming to 30 seconds…');
+              prepareAudio(f, f.name).then(function (r) { usePrepared(r, r.file.name); }, function (e) { setImportState('error', e.message); });
+            }
+          });
+        }
+      }
       $('localFileName').textContent = f ? f.name + ' (' + V.bytesLabel(f.size) + ')' : 'None';
       $('refDurationNote').hidden = true;
       // The name follows the file until the person types their own.
@@ -404,13 +549,14 @@
     });
     $('importConsent').addEventListener('change', importReady);
     $('importVoiceBtn').addEventListener('click', function () {
-      var f = $('voiceSampleFile').files && $('voiceSampleFile').files[0], share = $('importShare').checked;
+      var f = pickedFile(), share = $('importShare').checked;
       if (!f || importing) return;
       importing = true; importReady();
       setImportState('busy', 'Saving "' + ($('importVoiceName').value.trim() || niceName(f.name)) + '" on this device…');
       importVoice(f, $('importVoiceName').value, share).then(function (res) {
         importing = false;
         setImportState(res.length.level === 'warn' ? 'error' : 'done', '✓ Imported "' + res.voice.name + '" to My Voices and selected it.' + (res.length.text ? '  ' + res.length.text : ''));
+        prepared = null; if ($('recPreview')) $('recPreview').hidden = true;
         $('voiceSampleFile').value = ''; $('localFileName').textContent = 'None'; $('importVoiceName').value = ''; $('importVoiceName').dataset.auto = ''; $('refDurationNote').hidden = true;
         $('importShare').checked = false; $('importConsent').checked = false; $('importConsentRow').hidden = true;
         V.selectVoice(res.key);
