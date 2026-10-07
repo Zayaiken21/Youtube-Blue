@@ -41,7 +41,13 @@ Each page script only touches its own page, so you can edit one without affectin
 3. **Sound & style.** Use a story or take from Voice Studio (*Your audio*) or any audio file. *Fit panel timing to the voice track* stretches the panels to the voice length. Pick the shape (9:16 Short, 1:1, 16:9), the look (framed on a soft blur, or full screen), camera motion (smart zoom/pan, zoom, pan, still), the transition and an optional channel tag.
 4. **Preview & export.** Play the preview, then **🎬 Make the video**. It records in real time with the browser's own recorder: MP4 where the browser supports it (Chrome, Edge, Safari), otherwise WebM. YouTube accepts both. Keep the screen open while it records. Shorts can be up to 3 minutes; the page warns when a Short runs longer.
 
-Pages, panels and settings are saved on the device (IndexedDB `youtube-blue-comic`).
+**Subtitles (on by default).** Every panel has its own caption, so a subtitle never runs across two panels. *Fill captions* shares a Story Studio story's spoken lines across the panels in order (grammar tidied, `[tags]` and scene headings left out), and any caption can be edited under *Order & timing*.
+- **Styles:** Bold pop (the spoken word grows and lights up), Karaoke (words light up as they're said), Clean box, Minimal. You can change the size, text and highlight colours, words per caption (2–8) and ALL CAPS.
+- **Smart position:** for 9:16 the panel moves up a little and the caption sits just under it, above the area YouTube covers with the title and buttons. 1:1 and 16:9 get the same treatment. Top, middle and bottom are there too.
+- **Timing:** *Time each panel by its caption* gives longer lines more time. With a voice track the panels follow the words; without one, every caption gets enough time to be read.
+- **Languages:** pick up to 10 of 16 popular languages and press *Translate captions*. It uses the free MyMemory service: about 5,000 characters a day per device, or about 50,000 with an email under *Translation limit*. Translations are saved and can be edited. Choose the subtitle language for the video, or press *Make one video per language*. After exporting, download an `.srt` file per language to upload in YouTube Studio → Subtitles.
+
+Pages, panels, captions and settings are saved on the device (IndexedDB `youtube-blue-comic`).
 
 ## Put it on GitHub Pages
 
@@ -158,7 +164,7 @@ Defaults are WAV, chunk size 400 (range 200–500), temperature 0.75, speed 1.00
 ### Grammar tidy-up when a story moves to Voice Studio
 Every story line that comes into Voice Studio (Import lines, or Story mode) is tidied on the device first, so the voice reads clean sentences: capitals at the start of sentences and on character names, `i` → `I`, missing apostrophes (`dont` → `don't`, `im` → `I'm`), a full stop or `?` at the end of every line, `!!!` → `!`, `..` → `...`, doubled words (`the the`), and spacing around punctuation. It also keeps speech flowing: a mid-sentence `...` or dash becomes a comma pause, `?!` becomes `?`, emojis, `*whispers*`-style stage directions and trailing #hashtags are dropped, `&` is read as "and", and lines written in ALL CAPS are read normally. It never rewrites your words, and `[laugh]`-style tags stay exactly where they are. Your story in Story Studio isn't changed.
 
-**To remove it:** delete `js/voice-grammar.js` and its `<script>` line in `voice.html` (Voice Studio works without it). **To roll the whole site back** to before this feature, use the git tag `backup-before-grammar`: `git checkout backup-before-grammar -- .` then commit.
+**To remove it:** delete `js/voice-grammar.js` and its `<script>` line in `voice.html` (Voice Studio works without it). **To roll the whole site back** to before this feature, use `backups/youtube-blue-before-grammar-2026-10-06.zip` or git commit `1d82a91` (see `backups/README.md`).
 
 ## Data
 

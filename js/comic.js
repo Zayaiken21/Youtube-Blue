@@ -5,6 +5,9 @@
    2. Pick a voice track (Voice Studio audio or a file) and a style.
    3. Preview, then record a real video (MediaRecorder: MP4 where the browser can,
       otherwise WebM — YouTube takes both).
+   4. Subtitles: one caption per panel (never across two panels), word-by-word
+      highlight styles, smart placement for the video shape, translation into up
+      to 10 languages (MyMemory) and .srt files for YouTube.
    Everything stays on this device (IndexedDB 'youtube-blue-comic').
    ========================================================= */
 (function () {
@@ -15,7 +18,14 @@
 
   /* ---------- Settings ---------- */
   var FORMATS = { short: [1080, 1920], square: [1080, 1080], wide: [1920, 1080] };
-  var DEFAULTS = { light: 228, dark: false, minPanel: 6, format: 'short', fit: 'frame', motion: 'auto', transition: 'fade', transLen: 0.35, tag: '', audioMode: 'none', takeId: '', fitAudio: true, dur: 2.5 };
+  var DEFAULTS = { light: 228, dark: false, minPanel: 6, format: 'short', fit: 'frame', motion: 'auto', transition: 'fade', transLen: 0.35, tag: '', audioMode: 'none', takeId: '', fitAudio: true, dur: 2.5,
+    capOn: true, capStyle: 'pop', capSize: 1, capColor: '#ffffff', capHi: '#ffd60a', capPos: 'auto', capWords: 4, capCaps: false,
+    capTiming: true, srcLang: 'en', langs: ['en'], showLang: 'en', mmEmail: '' };
+  // The most-watched languages on YouTube (pick up to 10).
+  var LANGS = [['en', 'English'], ['es', 'Spanish'], ['hi', 'Hindi'], ['pt', 'Portuguese'], ['ar', 'Arabic'], ['fr', 'French'], ['id', 'Indonesian'],
+    ['ja', 'Japanese'], ['de', 'German'], ['ru', 'Russian'], ['ko', 'Korean'], ['zh-CN', 'Chinese'], ['it', 'Italian'], ['tr', 'Turkish'], ['vi', 'Vietnamese'], ['bn', 'Bengali']];
+  var MAX_LANGS = 10, RTL = ['ar'], NO_SPACES = ['ja', 'zh-CN'];
+  function langName(c) { var l = LANGS.find(function (x) { return x[0] === c; }); return l ? l[1] : c; }
   var S = Object.assign({}, DEFAULTS, YB.store.get('comicSettings', {}));
   function saveSettings() { YB.store.set('comicSettings', S); }
 
@@ -53,7 +63,7 @@
   var saveProject = YB.debounce(function () {
     var data = {
       pages: pages.map(function (p) { return { id: p.id, name: p.name, blob: p.blob }; }),
-      panels: panels.map(function (q) { return { id: q.id, pageId: q.pageId, x: q.x, y: q.y, w: q.w, h: q.h, dur: q.dur, motion: q.motion || '' }; })
+      panels: panels.map(function (q) { return { id: q.id, pageId: q.pageId, x: q.x, y: q.y, w: q.w, h: q.h, dur: q.dur, motion: q.motion || '', cap: q.cap || {} }; })
     };
     kv(DB, 'readwrite', function (st) { st.put(data, 'project'); });
   }, 400);
@@ -156,7 +166,9 @@
         '<select data-motion aria-label="Motion for panel ' + (i + 1) + '">' + MOTIONS.map(function (m) { return '<option value="' + m[0] + '"' + ((q.motion || '') === m[0] ? ' selected' : '') + '>' + m[1] + '</option>'; }).join('') + '</select></span></div>' +
         '<div class="cx-pbtns"><button type="button" class="btn btn-ghost btn-icon btn-sm" data-up aria-label="Move earlier"' + (i === 0 ? ' disabled' : '') + '>↑</button>' +
         '<button type="button" class="btn btn-ghost btn-icon btn-sm" data-down aria-label="Move later"' + (i === panels.length - 1 ? ' disabled' : '') + '>↓</button>' +
-        '<button type="button" class="btn btn-danger btn-icon btn-sm" data-del aria-label="Remove panel ' + (i + 1) + '">✕</button></div></li>';
+        '<button type="button" class="btn btn-danger btn-icon btn-sm" data-del aria-label="Remove panel ' + (i + 1) + '">✕</button></div>' +
+        '<label class="cx-cap"><span class="muted small">💬 Caption · ' + YB.esc(langName(S.showLang)) + (S.showLang !== S.srcLang && !capOf(q, S.showLang) && capOf(q, S.srcLang) ? ' · not translated yet' : '') + '</span>' +
+        '<textarea data-cap rows="2" dir="' + (RTL.indexOf(S.showLang) !== -1 ? 'rtl' : 'ltr') + '" placeholder="What\'s said in this panel (optional)">' + YB.esc(capOf(q, S.showLang)) + '</textarea></label></li>';
     }).join('') || '<li class="muted small">No panels yet.</li>';
     panels.forEach(function (q) {
       var c = document.querySelector('[data-thumb="' + q.id + '"]'), p = pageOf(q); if (!c || !p) return;
@@ -169,11 +181,12 @@
     var has = pages.length > 0, ready = panels.length > 0;
     $('panelsCard').hidden = !has;
     $('styleCard').hidden = !ready;
+    $('subsCard').hidden = !ready;
     $('exportCard').hidden = !ready;
     $('panelCount').textContent = ready ? '· ' + panels.length + ' in order' : '';
     document.querySelectorAll('.cx-steps li').forEach(function (li) {
       var n = +li.getAttribute('data-step');
-      li.classList.toggle('done', n === 1 ? has : n === 2 ? ready : n === 3 ? ready : !!lastVideo);
+      li.classList.toggle('done', n === 1 ? has : n === 2 ? ready : n === 3 ? ready : results.length > 0);
     });
     $('fitAudioBtn').disabled = !audio.dur || !panels.length;
   }
@@ -252,10 +265,17 @@
       if (e.target.closest('[data-up]')) { move(panels, i, -1); changed(); }
       else if (e.target.closest('[data-down]')) { move(panels, i, 1); changed(); }
       else if (e.target.closest('[data-del]')) removePanel(id);
-      else if (!e.target.closest('input,select')) { view.sel = id; renderList(); seekTo(timeline().starts[i] + 0.05); }
+      else if (!e.target.closest('input,select,textarea,label')) { view.sel = id; renderList(); seekTo(timeline().starts[i] + 0.05); }
+    });
+    $('panelList').addEventListener('input', function (e) {
+      if (!e.target.matches('[data-cap]')) return;
+      var li = e.target.closest('li[data-id]'), q = li && panels.find(function (x) { return x.id === li.getAttribute('data-id'); }); if (!q) return;
+      setCap(q, S.showLang, e.target.value);
+      saveProject(); renderFacts(); drawPreview();
     });
     $('panelList').addEventListener('change', function (e) {
       var li = e.target.closest('li[data-id]'); if (!li) return;
+      if (e.target.matches('[data-cap]')) { renderList(); return; }
       var q = panels.find(function (x) { return x.id === li.getAttribute('data-id'); }); if (!q) return;
       if (e.target.matches('[data-dur]')) q.dur = clamp(+e.target.value || S.dur, 0.5, 20);
       if (e.target.matches('[data-motion]')) q.motion = e.target.value;
@@ -399,6 +419,14 @@
   // durs: seconds each panel is on screen (fitted to the voice track when chosen). Transitions overlap the end of a panel.
   function timeline(forceFit) {
     var durs = panels.map(function (q) { return q.dur || S.dur; });
+    var byCaps = S.capOn && S.capTiming && captionedCount() >= Math.ceil(panels.length / 2);
+    if (byCaps && audio.dur > 0 && (forceFit || S.fitAudio)) {
+      // speech time follows the words: weight each panel by its caption (silent panels get a short beat)
+      durs = panels.map(function (q) { return Math.max(capOf(q, S.srcLang).length, 14); });
+    } else if (byCaps) {
+      // no voice: give every caption enough time to read (≈ 15 characters a second)
+      durs = panels.map(function (q, i) { return Math.max(durs[i], capOf(q, S.showLang).length / 15 + 0.6); });
+    }
     var sum = durs.reduce(function (a, b) { return a + b; }, 0);
     if ((forceFit || S.fitAudio) && audio.dur > 0 && sum > 0) {
       var k = (audio.dur + 0.6) / sum;   // a short breath after the last word
@@ -413,7 +441,7 @@
   function renderFacts() {
     if (!panels.length) return;
     var t = timeline(), f = FORMATS[S.format], mime = pickMime();
-    $('facts').innerHTML = '<span><b>' + panels.length + '</b> panels</span><span><b>' + mmss(t.total) + '</b> long</span><span><b>' + f[0] + '×' + f[1] + '</b></span><span><b>' + (mime ? (/mp4/.test(mime) ? 'MP4' : 'WebM') : '—') + '</b> video</span>' + (audio.dur ? '<span>🎙️ voice ' + mmss(audio.dur) + '</span>' : '');
+    $('facts').innerHTML = '<span><b>' + panels.length + '</b> panels</span><span><b>' + mmss(t.total) + '</b> long</span><span><b>' + f[0] + '×' + f[1] + '</b></span><span><b>' + (mime ? (/mp4/.test(mime) ? 'MP4' : 'WebM') : '—') + '</b> video</span>' + (audio.dur ? '<span>🎙️ voice ' + mmss(audio.dur) + '</span>' : '') + (S.capOn && hasCaptions() ? '<span>💬 ' + YB.esc(langName(S.showLang)) + ' subtitles</span>' : '');
     var w = $('lenWarn');
     if (S.format === 'short' && t.total > 180) { w.hidden = false; w.textContent = 'This runs ' + mmss(t.total) + '. YouTube Shorts can be up to 3 minutes; longer videos upload as regular videos. Shorten panel times or split the story.'; }
     else if (!mime) { w.hidden = false; w.textContent = 'This browser can\'t record video. Use Chrome, Edge or Safari (iOS 14.5+).'; }
@@ -464,7 +492,8 @@
     if (bg) { x.imageSmoothingQuality = 'high'; x.drawImage(bg, -2, -2, W + 4, H + 4); }
 
     var mode = q.motion || S.motion, fill = S.fit === 'fill', e = ease(p);
-    var boxW = fill ? W : W * 0.9, boxH = fill ? H : H * (S.format === 'short' ? 0.70 : 0.84);
+    var room = capRoom(), short = S.format === 'short';
+    var boxW = fill ? W : W * 0.9, boxH = fill ? H : H * (short ? (room ? 0.58 : 0.70) : (room ? (S.format === 'square' ? 0.62 : 0.68) : 0.84));
     var base = fill ? Math.max(boxW / src.width, boxH / src.height) : Math.min(boxW / src.width, boxH / src.height);
     var dw = src.width * base, dh = src.height * base, overX = dw - W, overY = dh - H;
     if (mode === 'auto') mode = fill && (overX > W * 0.08 || overY > H * 0.08) ? 'pan' : (i % 2 ? 'zoomout' : 'zoomin');
@@ -478,8 +507,9 @@
     }
     z *= o.zoom || 1;
     dw *= z; dh *= z;
-    var cx = W / 2 + px, cy = (fill ? H / 2 : H * (S.format === 'short' ? 0.47 : 0.5)) + py;
+    var cx = W / 2 + px, cy = (fill ? H / 2 : H * (short ? (room ? 0.39 : 0.47) : (room ? (S.format === 'square' ? 0.38 : 0.41) : 0.5))) + py;
     var X = cx - dw / 2, Y = cy - dh / 2;
+    if (!o.dx) lastRect[i] = { top: Math.max(0, Y), bottom: Math.min(H, Y + dh) };
     if (fill) {
       x.drawImage(src, X, Y, dw, dh);
     } else {
@@ -514,6 +544,7 @@
         drawPanel(x, W, H, i + 1, prog(i + 1), { alpha: kk });
       }
     }
+    if (S.capOn) drawCaptions(x, W, H, t, tl, i);
     // channel tag
     if (S.tag) {
       var u = Math.min(W, H) / 1080, fs = Math.round(34 * u);
@@ -588,8 +619,9 @@
     return '';
   }
 
-  function exportVideo() {
+  function exportVideo(done) {
     var mime = pickMime(); if (!mime || !panels.length || rec) return;
+    done = typeof done === 'function' ? done : null;
     stopPreview();
     var f = FORMATS[S.format], W = f[0], H = f[1], total = timeline().total;
     var canvas = document.createElement('canvas'); canvas.width = W; canvas.height = H;
@@ -626,9 +658,10 @@
         if (ac) ac.close().catch(function () {});
         var cancelled = rec && rec.cancelled; rec = null;
         $('exportProg').hidden = true; $('playBtn').disabled = false; renderFacts();
-        if (cancelled) { YB.toast('Video cancelled'); return; }
+        if (cancelled) { YB.toast('Video cancelled'); if (done) done(false); return; }
         var type = (mr.mimeType || mime).split(';')[0], blob = new Blob(chunks, { type: type });
         showResult(blob, type, total, W, H);
+        if (done) done(true);
       };
       var t0 = 0, stopped = false;
       function frame() {
@@ -637,7 +670,7 @@
         if (rec.cancelled) { stopped = true; try { src && src.stop(); } catch (e) {} mr.stop(); return; }
         drawFrame(ctx, W, H, Math.min(t, total));
         $('exportBar').style.width = Math.min(100, t / total * 100).toFixed(1) + '%';
-        $('exportText').textContent = 'Recording ' + mmss(t) + ' of ' + mmss(total);
+        $('exportText').textContent = (S.capOn && hasCaptions() ? langName(S.showLang) + ' · ' : '') + 'Recording ' + mmss(t) + ' of ' + mmss(total);
         if (t >= total) { stopped = true; setTimeout(function () { mr.stop(); }, 200); return; }
         requestAnimationFrame(frame);
       }
@@ -661,11 +694,327 @@
     var a = $('downloadBtn'); a.href = lastVideo;
     var first = pages[0] ? pages[0].name.replace(/[^\w-]+/g, '-').replace(/^-+|-+$/g, '').toLowerCase() : 'comic';
     a.download = (first || 'comic') + '-' + (S.format === 'short' ? 'short' : S.format) + '.' + ext;
-    $('resultInfo').textContent = ext.toUpperCase() + ' · ' + W + '×' + H + ' · ' + mmss(total) + ' · ' + (blob.size / 1048576).toFixed(1) + ' MB';
+    var lang = S.capOn && hasCaptions() ? S.showLang : '';
+    if (lang) a.download = a.download.replace(/\.(mp4|webm)$/, '-' + lang + '.$1');
+    $('resultInfo').textContent = ext.toUpperCase() + ' · ' + W + '×' + H + ' · ' + mmss(total) + ' · ' + (blob.size / 1048576).toFixed(1) + ' MB' + (lang ? ' · ' + langName(lang) + ' subtitles' : '');
     $('result').hidden = false;
+    results.unshift({ url: lastVideo, name: a.download, info: $('resultInfo').textContent });
+    lastVideo = null;   // kept alive in the results list
+    renderResults();
+    renderSrt();
     renderSteps();
     $('result').scrollIntoView({ behavior: 'smooth', block: 'nearest' });
     YB.toast('Your video is ready');
+  }
+
+  /* ---------- Subtitles ---------- */
+  var lastRect = {}, chunkCache = {}, results = [];
+  function capOf(q, lang) { return (q && q.cap && q.cap[lang]) || ''; }
+  function setCap(q, lang, text) {
+    q.cap = q.cap || {};
+    var t = String(text || '').replace(/\s+/g, ' ').trim();
+    if (lang === S.srcLang && t !== (q.cap[lang] || '')) {
+      Object.keys(q.cap).forEach(function (l) { if (l !== lang) delete q.cap[l]; });   // translations are out of date
+    }
+    if (t) q.cap[lang] = t; else delete q.cap[lang];
+    chunkCache = {};
+  }
+  function hasCaptions() { return panels.some(function (q) { return capOf(q, S.showLang) || capOf(q, S.srcLang); }); }
+  function captionedCount() { return panels.filter(function (q) { return capOf(q, S.srcLang); }).length; }
+  function capRoom() { return S.capOn && S.capPos !== 'top' && S.capPos !== 'middle' && hasCaptions(); }
+
+  // Split a caption into short "frames" of a few words, breaking after punctuation first.
+  function chunksFor(text, lang) {
+    var key = lang + '|' + S.capWords + '|' + text;
+    if (chunkCache[key]) return chunkCache[key];
+    var words, out = [], cur = [];
+    if (NO_SPACES.indexOf(lang) !== -1) {
+      // no spaces between words: phrases at punctuation, then about 12 characters per frame
+      words = text.replace(/([、。！？!?,，])/g, '$1\u0001').split('\u0001').reduce(function (a, ph) {
+        for (var k = 0; k < ph.length; k += 12) a.push(ph.slice(k, k + 12)); return a;
+      }, []).filter(function (w) { return w.trim(); });
+      words.forEach(function (w) { out.push([w.trim()]); });
+    } else {
+      words = text.split(/\s+/).filter(Boolean);
+      var max = S.capWords;
+      words.forEach(function (w, i) {
+        cur.push(w);
+        var soft = /[,;:—–]$/.test(w) && cur.length >= Math.max(2, max - 2), hard = /[.!?…]["')]*$/.test(w);
+        if (cur.length >= max || hard || soft || i === words.length - 1) { out.push(cur); cur = []; }
+      });
+      // never leave a lonely last word
+      if (out.length > 1 && out[out.length - 1].length === 1 && out[out.length - 2].length < max + 2 && !/[.!?…]["')]*$/.test(out[out.length - 2].slice(-1)[0])) {
+        var last = out.pop(); out[out.length - 1] = out[out.length - 1].concat(last);
+      }
+    }
+    var weights = out.map(function (c) { return c.join(' ').length + 3; }), tot = weights.reduce(function (a, b) { return a + b; }, 0) || 1, acc = 0;
+    var res = out.map(function (c, k) { var s0 = acc / tot; acc += weights[k]; return { words: c, from: s0, to: acc / tot }; });
+    chunkCache[key] = res;
+    return res;
+  }
+  // The caption shown at time t for panel i: { words, active (index), age (s since it appeared) }
+  function captionAt(t, tl, i, lang) {
+    var q = panels[i], text = capOf(q, lang); if (!text) return null;
+    var lead = 0.08, tail = 0.12;                       // a tiny gap so captions never bleed across panels
+    var s0 = tl.starts[i] + lead, d = Math.max(0.2, tl.durs[i] - lead - tail);
+    var p = (t - s0) / d; if (p < 0 || p > 1) return null;
+    var ch = chunksFor(text, lang), c = ch.find(function (x) { return p >= x.from && p < x.to; }) || ch[ch.length - 1];
+    var inner = (p - c.from) / Math.max(1e-6, c.to - c.from), lens = c.words.map(function (w) { return w.length + 1; }), sum = lens.reduce(function (a, b) { return a + b; }, 0), run = 0, active = 0;
+    for (var k = 0; k < lens.length; k++) { run += lens[k]; if (inner * sum < run) { active = k; break; } active = k; }
+    return { words: c.words, active: active, age: (p - c.from) * d };
+  }
+
+  function capFont(fs) { return '900 ' + fs + 'px "Arial Black", "Segoe UI Black", "Helvetica Neue", system-ui, -apple-system, Roboto, Arial, sans-serif'; }
+  function drawCaptions(x, W, H, t, tl, i) {
+    var lang = S.showLang, cap = captionAt(t, tl, i, lang); if (!cap) return;
+    var short = S.format === 'short', u = (short || S.format === 'square' ? W : H) / 1080;
+    var upper = S.capCaps && ['hi', 'ar', 'ja', 'zh-CN', 'ko', 'bn'].indexOf(lang) === -1;
+    var words = cap.words.map(function (w) { return upper ? w.toUpperCase() : w; });
+    var square = S.format === 'square';
+    var style = S.capStyle, fs = Math.round((style === 'minimal' ? 66 : 86) * u * S.capSize * (square ? 0.8 : 1)), maxW = W * (short ? 0.82 : square ? 0.86 : 0.78);
+    var rtl = RTL.indexOf(lang) !== -1, sep = NO_SPACES.indexOf(lang) !== -1 ? '' : ' ';
+    // fit on at most two lines
+    var lines;
+    for (var tries = 0; tries < 6; tries++) {
+      x.font = capFont(fs);
+      var space = x.measureText(sep || ' ').width * (sep ? 1 : 0); lines = [[]];
+      var lw = 0;
+      words.forEach(function (w, k) {
+        var ww = x.measureText(w).width;
+        if (lines[lines.length - 1].length && lw + space + ww > maxW) { lines.push([]); lw = 0; }
+        lines[lines.length - 1].push({ w: w, k: k, width: ww }); lw += (lw ? space : 0) + ww;
+      });
+      if (lines.length <= 2) break;
+      fs = Math.round(fs * 0.88);
+    }
+    var lh = fs * 1.18, blockH = lines.length * lh, padY = fs * 0.32;
+    // smart position: below the framed panel, inside the safe area YouTube's buttons don't cover
+    var y;
+    if (S.capPos === 'top') y = H * (short ? 0.2 : 0.14) + blockH / 2;
+    else if (S.capPos === 'middle') y = H * 0.5;
+    else if (S.capPos === 'bottom') y = H * (short ? 0.77 : 0.86) - blockH / 2;
+    else {
+      var r = lastRect[i], limit = H * (short ? 0.815 : 0.94) - blockH / 2 - padY;   // YouTube's title & buttons sit below this
+      if (S.fit === 'fill' || !r) y = H * (short ? 0.7 : 0.84);
+      else y = Math.min(limit, r.bottom + H * 0.035 + blockH / 2 + padY);
+      y = Math.max(y, H * 0.25);
+    }
+    var pop = style === 'minimal' ? 1 : 0.86 + 0.14 * Math.min(1, cap.age / 0.12);   // each new caption pops in
+    var alpha = Math.min(1, cap.age / 0.08);
+    x.save();
+    x.globalAlpha = alpha;
+    x.translate(W / 2, y); x.scale(pop, pop); x.translate(-W / 2, -y);
+    x.textBaseline = 'middle'; x.textAlign = 'left'; x.lineJoin = 'round';
+    lines.forEach(function (line, li) {
+      x.font = capFont(fs);
+      var space = sep ? x.measureText(' ').width : 0;
+      var total = line.reduce(function (a, it) { return a + it.width; }, 0) + space * (line.length - 1);
+      var ly = y - blockH / 2 + lh * (li + 0.5);
+      var order = rtl ? line.slice().reverse() : line, cx = (W - total) / 2;
+      if (style === 'box') {
+        x.fillStyle = 'rgba(6,10,20,0.68)';
+        roundRect(x, cx - fs * 0.45, ly - lh / 2 - padY * 0.35, total + fs * 0.9, lh + padY * 0.7, fs * 0.35); x.fill();
+      }
+      order.forEach(function (it) {
+        var on = it.k === cap.active, said = it.k <= cap.active, color = S.capColor;
+        if (style === 'pop' && on) color = S.capHi;
+        if (style === 'karaoke' && said) color = S.capHi;
+        if (style === 'box' && on) color = S.capHi;
+        var grow = style === 'pop' && on ? 1.08 : 1;
+        x.save();
+        x.translate(cx + it.width / 2, ly); x.scale(grow, grow);
+        if (style === 'minimal') { x.shadowColor = 'rgba(0,0,0,0.85)'; x.shadowBlur = fs * 0.25; x.shadowOffsetY = fs * 0.05; }
+        else if (style !== 'box') { x.lineWidth = fs * 0.18; x.strokeStyle = 'rgba(0,0,0,0.92)'; x.strokeText(it.w, -it.width / 2, 0); }
+        x.fillStyle = color; x.fillText(it.w, -it.width / 2, 0);
+        x.restore();
+        cx += it.width + space;
+      });
+    });
+    x.restore();
+  }
+
+  // .srt for YouTube Studio, using the same caption frames and timing as the video.
+  function srtFor(lang) {
+    var tl = timeline(), n = 0, out = [];
+    function ts(s) { var ms = Math.max(0, Math.round(s * 1000)), h = Math.floor(ms / 3600000), m = Math.floor(ms / 60000) % 60, sec = Math.floor(ms / 1000) % 60;
+      return String(h).padStart(2, '0') + ':' + String(m).padStart(2, '0') + ':' + String(sec).padStart(2, '0') + ',' + String(ms % 1000).padStart(3, '0'); }
+    panels.forEach(function (q, i) {
+      var text = capOf(q, lang); if (!text) return;
+      var s0 = tl.starts[i] + 0.08, d = Math.max(0.2, tl.durs[i] - 0.2);
+      chunksFor(text, lang).forEach(function (c) {
+        out.push(++n + '\n' + ts(s0 + c.from * d) + ' --> ' + ts(s0 + c.to * d) + '\n' + c.words.join(NO_SPACES.indexOf(lang) !== -1 ? '' : ' ') + '\n');
+      });
+    });
+    return out.join('\n');
+  }
+  function renderSrt() {
+    var langs = S.langs.filter(function (l) { return panels.some(function (q) { return capOf(q, l); }); });
+    $('srtBox').hidden = !langs.length || $('result').hidden;
+    $('srtList').innerHTML = langs.map(function (l) { return '<button type="button" class="btn btn-ghost btn-sm" data-srt="' + l + '">⬇ ' + YB.esc(langName(l)) + ' .srt</button>'; }).join('');
+  }
+  function renderResults() {
+    $('resultList').innerHTML = results.length > 1 ? results.map(function (r, k) {
+      return '<li><span class="small">' + YB.esc(r.info) + '</span><a class="btn btn-ghost btn-sm" href="' + r.url + '" download="' + YB.esc(r.name) + '">⬇</a></li>';
+    }).join('') : '';
+  }
+
+  // Lines from a Story Studio story, shared across the panels in order.
+  function storyLines(st) {
+    return (st.blocks || []).filter(function (b) { return b.type === 'line' && b.text && b.text.trim(); }).map(function (b) {
+      var t = b.text.replace(/\[[^\]]*\]/g, ' ').replace(/\s+/g, ' ').trim();
+      if (window.YBGrammar) t = window.YBGrammar.fixLine(t, (st.characters || []).map(function (c) { return c.name; }));
+      return t;
+    }).filter(Boolean);
+  }
+  function fillFromStory() {
+    var st = (YB.store.get('stories', []) || []).find(function (x) { return x.id === $('capStory').value; });
+    if (!st) { YB.toast('Write a story in Story Studio first'); return; }
+    var lines = storyLines(st), n = panels.length; if (!lines.length || !n) { YB.toast('That story has no spoken lines yet'); return; }
+    if (captionedCount() && !confirm('Replace the captions on every panel with lines from "' + st.title + '"?')) return;
+    var groups = panels.map(function () { return []; });
+    if (lines.length >= n) {
+      // every panel gets at least one line; extra lines go where the text is shortest so the timing stays even
+      lines.forEach(function (l, k) { groups[Math.min(n - 1, Math.floor(k * n / lines.length))].push(l); });
+    } else {
+      lines.forEach(function (l, k) { groups[Math.round(k * (n - 1) / Math.max(1, lines.length - 1))].push(l); });
+    }
+    panels.forEach(function (q, i) { q.cap = {}; if (groups[i].length) q.cap[S.srcLang] = groups[i].join(' '); });
+    S.showLang = S.srcLang; chunkCache = {}; saveSettings();
+    changed(); renderSubs();
+    YB.toast('Captions filled from "' + st.title + '" — check them under Order & timing');
+  }
+
+  /* ---------- Translation (MyMemory, free) ---------- */
+  var tr = { busy: false };
+  function trCache() { return YB.store.get('comicTrCache', {}); }
+  function translateOne(text, from, to) {
+    var key = from + '>' + to + ':' + text, cache = trCache();
+    if (cache[key]) return Promise.resolve(cache[key]);
+    var url = 'https://api.mymemory.translated.net/get?q=' + encodeURIComponent(text) + '&langpair=' + encodeURIComponent(from + '|' + to) + (S.mmEmail ? '&de=' + encodeURIComponent(S.mmEmail) : '');
+    return fetch(url).then(function (r) { if (r.status === 429) throw new Error('limit'); return r.json(); }).then(function (j) {
+      var out = j && j.responseData && j.responseData.translatedText;
+      if (!out || j.quotaFinished || /MYMEMORY WARNING|USED ALL AVAILABLE FREE/i.test(out)) throw new Error('limit');
+      if (Number(j.responseStatus) !== 200) throw new Error(j.responseDetails || 'failed');
+      out = String(out).replace(/&#39;/g, "'").replace(/&quot;/g, '"').replace(/&amp;/g, '&').trim();
+      var c = trCache(); c[key] = out; var keys = Object.keys(c); if (keys.length > 3000) delete c[keys[0]];
+      YB.store.set('comicTrCache', c);
+      return out;
+    });
+  }
+  // MyMemory takes up to 500 bytes per request: long captions go sentence by sentence.
+  function translateText(text, from, to) {
+    var enc = window.TextEncoder ? new TextEncoder() : null, bytes = function (t) { return enc ? enc.encode(t).length : t.length * 3; };
+    if (bytes(text) <= 450) return translateOne(text, from, to);
+    var parts = text.match(/[^.!?…]+[.!?…]*["')]*\s*/g) || [text], groups = [], cur = '';
+    parts.forEach(function (p) { if (cur && bytes(cur + p) > 450) { groups.push(cur.trim()); cur = ''; } cur += p; });
+    if (cur.trim()) groups.push(cur.trim());
+    groups = groups.reduce(function (a, g) { while (bytes(g) > 450) { var cut = Math.floor(g.length / 2); a.push(g.slice(0, cut)); g = g.slice(cut); } a.push(g); return a; }, []);
+    return groups.reduce(function (pr, g) { return pr.then(function (acc) { return translateOne(g, from, to).then(function (t) { return acc.concat(t); }); }); }, Promise.resolve([]))
+      .then(function (arr) { return arr.join(NO_SPACES.indexOf(to) !== -1 ? '' : ' '); });
+  }
+  function translateAll() {
+    if (tr.busy) return;
+    var targets = S.langs.filter(function (l) { return l !== S.srcLang; });
+    var jobs = [];
+    panels.forEach(function (q) { var src = capOf(q, S.srcLang); if (!src) return; targets.forEach(function (l) { if (!capOf(q, l)) jobs.push({ q: q, l: l, text: src }); }); });
+    if (!targets.length) { YB.toast('Tick at least one other language first'); return; }
+    if (!captionedCount()) { YB.toast('Add captions first (fill them from a story, or type them under Order & timing)'); return; }
+    if (!jobs.length) { $('translateNote').textContent = '✓ Every caption is already translated.'; return; }
+    if (!navigator.onLine) { $('translateNote').textContent = 'You\'re offline — translating needs the internet.'; return; }
+    tr.busy = true; $('translateBtn').disabled = true;
+    var done = 0, failed = 0, limit = false, k = 0;
+    function next() {
+      if (limit || k >= jobs.length) return Promise.resolve();
+      var j = jobs[k++];
+      return translateText(j.text, S.srcLang, j.l).then(function (out) { j.q.cap = j.q.cap || {}; j.q.cap[j.l] = out; done++; },
+        function (e) { failed++; if (e && e.message === 'limit') limit = true; })
+        .then(function () { $('translateNote').textContent = 'Translating… ' + (done + failed) + ' / ' + jobs.length; return next(); });
+    }
+    Promise.all([next(), next(), next()]).then(function () {
+      tr.busy = false; $('translateBtn').disabled = false; chunkCache = {};
+      saveProject(); renderList(); renderSubs(); drawPreview();
+      $('translateNote').textContent = limit ? '⚠️ The free daily translation limit was reached after ' + done + ' captions. Add an email under "Translation limit" or try again tomorrow — finished ones are saved.'
+        : failed ? '✓ ' + done + ' translated · ' + failed + ' couldn\'t be translated (try again).' : '✓ Translated ' + done + ' captions into ' + targets.map(langName).join(', ') + '.';
+    });
+  }
+
+  function renderSubs() {
+    $('capOn').checked = !!S.capOn;
+    document.querySelectorAll('[data-cap-style]').forEach(function (b) { var on = b.getAttribute('data-cap-style') === S.capStyle; b.classList.toggle('on', on); b.setAttribute('aria-checked', on ? 'true' : 'false'); });
+    $('capWordsVal').textContent = S.capWords; $('capSizeVal').textContent = Math.round(S.capSize * 100) + '%';
+    $('langCount').textContent = '· ' + S.langs.length + ' of ' + MAX_LANGS;
+    $('langList').innerHTML = LANGS.map(function (l) {
+      var on = S.langs.indexOf(l[0]) !== -1, src = l[0] === S.srcLang;
+      var n = on ? panels.filter(function (q) { return capOf(q, l[0]); }).length : 0, total = captionedCount();
+      var stat = !on || !total ? '' : n >= total ? ' ✓' : src ? '' : ' · ' + n + '/' + total;
+      return '<label class="cx-lang' + (on ? ' on' : '') + '"><input type="checkbox" value="' + l[0] + '"' + (on ? ' checked' : '') + (src ? ' disabled' : '') + (!on && S.langs.length >= MAX_LANGS ? ' disabled' : '') + '><span>' + l[1] + (src ? ' · original' : '') + stat + '</span></label>';
+    }).join('');
+    $('srcLang').innerHTML = LANGS.map(function (l) { return '<option value="' + l[0] + '"' + (l[0] === S.srcLang ? ' selected' : '') + '>' + l[1] + '</option>'; }).join('');
+    $('showLang').innerHTML = S.langs.map(function (l) { return '<option value="' + l + '"' + (l === S.showLang ? ' selected' : '') + '>' + langName(l) + '</option>'; }).join('');
+    $('showLangWrap').hidden = !S.capOn || S.langs.length < 2;
+    $('exportAllBtn').hidden = !S.capOn || S.langs.length < 2 || !captionedCount();
+    var stories = YB.store.get('stories', []) || [];
+    var cur = $('capStory').value;
+    $('capStory').innerHTML = stories.length ? stories.map(function (st) { return '<option value="' + YB.esc(st.id) + '">' + YB.esc(st.title || 'Untitled story') + '</option>'; }).join('') : '<option value="">No stories in Story Studio yet</option>';
+    if (cur && stories.some(function (st) { return st.id === cur; })) $('capStory').value = cur;
+    else {
+      // suggest the story whose audio is the voice track
+      var take = (YB.store.get('voiceTakes', []) || []).find(function (x) { return 'take:' + x.id === S.takeId; });
+      var match = take && stories.find(function (st) { return st.title === take.groupTitle; });
+      if (match) $('capStory').value = match.id;
+    }
+    $('capFillBtn').disabled = !stories.length;
+  }
+
+  function wireSubs() {
+    $('capOn').addEventListener('change', function () { S.capOn = this.checked; saveSettings(); renderSubs(); renderAll(); });
+    document.querySelectorAll('[data-cap-style]').forEach(function (b) { b.addEventListener('click', function () { S.capStyle = b.getAttribute('data-cap-style'); saveSettings(); renderSubs(); drawPreview(); }); });
+    ['capPos', 'capColor', 'capHi'].forEach(function (k) { var el = $(k); el.value = S[k]; el.addEventListener('input', function () { S[k] = el.value; saveSettings(); drawPreview(); }); });
+    $('capWords').value = S.capWords; $('capSize').value = S.capSize;
+    $('capWords').addEventListener('input', function () { S.capWords = +this.value; chunkCache = {}; saveSettings(); renderSubs(); drawPreview(); });
+    $('capSize').addEventListener('input', function () { S.capSize = +this.value; saveSettings(); renderSubs(); drawPreview(); });
+    $('capCaps').checked = !!S.capCaps; $('capCaps').addEventListener('change', function () { S.capCaps = this.checked; saveSettings(); drawPreview(); });
+    $('capTiming').checked = !!S.capTiming; $('capTiming').addEventListener('change', function () { S.capTiming = this.checked; saveSettings(); renderAll(); });
+    $('capFillBtn').addEventListener('click', fillFromStory);
+    $('capClearBtn').addEventListener('click', function () {
+      if (!captionedCount() || !confirm('Remove every caption (all languages)?')) return;
+      panels.forEach(function (q) { q.cap = {}; }); chunkCache = {}; changed(); renderSubs();
+    });
+    $('langList').addEventListener('change', function (e) {
+      var v = e.target.value; if (!v) return;
+      if (e.target.checked) { if (S.langs.length >= MAX_LANGS) { e.target.checked = false; YB.toast('Up to ' + MAX_LANGS + ' languages'); return; } S.langs.push(v); }
+      else { S.langs = S.langs.filter(function (l) { return l !== v; }); if (S.showLang === v) S.showLang = S.srcLang; }
+      saveSettings(); renderSubs(); renderList(); drawPreview();
+    });
+    $('srcLang').addEventListener('change', function () {
+      var v = this.value;
+      if (captionedCount() && !confirm('Are your captions written in ' + langName(v) + '? Existing translations will be redone from it.')) { this.value = S.srcLang; return; }
+      panels.forEach(function (q) { var t = capOf(q, S.srcLang); q.cap = {}; if (t) q.cap[v] = t; });
+      S.srcLang = v; if (S.langs.indexOf(v) === -1) S.langs.unshift(v); if (S.langs.length > MAX_LANGS) S.langs.length = MAX_LANGS;
+      S.showLang = v; chunkCache = {}; saveSettings(); changed(); renderSubs();
+    });
+    $('showLang').addEventListener('change', function () { S.showLang = this.value; saveSettings(); renderList(); renderFacts(); drawPreview(); });
+    $('translateBtn').addEventListener('click', translateAll);
+    $('mmEmail').value = S.mmEmail || '';
+    $('mmEmail').addEventListener('change', function () { S.mmEmail = this.value.trim(); saveSettings(); });
+    $('srtList').addEventListener('click', function (e) {
+      var b = e.target.closest('[data-srt]'); if (!b) return;
+      var l = b.getAttribute('data-srt'), first = pages[0] ? pages[0].name.replace(/[^\w-]+/g, '-').toLowerCase() : 'comic';
+      YB.download(first + '.' + l + '.srt', srtFor(l), 'application/x-subrip');
+    });
+    $('exportAllBtn').addEventListener('click', function () {
+      var langs = S.langs.filter(function (l) { return panels.some(function (q) { return capOf(q, l); }); });
+      if (!langs.length) return;
+      var missing = S.langs.filter(function (l) { return langs.indexOf(l) === -1; });
+      if (missing.length && !confirm(missing.map(langName).join(', ') + (missing.length === 1 ? ' has' : ' have') + ' no captions yet (press Translate captions first). Make the other ' + langs.length + ' now?')) return;
+      var keep = S.showLang, k = 0;
+      (function step() {
+        if (k >= langs.length) { S.showLang = keep; saveSettings(); renderSubs(); renderList(); drawPreview(); YB.toast('All ' + langs.length + ' videos are ready'); return; }
+        S.showLang = langs[k++]; renderSubs(); drawPreview();
+        $('exportText').textContent = 'Video ' + k + ' of ' + langs.length + ' · ' + langName(S.showLang);
+        exportVideo(function (ok) { if (ok) step(); else { S.showLang = keep; saveSettings(); renderSubs(); } });
+      })();
+    });
   }
 
   /* ---------- Start ---------- */
@@ -688,9 +1037,10 @@
   }
 
   wire();
+  wireSubs();
   setTab('page');
   restore().then(function () {
-    renderAll();
+    renderAll(); renderSubs();
     setAudioMode(S.audioMode === 'file' ? 'none' : S.audioMode);   // a picked file can't be reopened after a reload
   });
 })();

@@ -15,10 +15,11 @@
   <meta name="mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
   <meta name="apple-mobile-web-app-title" content="YT Blue">
-  <link rel="stylesheet" href="css/style.css?v=20">
+  <link rel="stylesheet" href="css/style.css?v=21">
   <script src="js/core.js" defer></script>
+  <script src="js/voice-grammar.js?v=2" defer></script>
   <script src="js/comic-panels.js?v=1" defer></script>
-  <script src="js/comic.js?v=1" defer></script>
+  <script src="js/comic.js?v=2" defer></script>
 </head>
 <body data-page="comic">
   <header class="topbar">
@@ -48,7 +49,7 @@
     </div>
 
     <ol class="cx-steps" aria-label="Steps">
-      <li data-step="1">Add pages</li><li data-step="2">Check panels</li><li data-step="3">Sound &amp; style</li><li data-step="4">Export</li>
+      <li data-step="1">Add pages</li><li data-step="2">Check panels</li><li data-step="3">Sound, style &amp; subtitles</li><li data-step="4">Export</li>
     </ol>
 
     <div class="cx-layout">
@@ -159,6 +160,70 @@
             </label>
           </div>
         </section>
+
+        <!-- ===== Subtitles ===== -->
+        <section class="card" aria-labelledby="subsTitle" id="subsCard" hidden>
+          <div class="row between">
+            <h2 id="subsTitle" style="margin:0"><span class="cx-num">💬</span>Subtitles</h2>
+            <label class="cx-switch"><input type="checkbox" id="capOn"><span>Show on the video</span></label>
+          </div>
+          <p class="muted small" style="margin:8px 0 12px">Every panel has its own caption, so a subtitle never runs across two panels. They're placed automatically where they read best for the video shape. Edit any caption under <b>Order &amp; timing</b>.</p>
+
+          <div class="cx-group">
+            <div class="label">Fill captions from a story</div>
+            <div class="row">
+              <select id="capStory" aria-label="Story" style="flex:1 1 200px;width:auto"></select>
+              <button class="btn btn-sm" type="button" id="capFillBtn">✨ Fill captions</button>
+              <button class="btn btn-ghost btn-sm" type="button" id="capClearBtn">Clear</button>
+            </div>
+            <p class="muted small" id="capFillNote" style="margin:6px 0 0">Spoken lines from Story Studio are shared out across the panels in order (scene headings and [tags] are left out).</p>
+          </div>
+
+          <div class="cx-group">
+            <div class="label">Caption style</div>
+            <div class="cx-styles" id="capStyles" role="radiogroup" aria-label="Caption style">
+              <button type="button" data-cap-style="pop" role="radio"><span class="cx-sample pop">WORD <i>POP</i></span><small>Bold pop</small></button>
+              <button type="button" data-cap-style="karaoke" role="radio"><span class="cx-sample karaoke"><i>Words</i> light</span><small>Karaoke</small></button>
+              <button type="button" data-cap-style="box" role="radio"><span class="cx-sample box">Clean <i>box</i></span><small>Clean box</small></button>
+              <button type="button" data-cap-style="minimal" role="radio"><span class="cx-sample minimal">Minimal</span><small>Minimal</small></button>
+            </div>
+          </div>
+
+          <div class="fields" style="margin-top:14px">
+            <label class="field"><span>Position</span>
+              <select id="capPos"><option value="auto">Smart (best spot for this video)</option><option value="top">Top</option><option value="middle">Middle</option><option value="bottom">Bottom</option></select>
+            </label>
+            <label class="field"><span>Words per caption <b id="capWordsVal"></b></span>
+              <input id="capWords" type="range" min="2" max="8" step="1">
+            </label>
+            <label class="field"><span>Size <b id="capSizeVal"></b></span>
+              <input id="capSize" type="range" min="0.7" max="1.4" step="0.05">
+            </label>
+            <label class="field"><span>Text colour</span><input id="capColor" type="color"></label>
+            <label class="field"><span>Highlight colour</span><input id="capHi" type="color"></label>
+            <label class="field check-field"><input type="checkbox" id="capCaps"><span>ALL CAPS</span></label>
+            <label class="field check-field"><input type="checkbox" id="capTiming"><span>Time each panel by its caption (best sync with the voice)</span></label>
+          </div>
+
+          <div class="cx-group" style="margin-top:16px">
+            <div class="row between">
+              <div class="label" style="margin:0">Languages <span class="muted small" id="langCount"></span></div>
+              <label class="field" style="flex-direction:row;align-items:center;gap:8px"><span>Captions written in</span>
+                <select id="srcLang" style="width:auto" aria-label="Language the captions are written in"></select>
+              </label>
+            </div>
+            <div class="cx-langs" id="langList" role="group" aria-label="Languages to make captions in (up to 10)"></div>
+            <div class="row" style="margin-top:10px">
+              <button class="btn btn-sm" type="button" id="translateBtn">🌍 Translate captions</button>
+              <span class="muted small" id="translateNote"></span>
+            </div>
+            <details class="cx-more">
+              <summary>Translation limit</summary>
+              <p class="muted small">Translations come from the free MyMemory service: about 5,000 characters a day per device, roughly 3 languages for a 2-minute story. Add an email address to raise that to about 50,000 a day. It's only sent to MyMemory, with the text being translated. Translations are saved, so each caption is only translated once.</p>
+              <label class="field"><span>Email for a higher daily limit (optional)</span><input id="mmEmail" type="email" placeholder="you@example.com" autocomplete="email"></label>
+            </details>
+          </div>
+        </section>
       </div>
 
       <!-- ===== 4 · Preview & export ===== -->
@@ -170,9 +235,11 @@
           <input type="range" id="scrub" min="0" max="1000" value="0" aria-label="Position">
           <span class="cx-time" id="timeLabel">0:00 / 0:00</span>
         </div>
+        <label class="field cx-lang-pick" id="showLangWrap"><span>Subtitle language on the video</span><select id="showLang"></select></label>
         <div class="cx-facts" id="facts"></div>
         <div class="notice warn" id="lenWarn" hidden></div>
         <button class="btn btn-lg" type="button" id="exportBtn" style="width:100%;margin-top:12px">🎬 Make the video</button>
+        <button class="btn btn-ghost" type="button" id="exportAllBtn" style="width:100%;margin-top:8px" hidden>🌍 Make one video per language</button>
         <div class="cx-progress" id="exportProg" hidden>
           <div class="progress"><i id="exportBar"></i></div>
           <div class="row between small"><span id="exportText">Recording…</span><button class="btn btn-ghost btn-sm" type="button" id="cancelBtn">Cancel</button></div>
@@ -185,6 +252,12 @@
             <a class="btn btn-sm" id="downloadBtn" href="#" download>⬇ Download video</a>
           </div>
         </div>
+        <div class="cx-srt" id="srtBox" hidden>
+          <div class="label">Subtitle files for YouTube</div>
+          <p class="muted small" style="margin:4px 0 8px">Upload these in YouTube Studio → Subtitles so viewers can pick their language. They match the video's timing.</p>
+          <div class="row" id="srtList"></div>
+        </div>
+        <ul class="cx-results" id="resultList"></ul>
       </aside>
     </div>
   </main>
