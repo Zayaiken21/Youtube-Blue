@@ -262,6 +262,10 @@ select {
   padding-right: 34px;
 }
 textarea { resize: vertical; min-height: 110px; line-height: 1.5; }
+/* The open dropdown list: always dark with light text (some phones/PCs otherwise show white on white). */
+select option, select optgroup { background-color: #081732; color: var(--text); }
+select optgroup { color: var(--sky, #7cc4ff); font-weight: 700; }
+select option:disabled { color: var(--muted); }
 input:focus, select:focus, textarea:focus { outline: none; border-color: var(--primary-2); box-shadow: 0 0 0 3px rgba(30, 123, 255, 0.25); }
 input::placeholder, textarea::placeholder { color: var(--faint); }
 input[type="color"] {
