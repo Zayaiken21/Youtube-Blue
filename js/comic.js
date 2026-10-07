@@ -18,7 +18,7 @@
 
   /* ---------- Settings ---------- */
   var FORMATS = { short: [1080, 1920], square: [1080, 1080], wide: [1920, 1080] };
-  var DEFAULTS = { light: 228, dark: false, minPanel: 6, format: 'short', fit: 'frame', motion: 'auto', transition: 'fade', transLen: 0.35, tag: '', audioMode: 'none', takeId: '', dur: 2.5,
+  var DEFAULTS = { light: 228, dark: false, minPanel: 6, format: 'short', fit: 'guided', motion: 'auto', transition: 'fade', transLen: 0.35, tag: '', audioMode: 'none', takeId: '', dur: 2.5,
     capOn: true, capStyle: 'pop', capSize: 1, capColor: '#ffffff', capHi: '#ffd60a', capPos: 'auto', capWords: 4, capCaps: false,
     capTiming: true, srcLang: 'en', langs: ['en'], showLang: 'en', mmEmail: '' };
   // The most-watched languages on YouTube (pick up to 10).
@@ -28,6 +28,7 @@
   function langName(c) { var l = LANGS.find(function (x) { return x[0] === c; }); return l ? l[1] : c; }
   var S = Object.assign({}, DEFAULTS, YB.store.get('comicSettings', {}));
   function saveSettings() { YB.store.set('comicSettings', S); }
+  if (!S.lookV2) { S.fit = 'guided'; S.lookV2 = true; saveSettings(); }   // new default look: guided view over the real page
 
   var pages = [];     // { id, name, blob, url, img, w, h }
   var panels = [];    // { id, pageId, x, y, w, h, dur, motion }
@@ -110,11 +111,39 @@
     files.reduce(function (p, f) { return p.then(function () { return addPage(f).catch(function (e) { YB.toast(e.message); }); }); }, Promise.resolve())
       .then(function () {
         var n = panels.length - before;
-        YB.toast(n ? 'Found ' + n + ' panel' + (n === 1 ? '' : 's') + ' — check the order below' : 'No pages added');
+        var single = n > 0 && n === files.length;
+        YB.toast(!n ? 'No pages added' : single ? 'Couldn\'t see panel borders — try ⊞ Grid or ✏️ Draw' : 'Found ' + n + ' panels — check the order below');
         dropCaches(); saveProject(); renderAll();
       });
   }
 
+  function curPage() { return pages.find(function (x) { return x.id === view.pageId; }); }
+  function pagePanels(id) { return panels.filter(function (q) { return q.pageId === id; }); }
+  function newPanel(p, r) { return { id: YB.uid(), pageId: p.id, x: Math.round(r.x), y: Math.round(r.y), w: Math.round(r.w), h: Math.round(r.h), dur: S.dur, motion: '' }; }
+  // Replace one page's panels, keeping them where that page sits in the video.
+  function setPagePanels(pageId, list) {
+    var at = panels.findIndex(function (q) { return q.pageId === pageId; });
+    if (at === -1) {   // after the panels of earlier pages
+      var pi = pageNo(pageId) - 1; at = panels.filter(function (q) { return pageNo(q.pageId) - 1 < pi; }).length;
+    }
+    panels = panels.filter(function (q) { return q.pageId !== pageId; });
+    panels.splice.apply(panels, [at, 0].concat(list));
+    view.sel = ''; chunkCache = {}; dropCaches(); changed();
+  }
+  // Split the selected panel in two along its most gutter-like line near the middle.
+  function splitSelected(horizontal) {
+    var i = panels.findIndex(function (q) { return q.id === view.sel; }), q = panels[i], p = q && pageOf(q);
+    if (!p || !window.YBPanels) return;
+    var sc = Math.min(1, 900 / Math.max(q.w, q.h)), w = Math.max(1, Math.round(q.w * sc)), h = Math.max(1, Math.round(q.h * sc));
+    var c = document.createElement('canvas'); c.width = w; c.height = h;
+    var x = c.getContext('2d', { willReadFrequently: true }); x.drawImage(p.img, q.x, q.y, q.w, q.h, 0, 0, w, h);
+    var cut = window.YBPanels.splitLine(x.getImageData(0, 0, w, h), { x: 0, y: 0, w: w, h: h }, horizontal) / sc;
+    var a = Object.assign({}, q), b = newPanel(p, q);
+    if (horizontal) { a.h = Math.round(cut); b.y = q.y + a.h; b.h = q.h - a.h; } else { a.w = Math.round(cut); b.x = q.x + a.w; b.w = q.w - a.w; }
+    b.dur = q.dur; b.motion = q.motion;
+    panels.splice(i, 1, a, b); view.sel = a.id; chunkCache = {}; dropCaches(); changed();
+    YB.toast('Split into two panels');
+  }
   function redetect() {
     var order = [];
     pages.forEach(function (p) { order = order.concat(detect(p)); });
@@ -152,6 +181,9 @@
         '<span class="cx-box-n">' + (i + 1) + '</span><button type="button" class="cx-box-x" data-box-del aria-label="Remove panel ' + (i + 1) + '">✕</button></div>';
     }).join('');
     $('stage').classList.toggle('drawing', view.drawing);
+    var si = panels.findIndex(function (q) { return q.id === view.sel; });
+    $('selTools').hidden = si === -1;
+    $('selNum').textContent = si === -1 ? '' : '#' + (si + 1);
   }
 
   var MOTIONS = [['', 'Motion: video setting'], ['zoomin', 'Zoom in'], ['zoomout', 'Zoom out'], ['pan', 'Pan across'], ['still', 'Still']];
@@ -225,10 +257,23 @@
     $('gutterColor').addEventListener('change', function () { S.dark = this.value === 'dark'; saveSettings(); });
     $('gutterLight').addEventListener('input', function () { S.light = +this.value; labels(); saveSettings(); });
     $('minPanel').addEventListener('input', function () { S.minPanel = +this.value; labels(); saveSettings(); });
-    $('redetectBtn').addEventListener('click', function () {
-      if (panels.length && !confirm('Find panels again? Your order, timing and hand-drawn panels on these pages will be replaced.')) return;
-      redetect();
+    // panel tools (current page)
+    $('findBtn').addEventListener('click', function () {
+      var p = curPage(); if (!p) return;
+      if (pagePanels(p.id).length > 1 && !confirm('Find the panels on this page again? Its panels, order and captions are replaced.')) return;
+      var found = detect(p); setPagePanels(p.id, found);
+      YB.toast(found.length > 1 ? 'Found ' + found.length + ' panels' : 'Couldn\'t see panel borders — try ⊞ Grid or ✏️ Draw');
     });
+    $('gridBtn').addEventListener('click', function () {
+      var p = curPage(); if (!p || !window.YBPanels) return;
+      var r = +$('gridRows').value, c = +$('gridCols').value;
+      if (pagePanels(p.id).length > 1 && !confirm('Split this page into a ' + r + ' × ' + c + ' grid? Its current panels are replaced.')) return;
+      setPagePanels(p.id, window.YBPanels.grid(0, 0, p.w, p.h, r, c).map(function (g) { return newPanel(p, g); }));
+      YB.toast('Split into ' + (r * c) + ' panels');
+    });
+    $('splitHBtn').addEventListener('click', function () { splitSelected(true); });
+    $('splitVBtn').addEventListener('click', function () { splitSelected(false); });
+    $('selDelBtn').addEventListener('click', function () { if (view.sel) removePanel(view.sel); });
 
     // tabs
     document.querySelectorAll('[data-view]').forEach(function (b) { b.addEventListener('click', function () { setTab(b.getAttribute('data-view')); }); });
@@ -253,7 +298,9 @@
     });
     $('wholePageBtn').addEventListener('click', function () {
       var p = pages.find(function (x) { return x.id === view.pageId; }); if (!p) return;
-      insertPanel({ id: YB.uid(), pageId: p.id, x: 0, y: 0, w: p.w, h: p.h, dur: S.dur, motion: '' });
+      insertPanel({ id: YB.uid(), pageId: p.id, x: 0, y: 0, w: p.w, h: p.h, dur: Math.max(S.dur, 5), motion: '' });
+      var n = detect(p).length;
+      if (n > 1) YB.toast('Added the whole page. Tip: 🔍 Find panels splits it into ' + n + ' panels for a phone-sized video');
     });
     wireDraw();
 
@@ -433,7 +480,7 @@
 
   /* ---------- Drawing ---------- */
   var bitmaps = {}, bgs = {};
-  function dropCaches() { bitmaps = {}; bgs = {}; }
+  function dropCaches() { bitmaps = {}; bgs = {}; if (typeof pageCache !== 'undefined') pageCache = {}; }
   function rectKey(q) { return q.id + ':' + q.x + ',' + q.y + ',' + q.w + ',' + q.h; }
   function bitmap(q) {
     var k = rectKey(q); if (bitmaps[k]) return bitmaps[k];
@@ -477,8 +524,12 @@
     var room = capRoom(), short = S.format === 'short';
     var boxW = fill ? W : W * 0.9, boxH = fill ? H : H * (short ? (room ? 0.58 : 0.70) : (room ? (S.format === 'square' ? 0.62 : 0.68) : 0.84));
     var base = fill ? Math.max(boxW / src.width, boxH / src.height) : Math.min(boxW / src.width, boxH / src.height);
+    // a tall panel (or a whole page) is shown full width and read top → bottom instead of shrinking
+    var scroll = !fill && src.height / src.width > (boxH / boxW) * 1.25;
+    if (scroll) base = boxW / src.width;
     var dw = src.width * base, dh = src.height * base, overX = dw - W, overY = dh - H;
     if (mode === 'auto') mode = fill && (overX > W * 0.08 || overY > H * 0.08) ? 'pan' : (i % 2 ? 'zoomout' : 'zoomin');
+    if (scroll) mode = 'still';
     var z = 1, px = 0, py = 0;
     if (mode === 'zoomin' || mode === 'zoom') z = 1 + 0.07 * e;
     else if (mode === 'zoomout') z = 1.07 - 0.07 * e;
@@ -491,6 +542,18 @@
     dw *= z; dh *= z;
     var cx = W / 2 + px, cy = (fill ? H / 2 : H * (short ? (room ? 0.39 : 0.47) : (room ? (S.format === 'square' ? 0.38 : 0.41) : 0.5))) + py;
     var X = cx - dw / 2, Y = cy - dh / 2;
+    if (scroll) {
+      var winH = boxH, top = cy - winH / 2, hold = clamp((p - 0.12) / 0.76, 0, 1);
+      if (!o.dx) lastRect[i] = { top: top, bottom: top + winH };
+      var rr = 22 * u, bb = 7 * u;
+      x.shadowColor = 'rgba(0,0,0,0.5)'; x.shadowBlur = 40 * u; x.shadowOffsetY = 14 * u;
+      x.fillStyle = '#ffffff'; roundRect(x, X - bb, top - bb, dw + 2 * bb, winH + 2 * bb, rr + bb); x.fill();
+      x.shadowColor = 'transparent';
+      x.save(); roundRect(x, X, top, dw, winH, rr); x.clip();
+      x.drawImage(src, X, top - (dh - winH) * ease(hold), dw, dh);
+      x.restore(); x.restore();
+      return;
+    }
     if (!o.dx) lastRect[i] = { top: Math.max(0, Y), bottom: Math.min(H, Y + dh) };
     if (fill) {
       x.drawImage(src, X, Y, dw, dh);
@@ -504,12 +567,83 @@
     x.restore();
   }
 
+  /* Guided view: the real page stays on screen and the camera glides from panel to panel,
+     with the current panel lit and the rest of the page softly dimmed. */
+  var pageCache = {};
+  function pageBitmap(p) {
+    if (pageCache[p.id]) return pageCache[p.id];
+    var s = Math.min(1, 2600 / Math.max(p.w, p.h)), c = document.createElement('canvas');
+    c.width = Math.round(p.w * s); c.height = Math.round(p.h * s);
+    var x = c.getContext('2d'); x.imageSmoothingQuality = 'high'; x.fillStyle = '#fff'; x.fillRect(0, 0, c.width, c.height); x.drawImage(p.img, 0, 0, c.width, c.height);
+    c.k = s; return (pageCache[p.id] = c);
+  }
+  function camFor(q, W, H, p) {
+    var room = capRoom(), short = S.format === 'short';
+    var boxW = W * 0.94, boxH = H * (short ? (room ? 0.6 : 0.76) : (room ? 0.7 : 0.86));
+    var pad = Math.min(q.w, q.h) * 0.04, rw = q.w + pad * 2, rh = q.h + pad * 2;
+    var s = Math.min(boxW / rw, boxH / rh), cyF = short ? (room ? 0.4 : 0.47) : (room ? 0.42 : 0.5);
+    var tall = rh * (boxW / rw) > boxH * 1.25;   // a tall panel / whole page: read it top → bottom at full width
+    var cx = q.x + q.w / 2, cy = q.y + q.h / 2;
+    if (tall) { s = boxW / rw; var visH = boxH / s, e = ease(clamp((p - 0.12) / 0.76, 0, 1)); cy = q.y - pad + visH / 2 + (rh - visH) * e; }
+    else s *= 1 + 0.04 * ease(p);               // gentle push-in
+    return { s: s, cx: cx, cy: cy, sx: W / 2, sy: H * cyF, tall: tall, boxH: boxH };
+  }
+  function drawGuided(x, W, H, i, p, j, pj, k) {
+    var q = panels[i], pg = pageOf(q); if (!pg) return;
+    var cam = camFor(q, W, H, p);
+    if (j != null && k > 0) {
+      var q2 = panels[j], pg2 = pageOf(q2);
+      if (pg2 && pg2.id === pg.id) {              // same page: the camera travels
+        var c2 = camFor(q2, W, H, pj), e = easeCubic(k);
+        cam = { s: cam.s + (c2.s - cam.s) * e, cx: cam.cx + (c2.cx - cam.cx) * e, cy: cam.cy + (c2.cy - cam.cy) * e, sx: cam.sx, sy: cam.sy + (c2.sy - cam.sy) * e, boxH: c2.boxH };
+        var fx = q.x + (q2.x - q.x) * e, fy = q.y + (q2.y - q.y) * e, fw = q.w + (q2.w - q.w) * e, fh = q.h + (q2.h - q.h) * e;
+        paintPage(x, W, H, pg, cam, { x: fx, y: fy, w: fw, h: fh }, 1, i);
+        return;
+      }
+      paintPage(x, W, H, pg, cam, q, 1, i);       // new page: cross-fade
+      paintPage(x, W, H, pg2, camFor(q2, W, H, pj), q2, easeCubic(k), j);
+      return;
+    }
+    paintPage(x, W, H, pg, cam, q, 1, i);
+  }
+  function paintPage(x, W, H, pg, cam, focus, alpha, idx) {
+    var bm = pageBitmap(pg), bg = backdrop({ id: 'page-' + pg.id, pageId: pg.id, x: 0, y: 0, w: pg.w, h: pg.h }, W, H);
+    var u = Math.min(W, H) / 1080;
+    function sx(px) { return cam.sx + (px - cam.cx) * cam.s; }
+    function sy(py) { return cam.sy + (py - cam.cy) * cam.s; }
+    x.save(); x.globalAlpha = alpha;
+    if (bg) x.drawImage(bg, -2, -2, W + 4, H + 4);
+    // the whole page, dimmed
+    x.drawImage(bm, sx(0), sy(0), pg.w * cam.s, pg.h * cam.s);
+    x.fillStyle = 'rgba(4,10,22,0.62)'; x.fillRect(0, 0, W, H);
+    // the current panel, lit, with a white comic border
+    var X = sx(focus.x), Y = sy(focus.y), w = focus.w * cam.s, h = focus.h * cam.s, r = 18 * u, b = 6 * u;
+    var top = Math.max(Y, cam.sy - cam.boxH / 2 - b), bot = Math.min(Y + h, cam.sy + cam.boxH / 2 + b);
+    if (bot - top < 4) { top = Y; bot = Y + h; }
+    x.shadowColor = 'rgba(0,0,0,0.55)'; x.shadowBlur = 36 * u; x.shadowOffsetY = 12 * u;
+    x.fillStyle = '#ffffff'; roundRect(x, X - b, top - b, w + 2 * b, bot - top + 2 * b, r + b); x.fill();
+    x.shadowColor = 'transparent';
+    x.save(); roundRect(x, X, top, w, bot - top, r); x.clip();
+    x.drawImage(bm, sx(0), sy(0), pg.w * cam.s, pg.h * cam.s);
+    x.restore();
+    if (idx != null) lastRect[idx] = { top: top, bottom: bot };
+    x.restore();
+  }
+
   function drawFrame(x, W, H, t) {
     x.fillStyle = '#06101f'; x.fillRect(0, 0, W, H);
     if (!panels.length) return;
     var tl = timeline(), n = panels.length, T = S.transition === 'cut' ? 0 : Math.max(0.05, S.transLen);
     var i = 0; while (i < n - 1 && t >= tl.starts[i + 1]) i++;
     var startI = tl.starts[i], endI = startI + tl.durs[i];
+    if (S.fit === 'guided') {
+      var TG = S.transition === 'cut' ? 0 : Math.max(0.45, S.transLen + 0.2);   // camera moves need a little longer
+      var pr = function (j) { return clamp((t - tl.starts[j]) / Math.max(0.2, tl.durs[j]), 0, 1); };
+      var kg = (i < n - 1 && TG > 0 && t > endI - TG) ? (t - (endI - TG)) / TG : 0;
+      drawGuided(x, W, H, i, pr(i), kg > 0 ? i + 1 : null, 0, kg);
+      finishFrame(x, W, H, t, tl, kg > 0.5 ? i + 1 : i);
+      return;
+    }
     var prog = function (j) { var s = tl.starts[j] - (j > 0 ? T : 0), d = tl.durs[j] + (j > 0 ? T : 0); return (t - s) / d; };
     var k = (i < n - 1 && T > 0 && t > endI - T) ? (t - (endI - T)) / T : 0;
     if (k <= 0) drawPanel(x, W, H, i, prog(i), { alpha: 1 });
@@ -526,6 +660,9 @@
         drawPanel(x, W, H, i + 1, prog(i + 1), { alpha: kk });
       }
     }
+    finishFrame(x, W, H, t, tl, i);
+  }
+  function finishFrame(x, W, H, t, tl, i) {
     if (S.capOn) drawCaptions(x, W, H, t, tl, i);
     // channel tag
     if (S.tag) {

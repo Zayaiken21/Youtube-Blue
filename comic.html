@@ -15,11 +15,11 @@
   <meta name="mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
   <meta name="apple-mobile-web-app-title" content="YT Blue">
-  <link rel="stylesheet" href="css/style.css?v=22">
+  <link rel="stylesheet" href="css/style.css?v=23">
   <script src="js/core.js" defer></script>
   <script src="js/voice-grammar.js?v=2" defer></script>
-  <script src="js/comic-panels.js?v=1" defer></script>
-  <script src="js/comic.js?v=3" defer></script>
+  <script src="js/comic-panels.js?v=2" defer></script>
+  <script src="js/comic.js?v=4" defer></script>
 </head>
 <body data-page="comic">
   <header class="topbar">
@@ -79,7 +79,6 @@
                 <small class="muted">Raise it if speech bubbles get cut out as their own panels.</small>
               </label>
             </div>
-            <button class="btn btn-ghost btn-sm" type="button" id="redetectBtn" style="margin-top:12px">🔍 Find panels again</button>
           </details>
         </section>
 
@@ -94,10 +93,23 @@
           </div>
 
           <div id="viewPage">
-            <div class="row" style="margin:12px 0 8px">
-              <select id="pageSelect" aria-label="Page" style="flex:1 1 180px;width:auto"></select>
-              <button class="btn btn-ghost btn-sm" type="button" id="drawBtn" aria-pressed="false">✏️ Draw a panel</button>
-              <button class="btn btn-ghost btn-sm" type="button" id="wholePageBtn">＋ Whole page</button>
+            <select id="pageSelect" aria-label="Page" style="margin-top:12px"></select>
+            <div class="cx-tools" role="toolbar" aria-label="Panel tools">
+              <div class="cx-tool-group">
+                <span class="cx-tool-label">Make panels</span>
+                <button class="btn btn-ghost btn-sm" type="button" id="findBtn">🔍 Find panels</button>
+                <span class="cx-grid-pick"><button class="btn btn-ghost btn-sm" type="button" id="gridBtn">⊞ Grid</button>
+                  <select id="gridRows" aria-label="Rows"><option>1</option><option selected>2</option><option>3</option><option>4</option><option>5</option><option>6</option></select><span class="muted small">×</span>
+                  <select id="gridCols" aria-label="Columns"><option>1</option><option selected>2</option><option>3</option><option>4</option></select></span>
+                <button class="btn btn-ghost btn-sm" type="button" id="drawBtn" aria-pressed="false">✏️ Draw</button>
+                <button class="btn btn-ghost btn-sm" type="button" id="wholePageBtn">＋ Whole page</button>
+              </div>
+              <div class="cx-tool-group" id="selTools" hidden>
+                <span class="cx-tool-label">Selected panel <b id="selNum"></b></span>
+                <button class="btn btn-ghost btn-sm" type="button" id="splitHBtn">✂ Split top / bottom</button>
+                <button class="btn btn-ghost btn-sm" type="button" id="splitVBtn">✂ Split left / right</button>
+                <button class="btn btn-danger btn-sm" type="button" id="selDelBtn">🗑 Remove</button>
+              </div>
             </div>
             <p class="muted small" id="pageHint" style="margin:0 0 10px">Tap a box to select it. Numbers show the playing order.</p>
             <div class="cx-stage" id="stage"><img id="stageImg" alt="Comic page with detected panels"><div class="cx-boxes" id="boxes"></div></div>
@@ -142,7 +154,7 @@
               <select id="format"><option value="short">Short · 9:16 (1080×1920)</option><option value="square">Square · 1:1 (1080×1080)</option><option value="wide">Wide · 16:9 (1920×1080)</option></select>
             </label>
             <label class="field"><span>Panel look</span>
-              <select id="fit"><option value="frame">Framed on a soft blur</option><option value="fill">Full screen (crops the sides)</option></select>
+              <select id="fit"><option value="guided">Guided view (camera moves across the page)</option><option value="frame">Framed panel on a soft blur</option><option value="fill">Full screen (crops the sides)</option></select>
             </label>
             <label class="field"><span>Camera motion</span>
               <select id="motion"><option value="auto">Smart (zoom &amp; pan to fit each panel)</option><option value="zoom">Slow zoom in</option><option value="pan">Pan across</option><option value="still">Still</option></select>

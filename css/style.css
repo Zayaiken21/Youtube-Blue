@@ -1005,3 +1005,11 @@ input[type="range"] { min-height: 32px; }            /* finger-friendly */
 .take-del:hover { background: rgba(248, 113, 113, .22); }
 .take .take-dl + .take-del { margin-left: 6px; }
 .story-lines .seg-actions .seg-del { color: #fecaca; border-color: rgba(248, 113, 113, .4); background: rgba(248, 113, 113, .1); }
+
+/* Comic to Video · panel tools */
+.cx-tools { display: grid; gap: 8px; margin: 10px 0; }
+.cx-tool-group { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; padding: 8px; border-radius: 12px; background: rgba(8, 23, 50, .55); border: 1px solid var(--line-soft); }
+.cx-tool-label { font-size: .75rem; font-weight: 800; letter-spacing: .06em; text-transform: uppercase; color: var(--muted); margin-right: 4px; flex-basis: 100%; }
+.cx-grid-pick { display: inline-flex; align-items: center; gap: 4px; }
+.cx-grid-pick select { width: auto; min-height: 36px; padding: 4px 26px 4px 8px; font-size: 15px; }
+#selTools { border-color: rgba(251, 191, 36, .45); }
