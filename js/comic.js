@@ -1331,24 +1331,59 @@
   /* ---------- Translation (MyMemory, free) ---------- */
   var tr = { busy: false };
   function trCache() { return YB.store.get('comicTrCache', {}); }
+  /* Instant translation on this device: Chrome / Edge (desktop) include a built-in translator
+     that runs locally — no server, no account, no daily limit. Other browsers use MyMemory. */
+  var devT = {}, devFail = {}, trUsed = { device: 0, online: 0 };
+  function trCode(l) { return l === 'zh-CN' ? 'zh' : l; }
+  function deviceTranslator(from, to) {
+    if (!('Translator' in self)) return Promise.resolve(null);
+    var key = from + '>' + to; if (devT[key]) return devT[key];
+    if (devFail[key] && Date.now() - devFail[key] < 120000) return Promise.resolve(null);   // not ready a moment ago: go online
+    var opts = { sourceLanguage: trCode(from), targetLanguage: trCode(to) };
+    // never wait forever: if it isn't ready in a few seconds (and isn't visibly downloading), use the online translator
+    var progressAt = 0;
+    var made = Translator.availability(opts).then(function (a) {
+      if (a === 'unavailable' || a === 'no') return null;
+      return Translator.create(Object.assign({}, opts, { monitor: function (m) {
+        m.addEventListener('downloadprogress', function (e) { progressAt = Date.now(); var el = $('translateNote'); if (el) el.textContent = 'Getting the ' + langName(to) + ' translator ready on this device… ' + Math.round((e.loaded || 0) * 100) + '%'; });
+      } }));
+    }).catch(function () { return null; });
+    var started = Date.now();
+    var timeout = new Promise(function (res) {
+      (function check() {
+        var idle = Date.now() - Math.max(started, progressAt);
+        if (idle > 6000 || Date.now() - started > 180000) return res(null);
+        setTimeout(check, 500);
+      })();
+    });
+    devT[key] = Promise.race([made, timeout]);
+    devT[key].then(function (t) { if (!t) { delete devT[key]; devFail[key] = Date.now(); } });   // retried after a while (e.g. it needed a tap to download)
+    return devT[key];
+  }
+  function remember(key, out) { var c = trCache(); c[key] = out; var keys = Object.keys(c); if (keys.length > 3000) delete c[keys[0]]; YB.store.set('comicTrCache', c); return out; }
   function translateOne(text, from, to) {
     var key = from + '>' + to + ':' + text, cache = trCache();
     if (cache[key]) return Promise.resolve(cache[key]);
+    return deviceTranslator(from, to).then(function (t) {
+      if (!t) return onlineTranslate(text, from, to, key);
+      return t.translate(text).then(function (out) { trUsed.device++; return remember(key, String(out || '').trim()); }, function () { return onlineTranslate(text, from, to, key); });
+    });
+  }
+  function onlineTranslate(text, from, to, key) {
+    trUsed.online++;
     var url = 'https://api.mymemory.translated.net/get?q=' + encodeURIComponent(text) + '&langpair=' + encodeURIComponent(from + '|' + to) + (S.mmEmail ? '&de=' + encodeURIComponent(S.mmEmail) : '');
     return fetch(url).then(function (r) { if (r.status === 429) throw new Error('limit'); return r.json(); }).then(function (j) {
       var out = j && j.responseData && j.responseData.translatedText;
       if (!out || j.quotaFinished || /MYMEMORY WARNING|USED ALL AVAILABLE FREE/i.test(out)) throw new Error('limit');
       if (Number(j.responseStatus) !== 200) throw new Error(j.responseDetails || 'failed');
       out = String(out).replace(/&#39;/g, "'").replace(/&quot;/g, '"').replace(/&amp;/g, '&').trim();
-      var c = trCache(); c[key] = out; var keys = Object.keys(c); if (keys.length > 3000) delete c[keys[0]];
-      YB.store.set('comicTrCache', c);
-      return out;
+      return remember(key, out);
     });
   }
   // MyMemory takes up to 500 bytes per request: long captions go sentence by sentence.
   function translateText(text, from, to) {
     var enc = window.TextEncoder ? new TextEncoder() : null, bytes = function (t) { return enc ? enc.encode(t).length : t.length * 3; };
-    if (bytes(text) <= 450) return translateOne(text, from, to);
+    if (bytes(text) <= 450) return translateOne(text, from, to);   // the device translator takes any length
     var parts = text.match(/[^.!?…]+[.!?…]*["')]*\s*/g) || [text], groups = [], cur = '';
     parts.forEach(function (p) { if (cur && bytes(cur + p) > 450) { groups.push(cur.trim()); cur = ''; } cur += p; });
     if (cur.trim()) groups.push(cur.trim());
@@ -1356,29 +1391,38 @@
     return groups.reduce(function (pr, g) { return pr.then(function (acc) { return translateOne(g, from, to).then(function (t) { return acc.concat(t); }); }); }, Promise.resolve([]))
       .then(function (arr) { return arr.join(NO_SPACES.indexOf(to) !== -1 ? '' : ' '); });
   }
-  function translateAll() {
-    if (tr.busy) return;
-    var targets = S.langs.filter(function (l) { return l !== S.srcLang; });
+  // Translate every caption into the given languages. Resolves { done, failed, limit }.
+  function translateLangs(targets, note) {
+    note = note || function (t) { $('translateNote').textContent = t; };
+    targets.forEach(function (l) { deviceTranslator(S.srcLang, l); });   // start right away, while the tap still counts
     var jobs = [];
     panels.forEach(function (q) { var src = capOf(q, S.srcLang); if (!src) return; targets.forEach(function (l) { if (!capOf(q, l)) jobs.push({ q: q, l: l, text: src }); }); });
-    if (!targets.length) { YB.toast('Tick at least one other language first'); return; }
-    if (!captionedCount()) { YB.toast('Add captions first (fill them from a story, or type them under Order & timing)'); return; }
-    if (!jobs.length) { $('translateNote').textContent = '✓ Every caption is already translated.'; return; }
-    if (!navigator.onLine) { $('translateNote').textContent = 'You\'re offline — translating needs the internet.'; return; }
-    tr.busy = true; $('translateBtn').disabled = true;
+    if (!jobs.length) return Promise.resolve({ done: 0, failed: 0, limit: false });
+    tr.busy = true; $('translateBtn').disabled = true; trUsed = { device: 0, online: 0 };
     var done = 0, failed = 0, limit = false, k = 0;
     function next() {
       if (limit || k >= jobs.length) return Promise.resolve();
       var j = jobs[k++];
       return translateText(j.text, S.srcLang, j.l).then(function (out) { j.q.cap = j.q.cap || {}; j.q.cap[j.l] = out; done++; },
         function (e) { failed++; if (e && e.message === 'limit') limit = true; })
-        .then(function () { $('translateNote').textContent = 'Translating… ' + (done + failed) + ' / ' + jobs.length; return next(); });
+        .then(function () { note('Translating… ' + (done + failed) + ' / ' + jobs.length); return next(); });
     }
-    Promise.all([next(), next(), next()]).then(function () {
+    return Promise.all([next(), next(), next()]).then(function () {
       tr.busy = false; $('translateBtn').disabled = false; chunkCache = {};
       saveProject(); renderList(); renderSubs(); drawPreview();
-      $('translateNote').textContent = limit ? '⚠️ The free daily translation limit was reached after ' + done + ' captions. Add an email under "Translation limit" or try again tomorrow — finished ones are saved.'
-        : failed ? '✓ ' + done + ' translated · ' + failed + ' couldn\'t be translated (try again).' : '✓ Translated ' + done + ' captions into ' + targets.map(langName).join(', ') + '.';
+      return { done: done, failed: failed, limit: limit };
+    });
+  }
+  function trWhere() { return trUsed.device && !trUsed.online ? ' on this device (instant)' : trUsed.device ? '' : ''; }
+  function translateAll() {
+    if (tr.busy) return;
+    var targets = S.langs.filter(function (l) { return l !== S.srcLang; });
+    if (!targets.length) { YB.toast('Tick at least one other language first'); return; }
+    if (!captionedCount()) { YB.toast('Add captions first (fill them from a story, or type them under Order & timing)'); return; }
+    translateLangs(targets).then(function (r) {
+      if (!r.done && !r.failed) { $('translateNote').textContent = '✓ Every caption is already translated.'; return; }
+      $('translateNote').textContent = r.limit ? '⚠️ The free online translator\'s daily limit was reached after ' + r.done + ' captions. Use Chrome or Edge on a computer for unlimited instant translation, add an email under "Translation limit", or try tomorrow — finished ones are saved.'
+        : r.failed ? '✓ ' + r.done + ' translated · ' + r.failed + ' couldn\'t be translated (check the internet and try again).' : '✓ Translated ' + r.done + ' captions into ' + targets.map(langName).join(', ') + trWhere() + '.';
     });
   }
 
@@ -1583,14 +1627,23 @@
     if (!canDub(lang)) { YB.toast(langName(lang) + ' can\'t be spoken by Chatterbox yet — subtitles only'); return; }
     var todo = panels.filter(function (q) { return capOf(q, S.srcLang); });
     if (!todo.length) { YB.toast('Add captions first — the narration speaks each panel\'s caption'); return; }
-    if (lang !== S.srcLang && todo.some(function (q) { return !capOf(q, lang); })) { YB.toast('Translate the captions into ' + langName(lang) + ' first (Subtitles → Translate captions)'); return; }
     narr.busy = true; narr.cancel = false; renderNarr();
     var note = function (t) { $('narrText').textContent = t; };
     var bar = function (p) { $('narrBar').style.width = (p * 100).toFixed(1) + '%'; };
-    var made = 0, type = '';
-    (narr.lang === lang ? Promise.resolve() : loadNarration(lang)).then(function () {
-      note('Connecting to your Chatterbox server…'); bar(0.02);
-      return connect();
+    var made = 0, type = '', translated = false;
+    // 1. words: translated here first (instant on Chrome/Edge desktop) — no server needed
+    var needTr = lang !== S.srcLang && todo.some(function (q) { return !capOf(q, lang); });
+    (needTr ? translateLangs([lang], function (t) { note(t + ' · ' + langName(lang)); }).then(function (r) {
+      if (r.failed && todo.some(function (q) { return !capOf(q, lang); })) throw new Error(r.limit ? 'The free online translator\'s daily limit was reached. Use Chrome or Edge on a computer for unlimited instant translation, or try again tomorrow.' : 'Some captions couldn\'t be translated — check the internet and try again.');
+      translated = true;
+    }) : Promise.resolve()).then(function () {
+      return narr.lang === lang ? null : loadNarration(lang);
+    }).then(function () {
+      // 2. voice: only this step needs Chatterbox (it's what speaks in your cloned voices)
+      note((translated ? '✓ Captions translated · ' : '') + 'Connecting to your Chatterbox server for the voice…'); bar(0.02);
+      return connect().catch(function (e) {
+        throw new Error((translated ? 'The ' + langName(lang) + ' captions are translated and the subtitles are ready. ' : '') + 'To speak them in your voices, start your Chatterbox server in Colab, then press this again.');
+      });
     }).then(function () { return untilFree(note); }).then(function () { return ensureModel(lang, note); }).then(function (t) {
       type = t;
       var list = panels.filter(function (q) { return capOf(q, lang); }), k = 0;

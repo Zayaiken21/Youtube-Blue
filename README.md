@@ -50,7 +50,7 @@ Each page script only touches its own page, so you can edit one without affectin
 
 **Narrate & dub (Voice track → 🗣 Narrate & dub).** Each panel's caption is spoken as its own clip on your Chatterbox server, so panels and captions are timed to the real speech: a panel lasts as long as its clip plus a short breath, and each caption appears as its words are spoken.
 - **Voice:** *Each character's Voice Studio voice* (from the story's cast; available after *Fill captions*), or any Preset, Our Voices, My Voices or Chatterbox voice.
-- **Dub:** translate the captions (Subtitles → Translate captions), pick the language under Narrate & dub, and press *Make narration*. Other languages use Chatterbox Multilingual, which keeps the same voice by cloning it from the same sample. The page asks before switching the server's model.
+- **Dub:** pick the language under Narrate & dub and press *Make narration*. The captions are translated first, automatically and by the app itself; this needs no server, and the subtitles work straight away. Only the speaking step uses your Chatterbox server, because that's what clones the voices. Other languages use Chatterbox Multilingual, which keeps the same voice by cloning it from the same sample. The page asks before switching the server's model.
 - **Languages:** Chatterbox speaks 23 languages. Indonesian, Vietnamese and Bengali stay subtitles only.
 - **Saved clips:** clips are kept on the device per language, so only changed panels are made again. *Make one video per language* gives each language its own dubbed voice.
 
@@ -58,7 +58,7 @@ Each page script only touches its own page, so you can edit one without affectin
 - **Styles:** Bold pop, Karaoke, Clean box, Minimal, Highlight bar, Comic bubble, Neon and Typewriter. You can change the size, text and highlight colours, words per caption (2–8) and ALL CAPS.
 - **Smart position:** for 9:16 the panel moves up a little and the caption sits just under it, above the area YouTube covers with the title and buttons. 1:1 and 16:9 get the same treatment. Top, middle and bottom are there too.
 - **Steady pace:** captions change at a reading pace (Relaxed, Steady or Quick, in characters a second), not squeezed into a panel's time. A panel stays up until its caption has been read. Captions fade in gently and never run off the screen.
-- **Languages:** pick up to 10 of 16 popular languages and press *Translate captions*. It uses the free MyMemory service: about 5,000 characters a day per device, or about 50,000 with an email under *Translation limit*. Translations are saved and can be edited. Choose the subtitle language for the video, or press *Make one video per language*. After exporting, download an `.srt` file per language to upload in YouTube Studio → Subtitles.
+- **Languages:** pick up to 10 of 16 popular languages and press *Translate captions*. In Chrome or Edge on a computer, translation runs on the device with the browser's built-in translator: instant, private and unlimited. If it isn't ready within a few seconds, or on phones and other browsers, the free MyMemory service is used: about 5,000 characters a day per device, or about 50,000 with an email under *Translation limit*. Translations are saved and can be edited. Choose the subtitle language for the video, or press *Make one video per language*. After exporting, download an `.srt` file per language to upload in YouTube Studio → Subtitles.
 
 Pages, panels, captions and settings are saved on the device (IndexedDB `youtube-blue-comic`).
 
