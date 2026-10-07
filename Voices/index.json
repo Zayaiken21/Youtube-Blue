@@ -1,6 +1,31 @@
 {
   "preset": [
     {
+      "file": "voice_preview_gale - male character 18yr.mp3",
+      "name": "voice preview gale male character 18yr",
+      "size": 571186
+    },
+    {
+      "file": "voice_preview_joselyn - female character 25yr.mp3",
+      "name": "voice preview joselyn female character 25yr",
+      "size": 584351
+    },
+    {
+      "file": "voice_preview_leo - 7 year old character.mp3",
+      "name": "voice preview leo 7 year old character",
+      "size": 746102
+    },
+    {
+      "file": "voice_preview_maranda - female character 18yr.mp3",
+      "name": "voice preview maranda female character 18yr",
+      "size": 531062
+    },
+    {
+      "file": "voice_preview_maria - male character 18yr.mp3",
+      "name": "voice preview maria male character 18yr",
+      "size": 632626
+    },
+    {
       "file": "Young Male Country Voice.wav",
       "name": "Young Male Country Voice",
       "size": 1017906
