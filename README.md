@@ -33,6 +33,16 @@ Each page script only touches its own page, so you can edit one without affectin
 - **Live metrics**: weekly uploads, notifications sent (capped per day), Schedule Optimization Rating (% of uploads in best windows) and fit vs. the niche's recommended volume.
 - **✨ Auto-plan** fills the niche's minimum weekly volume into the best slots without breaking the 3-a-day cap.
 
+## Comic to Video
+`comic.html` turns comic pages into a video for YouTube Shorts (2D comics, AI comic grids, animation stills).
+
+1. **Add pages.** Choose one or more images. Panels are found by their white borders (an "XY cut" over the gutters, in `js/comic-panels.js`) and numbered in story order: row by row, left to right, and a tall panel reads with the row it starts in. Black-bordered comics: switch *Border colour* under *Panel detection settings*.
+2. **Check panels.** Tap a box to select it, ✕ to remove it, **✏️ Draw a panel** to add one by dragging, **＋ Whole page** for a single image. *Order & timing* lists every panel with ↑ ↓, seconds and its own camera motion.
+3. **Sound & style.** Use a story or take from Voice Studio (*Your audio*) or any audio file. *Fit panel timing to the voice track* stretches the panels to the voice length. Pick the shape (9:16 Short, 1:1, 16:9), the look (framed on a soft blur, or full screen), camera motion (smart zoom/pan, zoom, pan, still), the transition and an optional channel tag.
+4. **Preview & export.** Play the preview, then **🎬 Make the video**. It records in real time with the browser's own recorder: MP4 where the browser supports it (Chrome, Edge, Safari), otherwise WebM. YouTube accepts both. Keep the screen open while it records. Shorts can be up to 3 minutes; the page warns when a Short runs longer.
+
+Pages, panels and settings are saved on the device (IndexedDB `youtube-blue-comic`).
+
 ## Put it on GitHub Pages
 
 1. Create a new repository (for example `youtube-blue`).
@@ -88,16 +98,16 @@ The latest generated audio stays on the Voice screen, after reloads too, until a
 
 The server makes one voice at a time. While idle, the page checks `GET /state` every few seconds (the job server only, never Chatterbox). If a generation is running that isn't yours, the status shows **In use · another user**, a notice explains it, and Generate, Again, model switching, reference uploads and list refreshes are locked. Your script, voices and character settings stay editable. Everything unlocks by itself when the server is free. A job you stopped waiting for shows as **Busy · finishing** instead, even after a reload.
 
-**Voice library (Presets · Our Voices · My Voices · Built-in voices)**
+**Voice library (Presets · Our Voices · My Voices · Chatterbox Voices)**
 
 One **Voice** picker (and the same picker on every Story character) lists:
 
 - **Presets:** audio files in `Voices/Preset Voices/` on GitHub. Add a WAV or MP3 there and it shows for everyone; the file name is the voice name.
 - **Our Voices:** files in `Voices/Our Voices/`, voices people chose to share.
 - **My Voices:** voices imported with **➕ Import a voice**. They're stored in the app's own storage on that device only: private, never uploaded to GitHub.
-- **Built-in voices:** the server's own voices.
+- **Chatterbox Voices:** the server's own built-in voices.
 
-**▶ Hear a voice before using it:** a round play button sits next to the Voice picker and next to every Story character's name. Presets, Our Voices and My Voices play their voice sample right away. Built-in voices have no sample the site can fetch, so the first preview makes a short sample on the server (spinner on the button), then keeps it on the device, so it's instant from then on, offline too. It waits with a clear message while the server is busy.
+**▶ Hear a voice before using it:** a round play button sits next to the Voice picker and next to every Story character's name for Presets, Our Voices and My Voices (imported, private or shared). It plays that voice's own file instantly and turns into ❚❚ while playing. Chatterbox Voices have no sample file, so they have no play button (making a sample on the server made the page lag).
 
 Picking a Preset, Our Voices or My Voices voice needs no setup. Right before generating, the page sends that voice to the server once per server session, confirms the server lists it, then the job clones it. After a Colab restart it's sent again automatically.
 

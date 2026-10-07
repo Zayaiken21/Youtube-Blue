@@ -15,13 +15,13 @@
   <meta name="mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
   <meta name="apple-mobile-web-app-title" content="YT Blue">
-  <link rel="stylesheet" href="css/style.css?v=19">
+  <link rel="stylesheet" href="css/style.css?v=20">
   <script src="js/core.js" defer></script>
   <script src="js/voice-grammar.js?v=2" defer></script>
-  <script src="js/voice.js?v=20" defer></script>
-  <script src="js/voice-library.js?v=6" defer></script>
+  <script src="js/voice.js?v=21" defer></script>
+  <script src="js/voice-library.js?v=7" defer></script>
   <script src="js/voice-takes.js?v=3" defer></script>
-  <script src="js/voice-story.js?v=22" defer></script>
+  <script src="js/voice-story.js?v=23" defer></script>
 </head>
 <body data-page="voice">
   <header class="topbar">
@@ -35,6 +35,7 @@
         <a href="scheduler.html" data-page="scheduler"><span class="nav-ico">🗓️</span>Upload Scheduler</a>
         <a href="stories.html" data-page="stories"><span class="nav-ico">✍️</span>Story Studio</a>
         <a href="voice.html" data-page="voice"><span class="nav-ico">🎙️</span>Voice Studio</a>
+        <a href="comic.html" data-page="comic"><span class="nav-ico">🎞️</span>Comic to Video</a>
         <div class="nav-foot"><button class="btn" type="button" data-install hidden>📲 Add to Home Screen</button></div>
       </nav>
       <button class="menu-btn" type="button" aria-label="Open menu" aria-expanded="false" aria-controls="nav"><span></span><span></span><span></span></button>
@@ -284,8 +285,8 @@
                 <span class="speed-scale" aria-hidden="true"><i>Slower</i><i>Natural</i><i>Faster</i><i>Fast</i></span>
                 <small class="muted">Keep 1.00 for the clearest sound — any other speed is stretched afterwards and can sound echoey or far away. For slower delivery, use punctuation and pauses.</small>
               </label>
-              <label class="field"><span>Seed (0 = random)</span><input id="generationSeed" type="number" min="0" step="1" inputmode="numeric">
-                <small class="muted">Reuse a fixed seed for more repeatable generations.</small>
+              <label class="field"><span>Seed (0 = random · 42 recommended)</span><input id="generationSeed" type="number" min="0" step="1" inputmode="numeric">
+                <small class="muted">A fixed seed keeps the same voice across every chunk and line (Chatterbox's tip for consistency). 0 makes each take different.</small>
               </label>
             </div>
           </div>
@@ -352,7 +353,7 @@
         <span class="spacer"></span>
         <span class="muted small" id="genSummary"></span>
       </div>
-      <label class="field check-field level-toggle"><input id="levelLoudness" type="checkbox" checked><span>🔊 Level loudness (YouTube-ready)<small class="muted"> — brings every clip and character to the same clear volume. Volume only; WAV output.</small></span></label>
+      <label class="field check-field level-toggle"><input id="levelLoudness" type="checkbox" checked><span>🔊 Match volume between clips<small class="muted"> — a light volume match so characters sit at the same level. Chatterbox's sound is kept as is: no limiter or compression. WAV output.</small></span></label>
       <div class="notice warn remote-busy" id="remoteBusy" role="status" aria-live="polite" hidden></div>
       <div class="gen-progress" id="genProgress" hidden>
         <div class="progress indeterminate"><i></i></div>

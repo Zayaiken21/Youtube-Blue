@@ -90,6 +90,16 @@
           "sizes": "192x192"
         }
       ]
+    },
+    {
+      "name": "Comic to Video",
+      "url": "./comic.html",
+      "icons": [
+        {
+          "src": "icons/icon-192.png",
+          "sizes": "192x192"
+        }
+      ]
     }
   ]
 }

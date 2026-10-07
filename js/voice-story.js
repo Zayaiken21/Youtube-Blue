@@ -133,7 +133,7 @@
     if (!v || !v.key) return 'Choose a voice.';
     var L = lib(), ok = L ? L.has(v.key) : null;
     if (ok === false) return 'This voice isn\'t available any more — pick another one.';
-    if (L && L.groupOf(v.key) !== 'builtin' && !V.cloneAvailable()) return 'This server can\'t take voice uploads — pick a built-in voice.';
+    if (L && L.groupOf(v.key) !== 'builtin' && !V.cloneAvailable()) return 'This server can\'t take voice uploads — pick one of the Chatterbox Voices.';
     return '';
   }
 
@@ -274,7 +274,7 @@
 
   // ▶ next to a character's name: hear the voice that character will use.
   function previewBtn(id, name, key) {
-    if (!takes() || !key) return '';
+    if (!takes() || !key || /^builtin:/.test(key)) return '';   // Chatterbox Voices: no ▶ (it lagged)
     var label = name + "'s voice" + (lib() ? ' (' + lib().label(key).replace(/ · .*$/, '') + ')' : '');
     return takes().player.button('voice:' + key, label, 'play-btn-sm').replace('<button ', '<button data-cv-preview="' + YB.esc(id) + '" ');
   }
@@ -1029,7 +1029,7 @@
       var pv = e.target.closest('[data-cv-preview]');
       if (pv) {
         var vkey = voiceFor(pv.getAttribute('data-cv-preview')).key, L2 = lib();
-        if (vkey && L2 && takes()) takes().player.toggle('voice:' + vkey, function () { return L2.previewBlob(vkey); });
+        if (vkey && !/^builtin:/.test(vkey) && L2 && takes()) takes().player.toggle('voice:' + vkey, function () { return L2.previewBlob(vkey); });
         return;
       }
       var pr = e.target.closest('[data-cs-preset]');

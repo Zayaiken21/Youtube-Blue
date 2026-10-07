@@ -30,7 +30,7 @@
   if (!YB || !V) return;
 
   var DIRS = { preset: 'Voices/Preset Voices', shared: 'Voices/Our Voices' };
-  var GROUPS = [['preset', 'Presets'], ['shared', 'Our Voices'], ['mine', 'My Voices'], ['builtin', 'Built-in voices']];
+  var GROUPS = [['preset', 'Presets'], ['shared', 'Our Voices'], ['mine', 'My Voices'], ['builtin', 'Chatterbox Voices']];
   var CACHE_KEY = 'voiceLibCache', MINE_KEY = 'myVoices', REFMAP_KEY = 'voiceRefMap';
   var STALE_MS = 10 * 60 * 1000, MAX_SEC = 30, SHORT_SEC = 5, MAX_BYTES = 15 * 1024 * 1024;
 
@@ -156,8 +156,8 @@
   function note(key) {
     var k = parse(key);
     if (!key) return '';
-    if (k.source === 'builtin') return 'Built-in voice on the server.';
-    if (!V.cloneAvailable()) return '⚠️ This server can\'t take voice uploads, so only built-in voices work right now.';
+    if (k.source === 'builtin') return 'Chatterbox voice — built into the server.';
+    if (!V.cloneAvailable()) return '⚠️ This server can\'t take voice uploads, so only Chatterbox Voices work right now.';
     var on = serverName(key);
     var where = k.source === 'preset' ? 'From Presets' : k.source === 'shared' ? 'From Our Voices' : 'From My Voices (this device)';
     return where + ' — ' + (on ? 'ready on the server.' : 'sent to the server automatically the first time you generate with it.');
@@ -210,7 +210,7 @@
     }
     if (!e) return Promise.reject(V.makeErr('voice-missing', 'That voice isn\'t available any more — pick another one.'));
     if (e.source === 'builtin') return Promise.resolve({ mode: 'predefined', id: e.file });
-    if (!V.cloneAvailable()) return Promise.reject(V.makeErr('clone-unavailable', 'This server can\'t take voice uploads, so only built-in voices work right now.'));
+    if (!V.cloneAvailable()) return Promise.reject(V.makeErr('clone-unavailable', 'This server can\'t take voice uploads, so only Chatterbox Voices work right now.'));
     var known = (refMap()[V.backend()] || {})[key];
     return V.loadReferences(true).then(function (files) {
       if (known && (!files || files.indexOf(known) !== -1)) return { mode: 'clone', id: known };
@@ -508,7 +508,7 @@
       if ((n = (lib.preset || []).length)) parts.push(n + ' preset' + (n === 1 ? '' : 's'));
       if ((n = (lib.shared || []).length)) parts.push(n + ' shared');
       if ((n = mine.length)) parts.push(n + ' mine');
-      if ((n = (V.voices() || []).length)) parts.push(n + ' built-in');
+      if ((n = (V.voices() || []).length)) parts.push(n + ' Chatterbox');
       return parts.join(' · ');
     }
   };

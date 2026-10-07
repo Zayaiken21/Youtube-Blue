@@ -17,10 +17,10 @@
 
   /* ---------- Constants ---------- */
   var DEFAULT_TAGS = ['laugh', 'chuckle', 'sigh', 'gasp', 'cough', 'clear throat', 'sniff', 'groan', 'shush'];
-  var SETTINGS_VERSION = 6;
+  var SETTINGS_VERSION = 7;
   var DEFAULTS = {
     voiceKey: '',          // 'builtin:<file>' | 'preset:<file>' | 'shared:<file>' | 'mine:<id>' (js/voice-library.js)
-    format: 'wav', chunk: 400, temperature: 0.75, speed: 1, seed: 0, split: true, level: true,
+    format: 'wav', chunk: 400, temperature: 0.8, speed: 1, seed: 42, split: true, level: true,   // Chatterbox's own defaults; fixed seed = same voice in every chunk
     exaggeration: 0.5, cfg: 0.5, language: 'en', preferredModel: ''
   };
   var CHUNK_MIN = 200, CHUNK_MAX = 500;         // user-facing range (server accepts 50–500)
@@ -37,18 +37,18 @@
   };
   var PRESETS = {
     turbo: [
-      ['Natural', { temperature: 0.75, speed: 1.00, chunk: 400 }],
+      ['Natural', { temperature: 0.80, speed: 1.00, chunk: 400 }],
       ['Stable', { temperature: 0.55, speed: 1.00, chunk: 350 }],
       ['Energetic', { temperature: 0.95, speed: 1.00, chunk: 400 }],
       ['Comedy', { temperature: 0.90, speed: 1.00, chunk: 350 }],
       ['Narration', { temperature: 0.65, speed: 1.00, chunk: 400 }]],
     original: [
-      ['Natural', { temperature: 0.75, exaggeration: 0.50, cfg: 0.50, speed: 1.00, chunk: 400 }],
-      ['Expressive', { temperature: 0.85, exaggeration: 1.00, cfg: 0.50, speed: 1.00, chunk: 400 }],
+      ['Natural', { temperature: 0.80, exaggeration: 0.50, cfg: 0.50, speed: 1.00, chunk: 400 }],
+      ['Expressive', { temperature: 0.80, exaggeration: 0.70, cfg: 0.30, speed: 1.00, chunk: 400 }],
       ['Dramatic', { temperature: 0.90, exaggeration: 1.30, cfg: 0.60, speed: 1.00, chunk: 400 }],
       ['Subtle', { temperature: 0.60, exaggeration: 0.35, cfg: 0.50, speed: 1.00, chunk: 400 }]],
     multilingual: [
-      ['Natural', { temperature: 0.75, exaggeration: 0.50, speed: 1.00, chunk: 400 }],
+      ['Natural', { temperature: 0.80, exaggeration: 0.50, speed: 1.00, chunk: 400 }],
       ['Expressive', { temperature: 0.85, exaggeration: 1.00, speed: 1.00, chunk: 400 }],
       ['Narration', { temperature: 0.65, exaggeration: 0.40, speed: 1.00, chunk: 400 }]]
   };
@@ -131,6 +131,8 @@
     // v6: any speed other than exactly 1.00 is time-stretched on the server, which sounds
     // echoey / far away. Old presets left 0.99–1.02 behind, so start everyone back at 1.00.
     if (v < 6) saved.speed = 1;
+    // v7: follow Chatterbox's recommended defaults (temperature 0.8) and a fixed seed so every chunk sounds like the same voice.
+    if (v < 7) { if (saved.temperature === 0.75) saved.temperature = 0.8; if (!saved.seed) saved.seed = 42; }
     // v5: one voice picker. A built-in voice carries over; old server references don't.
     if (!saved.voiceKey && saved.voiceId && saved.mode !== 'clone') saved.voiceKey = 'builtin:' + saved.voiceId;
     delete saved.mode; delete saved.voiceId; delete saved.reference;
@@ -824,7 +826,7 @@
   function renderVoices(voices, note) {
     app.voices = voices;
     app.voicesLoaded = true; app.voicesFailed = false;
-    $('voiceCount').textContent = voices.length ? note : 'No built-in voices on the server';
+    $('voiceCount').textContent = voices.length ? note : 'No Chatterbox Voices on the server';
     renderPicker();
     if (storyHooks) storyHooks.listsChanged();
   }
@@ -855,6 +857,8 @@
     b.setAttribute('data-play-key', settings.voiceKey ? 'voice:' + settings.voiceKey : '');
     b.setAttribute('data-play-label', settings.voiceKey && library ? library.label(settings.voiceKey).replace(/ · .*$/, '') : 'this voice');
     b.disabled = !settings.voiceKey;
+    // Chatterbox Voices have no sample file; making one on the server made the page lag, so no ▶ for them.
+    b.hidden = !settings.voiceKey || /^builtin:/.test(settings.voiceKey);
     if (window.YBTakes) window.YBTakes.player.sync();
   }
   function cssEsc(v) { return String(v).replace(/["\\]/g, '\\$&'); }
@@ -1551,6 +1555,9 @@
   }
 
   /* ---------- Loudness levelling (WAV) ----------
+     GENTLE MODE (current): one volume change per clip, ±6 dB at most, never above the
+     clip's own peak — no limiter, no compression. The notes below describe the earlier,
+     stronger version; limit() is kept but no longer used.
      Brings every clip to one speaking level so it sounds right on YouTube and
      every voice/character matches. Volume only: one gain for the whole clip,
      plus a gentle look-ahead limiter on the rare loudest peaks (at most 3 dB,
@@ -1559,7 +1566,7 @@
      raised less instead. Within 1 dB of the target → returned untouched.
      Anything unexpected → original kept as is. */
   var LEVEL_TARGET_DB = -16.5;      // speech level of the good reference story
-  var LEVEL_CEIL = Math.pow(10, -1 / 20), LEVEL_MAX_LIMIT_DB = 3, LEVEL_MIN_DB = -10, LEVEL_MAX_DB = 15, LEVEL_DEADBAND_DB = 1;
+  var LEVEL_CEIL = Math.pow(10, -1 / 20), LEVEL_MAX_LIMIT_DB = 3, LEVEL_MIN_DB = -6, LEVEL_MAX_DB = 6, LEVEL_DEADBAND_DB = 1.5;
   var LEVEL_NOISE_CEIL_DB = -55;    // background level of the good reference story
 
   function parseWav(buf) {
@@ -1676,14 +1683,14 @@
     var peak = 0, c, i;
     for (c = 0; c < chans.length; c++) for (i = 0; i < chans[c].length; i++) { var a = Math.abs(chans[c][i]); if (a > peak) peak = a; }
     if (!peak) return null;
-    // Never squash: if the limiter would need more than 3 dB, raise the clip less instead.
-    var over = 20 * Math.log10(peak) + gainDb - 20 * Math.log10(LEVEL_CEIL);
-    if (over > LEVEL_MAX_LIMIT_DB) gainDb -= over - LEVEL_MAX_LIMIT_DB;
+    // Gentle: Chatterbox's own sound is kept. Only one volume change for the whole clip,
+    // never past the loudest peak (no limiter, no compression), at most ±6 dB.
+    var headroom = 20 * Math.log10(LEVEL_CEIL) - 20 * Math.log10(peak);
+    if (gainDb > headroom) gainDb = Math.max(0, headroom);
     if (Math.abs(gainDb) < 0.5) return null;
     var g = Math.pow(10, gainDb / 20);
     for (c = 0; c < chans.length; c++) for (i = 0; i < chans[c].length; i++) chans[c][i] *= g;
-    var limitDb = limit(chans, rate);
-    return { gainDb: gainDb, limitDb: limitDb };
+    return { gainDb: gainDb, limitDb: 0 };
   }
 
   // Blob → Promise<{ blob, gainDb }>. Only WAV is processed; when off, not WAV,
@@ -1943,7 +1950,7 @@
     $('voicePick').addEventListener('change', function () { settings.voiceKey = this.value; saveSettingsNow(); renderPickNote(); renderSummary(); updateControls(); updatePreviewBtn(); });
     $('voicePreviewBtn').addEventListener('click', function () {
       var key = settings.voiceKey;
-      if (!key || !library || !window.YBTakes) return;
+      if (!key || /^builtin:/.test(key) || !library || !window.YBTakes) return;
       window.YBTakes.player.toggle('voice:' + key, function () { return library.previewBlob(key); });
     });
     ['focus', 'pointerdown'].forEach(function (ev) {
