@@ -75,7 +75,7 @@
   var saveProject = YB.debounce(function () {
     var data = {
       pages: pages.map(function (p) { return { id: p.id, name: p.name, blob: p.blob }; }),
-      panels: panels.map(function (q) { return { id: q.id, pageId: q.pageId, x: q.x, y: q.y, w: q.w, h: q.h, dur: q.dur, motion: q.motion || '', cap: q.cap || {} }; })
+      panels: panels.map(function (q) { return { id: q.id, pageId: q.pageId, x: q.x, y: q.y, w: q.w, h: q.h, dur: q.dur, motion: q.motion || '', cap: q.cap || {}, who: q.who || '', storyId: q.storyId || '' }; })
     };
     kv(DB, 'readwrite', function (st) { st.put(data, 'project'); });
   }, 400);
@@ -413,6 +413,8 @@
     S.audioMode = m; saveSettings();
     document.querySelectorAll('[data-audio]').forEach(function (b) { var on = b.getAttribute('data-audio') === m; b.classList.toggle('on', on); b.setAttribute('aria-checked', on ? 'true' : 'false'); });
     $('audioVoice').hidden = m !== 'voice'; $('audioFile').hidden = m !== 'file';
+    if (typeof renderNarr === 'function') renderNarr();
+    if (m === 'narrate') { clearAudio(); loadVoiceLists(); applyNarration(); }
     if (m === 'none') clearAudio();
     if (m === 'voice') fillVoiceTakes();
     if (m === 'file') { clearAudio(); var f = $('audioInput').files && $('audioInput').files[0]; if (f) useAudio(f, f.name); }
@@ -464,6 +466,12 @@
   // The voice track always plays untouched; the video runs until both the panels and the voice are done.
   function timeline() {
     var durs = panels.map(function (q) { return q.dur || S.dur; });
+    if (typeof narrOn === 'function' && narrOn()) {
+      // narration: each panel lasts as long as its own spoken clip (plus a short breath)
+      var tlN = panels.map(function (q, i) { var c = clipFor(q); return c ? Math.max(1.2, NARR_LEAD + c.dur + NARR_GAP) : durs[i]; });
+      var startsN = [], tN = 0; tlN.forEach(function (d) { startsN.push(tN); tN += d; });
+      return { durs: tlN, starts: startsN, total: tN };
+    }
     if (S.capOn && S.capTiming) {
       // every panel stays up long enough to read its caption at the chosen pace
       durs = panels.map(function (q, i) {
@@ -1143,6 +1151,15 @@
   // (characters ÷ pace), in order from the start of its panel; the last one holds to the end.
   function capSchedule(i, tl, lang) {
     var q = panels[i], text = capOf(q, lang); if (!text) return [];
+    var clip = lang === S.showLang && typeof clipFor === 'function' ? clipFor(q) : null;
+    if (clip) {
+      // in time with the voice: each caption frame starts when its first word is spoken
+      var chs = chunksFor(text, lang), all = chs.reduce(function (a, c) { return a + c.words.join(' ').length + 1; }, 0), acc = 0, at = tl.starts[i] + NARR_LEAD;
+      return chs.map(function (c, n) {
+        var a0 = acc / all; acc += c.words.join(' ').length + 1;
+        return { words: c.words, start: at + a0 * clip.dur, end: n === chs.length - 1 ? tl.starts[i] + tl.durs[i] - 0.05 : at + acc / all * clip.dur, spoken: clip.dur * (acc / all - a0) };
+      });
+    }
     var s0 = tl.starts[i] + 0.1, avail = Math.max(0.3, tl.durs[i] - 0.22), pace = S.capPace || 15;
     var ch = chunksFor(text, lang), need = ch.map(function (c) { return Math.max(0.9, (c.words.join(' ').length + 2) / pace); });
     var sum = need.reduce(function (a, b) { return a + b; }, 0), k = sum > avail ? avail / sum : 1, t = s0;
@@ -1151,7 +1168,7 @@
   function captionAt(t, tl, i, lang) {
     var sc = capSchedule(i, tl, lang); if (!sc.length) return null;
     var c = sc.find(function (x) { return t >= x.start && t < x.end; }); if (!c) return null;
-    var reading = Math.max(0.6, Math.min(c.end - c.start, (c.words.join(' ').length + 2) / (S.capPace || 15)));
+    var reading = c.spoken ? Math.max(0.2, c.spoken) : Math.max(0.6, Math.min(c.end - c.start, (c.words.join(' ').length + 2) / (S.capPace || 15)));
     var prog = Math.min(1, (t - c.start) / reading);
     var lens = c.words.map(function (w) { return w.length + 1; }), sum = lens.reduce(function (a, b) { return a + b; }, 0), run = 0, active = 0;
     for (var k = 0; k < lens.length; k++) { run += lens[k]; active = k; if (prog * sum < run) break; }
@@ -1282,19 +1299,30 @@
       return t;
     }).filter(Boolean);
   }
+  function storyWho(st) {
+    return (st.blocks || []).filter(function (b) { return b.type === 'line' && b.text && b.text.trim(); })
+      .filter(function (b) { return b.text.replace(/\[[^\]]*\]/g, ' ').trim(); }).map(function (b) { return b.speaker || 'narrator'; });
+  }
   function fillFromStory() {
     var st = (YB.store.get('stories', []) || []).find(function (x) { return x.id === $('capStory').value; });
     if (!st) { YB.toast('Write a story in Story Studio first'); return; }
-    var lines = storyLines(st), n = panels.length; if (!lines.length || !n) { YB.toast('That story has no spoken lines yet'); return; }
+    var lines = storyLines(st), whos = storyWho(st), n = panels.length; if (!lines.length || !n) { YB.toast('That story has no spoken lines yet'); return; }
     if (captionedCount() && !confirm('Replace the captions on every panel with lines from "' + st.title + '"?')) return;
     var groups = panels.map(function () { return []; });
     if (lines.length >= n) {
       // every panel gets at least one line; extra lines go where the text is shortest so the timing stays even
-      lines.forEach(function (l, k) { groups[Math.min(n - 1, Math.floor(k * n / lines.length))].push(l); });
+      lines.forEach(function (l, k) { groups[Math.min(n - 1, Math.floor(k * n / lines.length))].push(k); });
     } else {
-      lines.forEach(function (l, k) { groups[Math.round(k * (n - 1) / Math.max(1, lines.length - 1))].push(l); });
+      lines.forEach(function (l, k) { groups[Math.round(k * (n - 1) / Math.max(1, lines.length - 1))].push(k); });
     }
-    panels.forEach(function (q, i) { q.cap = {}; if (groups[i].length) q.cap[S.srcLang] = groups[i].join(' '); });
+    panels.forEach(function (q, i) {
+      q.cap = {}; q.storyId = st.id; q.who = '';
+      if (!groups[i].length) return;
+      q.cap[S.srcLang] = groups[i].map(function (k) { return lines[k]; }).join(' ');
+      // the character who says most in this panel voices it
+      var tally = {}; groups[i].forEach(function (k) { tally[whos[k]] = (tally[whos[k]] || 0) + lines[k].length; });
+      q.who = Object.keys(tally).sort(function (a, b) { return tally[b] - tally[a]; })[0] || '';
+    });
     S.showLang = S.srcLang; chunkCache = {}; saveSettings();
     changed(); renderSubs();
     YB.toast('Captions filled from "' + st.title + '" — check them under Order & timing');
@@ -1380,6 +1408,259 @@
       if (match) $('capStory').value = match.id;
     }
     $('capFillBtn').disabled = !stories.length;
+    if (typeof renderNarr === 'function') renderNarr();
+  }
+
+  /* ---------- Narrate & dub (your Chatterbox server) ----------
+     Each panel's caption is spoken as its own clip, in the video's subtitle language,
+     with the same voice (each character's Voice Studio voice, or one you pick).
+     Non-English uses Chatterbox Multilingual, which keeps the voice (it clones it from
+     the same sample). Because every clip's length is known, panels and captions are
+     timed to the real speech. Clips are saved on this device per language. */
+  var DUB_LANGS = ['ar', 'da', 'de', 'el', 'en', 'es', 'fi', 'fr', 'he', 'hi', 'it', 'ja', 'ko', 'ms', 'nl', 'no', 'pl', 'pt', 'ru', 'sv', 'sw', 'tr', 'zh'];
+  function dubCode(l) { return l === 'zh-CN' ? 'zh' : l; }
+  function canDub(l) { return DUB_LANGS.indexOf(dubCode(l)) !== -1; }
+  var narr = { lang: '', clips: {}, busy: false, cancel: false };   // clips: panelId → { blob, dur, sig }
+  var NARR_LEAD = 0.15, NARR_GAP = 0.45;
+  function strHash(t) { var h = 5381; t = String(t); for (var i = 0; i < t.length; i++) h = ((h * 33) ^ t.charCodeAt(i)) >>> 0; return h.toString(36); }
+  function voiceForPanel(q) {
+    if (S.dubVoice && S.dubVoice !== 'auto') return S.dubVoice;
+    var cast = (YB.store.get('voiceCast', {}) || {})[q.storyId] || {}, c = cast[q.who] || cast.narrator;
+    if (c && c.key) return c.key;
+    if (c && c.id) return 'builtin:' + c.id;
+    return S.dubFallback || '';
+  }
+  function narrSig(q, lang) { return strHash(capOf(q, lang) + '|' + voiceForPanel(q) + '|' + lang); }
+  function narrReady(lang) {
+    return panels.length > 0 && narr.lang === lang && Object.keys(narr.clips).length > 0 && panels.some(function (q) { return capOf(q, lang); }) && panels.every(function (q) { return !capOf(q, lang) || (narr.clips[q.id] && narr.clips[q.id].sig === narrSig(q, lang)); });
+  }
+  function narrOn() { return S.audioMode === 'narrate' && narr.lang === S.showLang && Object.keys(narr.clips).length > 0; }
+  function clipFor(q) { var c = narrOn() && narr.clips[q.id]; return c && c.sig === narrSig(q, S.showLang) ? c : null; }
+
+  // server
+  var srv = { backend: '', cfg: null };
+  function srvRoute(cfgKey, path) { var u = srv.cfg && srv.cfg[cfgKey]; return u && /^https?:/.test(u) && u.indexOf(srv.backend) === 0 ? u : srv.backend + path; }
+  function connect() {
+    var manual = YB.store.get('voiceOverride', '');
+    return fetch('./backend-config.json?ts=' + Date.now(), { cache: 'no-store' }).then(function (r) { return r.ok ? r.json() : null; }, function () { return null; })
+      .then(function (cfg) {
+        srv.cfg = cfg || {};
+        srv.backend = String(manual || (cfg && cfg.backend_url) || '').replace(/\/+$/, '');
+        if (!srv.backend) throw new Error('Your Chatterbox server isn\'t running. Start it in Colab, then try again.');
+        return fetch(srvRoute('health_endpoint', '/health'), { cache: 'no-store' }).then(function (r) { if (!r.ok) throw 0; }, function () { throw 0; })
+          .catch(function () { throw new Error('Your Chatterbox server isn\'t answering. Start it in Colab (or wait for it), then try again.'); });
+      });
+  }
+  function getJson(url, opts) { return fetch(url, Object.assign({ cache: 'no-store' }, opts || {})).then(function (r) { return r.json().catch(function () { return {}; }).then(function (j) { if (!r.ok) throw new Error(j.detail || ('HTTP ' + r.status)); return j; }); }); }
+  function wait(ms) { return new Promise(function (r) { setTimeout(r, ms); }); }
+  function untilFree(note) {
+    return getJson(srvRoute('backend_state_endpoint', '/state')).then(function (st) {
+      if (narr.cancel) throw new Error('cancelled');
+      if (st && (st.generation_active || st.model_switching)) { note('Waiting for the server — someone else is generating…'); return wait(4000).then(function () { return untilFree(note); }); }
+    }, function () { /* no /state route: carry on */ });
+  }
+  function ensureModel(lang, note) {
+    return getJson(srvRoute('model_info', '/model-info')).then(function (info) {
+      var type = info && info.type, need = dubCode(lang) === 'en' ? null : 'multilingual';
+      if (!need || type === need) return type;
+      if (!confirm('Speaking ' + langName(lang) + ' needs the Multilingual model on your server.\n\nSwitch the server to Multilingual now? This changes the model for everyone using it (you can switch back in Voice Studio).')) throw new Error('cancelled');
+      note('Switching the server to Multilingual…');
+      return getJson(srvRoute('model_switch_job_endpoint', '/model-switch-jobs'), { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ model: need }) }).then(function (j) {
+        if (!j.switch_id) return need;
+        var poll = function () {
+          return wait(3000).then(function () { return getJson(srv.backend + '/model-switch-jobs/' + encodeURIComponent(j.switch_id)); }).then(function (r) {
+            if (r.status === 'complete') return need;
+            if (r.status === 'failed') throw new Error('The server couldn\'t switch to Multilingual: ' + (r.error || 'unknown error'));
+            note('Loading the Multilingual model… (this can take a minute)'); return poll();
+          }, function () { return poll(); });
+        };
+        return poll();
+      });
+    });
+  }
+  // voice key → { mode, id } on the server (library voices are uploaded once and remembered, like Voice Studio)
+  function voiceBlob(key) {
+    var src = key.split(':')[0], id = key.slice(src.length + 1);
+    if (src === 'preset' || src === 'shared') {
+      var dir = src === 'preset' ? 'Voices/Preset Voices' : 'Voices/Our Voices';
+      return fetch('./' + dir.split('/').map(encodeURIComponent).join('/') + '/' + encodeURIComponent(id)).then(function (r) { if (!r.ok) throw new Error('Couldn\'t load the voice ' + id); return r.blob().then(function (b) { return { blob: b, name: id }; }); });
+    }
+    if (src === 'mine') return kv('youtube-blue-voice', 'readonly', function (st, out) { var r = st.get('myvoice:' + id); r.onsuccess = function () { out.v = r.result; }; }).then(function (v) {
+      if (!v || !v.blob) throw new Error('That My Voices voice isn\'t on this device any more.'); return { blob: v.blob, name: (v.name || 'voice') + '.' + (v.ext || 'wav') };
+    });
+    return Promise.reject(new Error('Unknown voice'));
+  }
+  var refFiles = null;
+  function serverVoice(key) {
+    if (!key) return Promise.reject(new Error('Pick a voice for the narration first.'));
+    if (/^builtin:/.test(key)) return Promise.resolve({ mode: 'predefined', id: key.slice(8) });
+    var map = YB.store.get('voiceRefMap', {}) || {}, mine = (map[srv.backend] || {})[key];
+    var list = refFiles ? Promise.resolve(refFiles) : getJson(srvRoute('reference_files_endpoint', '/get_reference_files')).then(function (r) { refFiles = Array.isArray(r) ? r : (r.files || r.reference_files || []); return refFiles; }, function () { return []; });
+    return list.then(function (files) {
+      if (mine && files.indexOf(mine) !== -1) return { mode: 'clone', id: mine };
+      return voiceBlob(key).then(function (v) {
+        var ext = /\.mp3$/i.test(v.name) ? 'mp3' : 'wav', fd = new FormData();
+        fd.append('files', new File([v.blob], 'yb-' + key.split(':')[0] + '-' + strHash(key + v.blob.size) + '.' + ext, { type: ext === 'mp3' ? 'audio/mpeg' : 'audio/wav' }));
+        return getJson(srvRoute('reference_upload_endpoint', '/upload_reference'), { method: 'POST', body: fd }).then(function (j) {
+          var name = (j.uploaded_files || [])[0]; if (!name) throw new Error('The server didn\'t accept the voice sample.');
+          var all = YB.store.get('voiceRefMap', {}) || {}; Object.keys(all).forEach(function (b) { if (b !== srv.backend) delete all[b]; });
+          (all[srv.backend] = all[srv.backend] || {})[key] = name; YB.store.set('voiceRefMap', all);
+          if (refFiles) refFiles.push(name);
+          return { mode: 'clone', id: name };
+        });
+      });
+    });
+  }
+  function speak(text, voice, lang, type) {
+    var body = { text: text, voice_mode: voice.mode, output_format: 'wav', split_text: true, chunk_size: 300, temperature: 0.8, seed: 42, speed_factor: 1, language: dubCode(lang) };
+    if (voice.mode === 'clone') body.reference_audio_filename = voice.id; else body.predefined_voice_id = voice.id;
+    if (type !== 'turbo') body.exaggeration = 0.5;
+    if (type === 'original') body.cfg_weight = 0.5;
+    return getJson(srvRoute('job_endpoint', '/jobs'), { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) }).then(function (j) {
+      if (!j.job_id) throw new Error('The server didn\'t start the job.');
+      var tpl = srv.cfg && srv.cfg.job_status_template, st = tpl && tpl.indexOf('{job_id}') !== -1 ? tpl.replace('{job_id}', encodeURIComponent(j.job_id)) : srv.backend + '/jobs/' + encodeURIComponent(j.job_id);
+      var atpl = srv.cfg && srv.cfg.job_audio_template, au = atpl && atpl.indexOf('{job_id}') !== -1 ? atpl.replace('{job_id}', encodeURIComponent(j.job_id)) : st + '/audio';
+      var poll = function () {
+        if (narr.cancel) throw new Error('cancelled');
+        return wait(1200).then(function () { return getJson(st); }).then(function (r) {
+          if (r.status === 'complete') return fetch(au, { cache: 'no-store' }).then(function (a) { if (!a.ok) throw new Error('Couldn\'t download the clip.'); return a.blob(); });
+          if (r.status === 'failed') throw new Error(r.error || 'The server couldn\'t make this clip.');
+          return poll();
+        });
+      };
+      return poll();
+    });
+  }
+  function clipDur(blob) {
+    var AC = window.AudioContext || window.webkitAudioContext, ac = new AC();
+    return blob.arrayBuffer().then(function (b) { return new Promise(function (res, rej) { ac.decodeAudioData(b, res, rej); }); })
+      .then(function (buf) { ac.close().catch(function () {}); return buf; }, function (e) { ac.close().catch(function () {}); throw e; });
+  }
+  function narrKey(lang, id) { return 'narr:' + lang + ':' + id; }
+  function loadNarration(lang) {
+    narr.lang = lang; narr.clips = {};
+    return panels.reduce(function (p, q) {
+      return p.then(function () {
+        return kv(DB, 'readonly', function (st, out) { var r = st.get(narrKey(lang, q.id)); r.onsuccess = function () { out.v = r.result; }; }).then(function (v) { if (v && v.blob) narr.clips[q.id] = v; });
+      });
+    }, Promise.resolve());
+  }
+  // One voice track: every clip placed at the start of its panel (48 kHz, mono WAV).
+  function buildNarrationTrack() {
+    var tl = timeline(), rate = 48000, len = Math.ceil((tl.total + 0.5) * rate), mix = new Float32Array(len);
+    var jobs = panels.map(function (q, i) {
+      var c = clipFor(q); if (!c) return null;
+      return clipDur(c.blob).then(function (buf) {
+        var OAC = window.OfflineAudioContext || window.webkitOfflineAudioContext, off = new OAC(1, Math.ceil(buf.duration * rate), rate);
+        var sn = off.createBufferSource(); sn.buffer = buf; sn.connect(off.destination); sn.start();
+        return off.startRendering().then(function (r) {
+          var d = r.getChannelData(0), at = Math.round((tl.starts[i] + NARR_LEAD) * rate);
+          for (var k = 0; k < d.length && at + k < len; k++) mix[at + k] += d[k];
+        });
+      });
+    });
+    return Promise.all(jobs).then(function () {
+      var buf = new ArrayBuffer(44 + len * 2), dv = new DataView(buf);
+      function str(o, t) { for (var i = 0; i < t.length; i++) dv.setUint8(o + i, t.charCodeAt(i)); }
+      str(0, 'RIFF'); dv.setUint32(4, 36 + len * 2, true); str(8, 'WAVE'); str(12, 'fmt '); dv.setUint32(16, 16, true); dv.setUint16(20, 1, true); dv.setUint16(22, 1, true);
+      dv.setUint32(24, rate, true); dv.setUint32(28, rate * 2, true); dv.setUint16(32, 2, true); dv.setUint16(34, 16, true); str(36, 'data'); dv.setUint32(40, len * 2, true);
+      for (var i = 0, o = 44; i < len; i++, o += 2) { var v = Math.max(-1, Math.min(1, mix[i])); dv.setInt16(o, v < 0 ? v * 0x8000 : v * 0x7fff, true); }
+      return new Blob([buf], { type: 'audio/wav' });
+    });
+  }
+  function applyNarration() {
+    if (S.audioMode !== 'narrate') return Promise.resolve();
+    var lang = S.showLang;
+    return (narr.lang === lang ? Promise.resolve() : loadNarration(lang)).then(function () {
+      renderNarr();
+      if (!Object.keys(narr.clips).length) { clearAudio(); return; }
+      return buildNarrationTrack().then(function (wav) { useAudio(wav, 'Narration · ' + langName(lang)); renderNarr(); });
+    });
+  }
+  function makeNarration() {
+    if (narr.busy) return;
+    var lang = S.showLang;
+    if (!canDub(lang)) { YB.toast(langName(lang) + ' can\'t be spoken by Chatterbox yet — subtitles only'); return; }
+    var todo = panels.filter(function (q) { return capOf(q, S.srcLang); });
+    if (!todo.length) { YB.toast('Add captions first — the narration speaks each panel\'s caption'); return; }
+    if (lang !== S.srcLang && todo.some(function (q) { return !capOf(q, lang); })) { YB.toast('Translate the captions into ' + langName(lang) + ' first (Subtitles → Translate captions)'); return; }
+    narr.busy = true; narr.cancel = false; renderNarr();
+    var note = function (t) { $('narrText').textContent = t; };
+    var bar = function (p) { $('narrBar').style.width = (p * 100).toFixed(1) + '%'; };
+    var made = 0, type = '';
+    (narr.lang === lang ? Promise.resolve() : loadNarration(lang)).then(function () {
+      note('Connecting to your Chatterbox server…'); bar(0.02);
+      return connect();
+    }).then(function () { return untilFree(note); }).then(function () { return ensureModel(lang, note); }).then(function (t) {
+      type = t;
+      var list = panels.filter(function (q) { return capOf(q, lang); }), k = 0;
+      var next = function () {
+        if (narr.cancel) throw new Error('cancelled');
+        if (k >= list.length) return;
+        var q = list[k++], sig = narrSig(q, lang), have = narr.clips[q.id];
+        bar(k / list.length);
+        if (have && have.sig === sig) return next();   // already made with this text & voice
+        note('Speaking panel ' + (panels.indexOf(q) + 1) + ' of ' + panels.length + ' · ' + langName(lang));
+        return untilFree(note).then(function () { return serverVoice(voiceForPanel(q)); }).then(function (v) { return speak(capOf(q, lang), v, lang, type); })
+          .then(function (blob) { return clipDur(blob).then(function (buf) { return { blob: blob, dur: buf.duration }; }); })
+          .then(function (c) {
+            c.sig = sig; narr.clips[q.id] = c; made++;
+            kv(DB, 'readwrite', function (st) { st.put(c, narrKey(lang, q.id)); });
+            return next();
+          });
+      };
+      return next();
+    }).then(function () {
+      bar(1); note('Building the voice track…');
+      chunkCache = {};
+      return applyNarration().then(function () {
+        narr.busy = false; note('✓ Narration ready · ' + langName(lang) + (made ? ' · ' + made + ' new clip' + (made === 1 ? '' : 's') : ''));
+      });
+    }).then(function () { renderAll(); renderNarr(); }, function (e) {
+      narr.busy = false; renderNarr();
+      note(e && e.message === 'cancelled' ? 'Stopped — finished panels are saved; press Make narration to continue.' : '⚠️ ' + (e && e.message || 'Something went wrong.'));
+      if (Object.keys(narr.clips).length) applyNarration();
+    });
+  }
+  function renderNarr() {
+    if (!$('audioNarrate')) return;
+    $('audioNarrate').hidden = S.audioMode !== 'narrate';
+    if (S.audioMode !== 'narrate') return;
+    var lang = S.showLang, ready = narrReady(lang), auto = panels.some(function (q) { return q.who; });
+    $('narrLang').innerHTML = S.langs.map(function (l) { return '<option value="' + l + '"' + (l === lang ? ' selected' : '') + (canDub(l) ? '' : ' disabled') + '>' + langName(l) + (canDub(l) ? '' : ' (subtitles only)') + '</option>'; }).join('');
+    var opts = [], lib = YB.store.get('voiceLibCache', null) || {}, mine = YB.store.get('myVoices', []) || [], builtin = YB.store.get('voiceList', []) || [];
+    if (auto) opts.push('<option value="auto">Each character\'s Voice Studio voice</option>');
+    function group(label, items) { if (items.length) opts.push('<optgroup label="' + label + '">' + items.join('') + '</optgroup>'); }
+    group('Presets', (lib.preset || []).map(function (e) { return '<option value="preset:' + YB.esc(e.file) + '">' + YB.esc(e.name) + '</option>'; }));
+    group('Our Voices', (lib.shared || []).map(function (e) { return '<option value="shared:' + YB.esc(e.file) + '">' + YB.esc(e.name) + '</option>'; }));
+    group('My Voices', mine.map(function (m) { return '<option value="mine:' + YB.esc(m.id) + '">' + YB.esc(m.name) + '</option>'; }));
+    group('Chatterbox Voices', builtin.map(function (v) { return '<option value="builtin:' + YB.esc(v.filename) + '">' + YB.esc(v.display_name || v.filename) + '</option>'; }));
+    $('dubVoice').innerHTML = opts.join('') || '<option value="">Open Voice Studio once to load the voices</option>';
+    var want = S.dubVoice || (auto ? 'auto' : '');
+    if (want && $('dubVoice').querySelector('option[value="' + want.replace(/"/g, '\\"') + '"]')) $('dubVoice').value = want;
+    S.dubVoice = $('dubVoice').value;
+    $('narrMake').disabled = narr.busy; $('narrStop').hidden = !narr.busy; $('narrProg').hidden = !narr.busy && !$('narrText').textContent;
+    $('narrMake').textContent = ready ? '🔁 Make again with changes' : '🎙 Make narration · ' + langName(lang);
+  }
+  var listsLoaded = false;
+  function loadVoiceLists() {
+    if (listsLoaded) return; listsLoaded = true;
+    var lib = YB.store.get('voiceLibCache', null);
+    var a = lib && lib.preset ? Promise.resolve() : fetch('./Voices/index.json', { cache: 'no-store' }).then(function (r) { return r.ok ? r.json() : null; }).then(function (j) {
+      if (j) YB.store.set('voiceLibCache', { at: Date.now(), preset: j.preset || [], shared: j.shared || [] });
+    }, function () {});
+    var b = (YB.store.get('voiceList', []) || []).length ? Promise.resolve() : connect().then(function () { return getJson(srvRoute('predefined_voices_endpoint', '/get_predefined_voices')); }).then(function (v) {
+      v = (Array.isArray(v) ? v : []).map(function (x) { return typeof x === 'string' ? { display_name: x.replace(/\.(wav|mp3)$/i, ''), filename: x } : { display_name: x.display_name || x.filename, filename: x.filename }; }).filter(function (x) { return x.filename; });
+      if (v.length) YB.store.set('voiceList', v);
+    }, function () {});
+    Promise.all([a, b]).then(renderNarr);
+  }
+  function wireNarr() {
+    if (!$('audioNarrate')) return;
+    $('narrLang').addEventListener('change', function () { S.showLang = this.value; saveSettings(); renderSubs(); renderList(); applyNarration().then(function () { renderAll(); }); });
+    $('dubVoice').addEventListener('change', function () { S.dubVoice = this.value; saveSettings(); renderNarr(); });
+    $('narrMake').addEventListener('click', makeNarration);
+    $('narrStop').addEventListener('click', function () { narr.cancel = true; });
   }
 
   /* ---------- Looks UI ---------- */
@@ -1465,7 +1746,7 @@
       S.srcLang = v; if (S.langs.indexOf(v) === -1) S.langs.unshift(v); if (S.langs.length > MAX_LANGS) S.langs.length = MAX_LANGS;
       S.showLang = v; chunkCache = {}; saveSettings(); changed(); renderSubs();
     });
-    $('showLang').addEventListener('change', function () { S.showLang = this.value; saveSettings(); renderList(); renderFacts(); drawPreview(); });
+    $('showLang').addEventListener('change', function () { S.showLang = this.value; saveSettings(); renderList(); renderFacts(); drawPreview(); if (S.audioMode === 'narrate') applyNarration().then(function () { renderAll(); renderNarr(); }); });
     $('translateBtn').addEventListener('click', translateAll);
     $('mmEmail').value = S.mmEmail || '';
     $('mmEmail').addEventListener('change', function () { S.mmEmail = this.value.trim(); saveSettings(); });
@@ -1484,7 +1765,10 @@
         if (k >= langs.length) { S.showLang = keep; saveSettings(); renderSubs(); renderList(); drawPreview(); YB.toast('All ' + langs.length + ' videos are ready'); return; }
         S.showLang = langs[k++]; renderSubs(); drawPreview();
         $('exportText').textContent = 'Video ' + k + ' of ' + langs.length + ' · ' + langName(S.showLang);
-        exportVideo(function (ok) { if (ok) step(); else { S.showLang = keep; saveSettings(); renderSubs(); } });
+        // with narration on, each language gets its own dubbed voice track (when it has been made)
+        (S.audioMode === 'narrate' ? applyNarration() : Promise.resolve()).then(function () { return new Promise(function (r) { setTimeout(r, 400); }); }).then(function () {
+          exportVideo(function (ok) { if (ok) step(); else { S.showLang = keep; saveSettings(); renderSubs(); } });
+        });
       })();
     });
   }
@@ -1508,10 +1792,11 @@
     });
   }
 
-  window.YBComic = { drawFrame: function (x, W, H, t) { drawFrame(x, W, H, t); }, total: function () { return timeline().total; } };   // used by tests
+  window.YBComic = { drawFrame: function (x, W, H, t) { drawFrame(x, W, H, t); }, total: function () { return timeline().total; }, timeline: function () { return timeline(); }, schedule: function (i) { return capSchedule(i, timeline(), S.showLang); }, clips: function () { return panels.map(function (q) { var c = clipFor(q); return c ? c.dur : 0; }); } };   // used by tests
   wire();
   wireSubs();
   wireLooks();
+  wireNarr();
   setTab('page');
   Promise.all([loadCustom('customBg'), loadCustom('customOv')]).then(function (c) { custom.bg = c[0]; custom.ov = c[1]; looks = {}; lruStore = {}; lruOrder = []; renderLooks(); drawPreview(); });
   renderLooks();
