@@ -841,9 +841,12 @@
       });
   }
 
-  // Every finished line goes to "Your audio" right away (kept until Clear all).
+  // Finished lines stay in the story list above (▶ play · ⬇ Clip, kept after a reload).
+  // Only the full story track goes to "Your audio", so it isn't flooded with every line.
+  var LINES_TO_YOUR_AUDIO = false;
   function lineNumber(i) { var n = 0; for (var k = 0; k <= i; k++) if (st.segs[k] && st.segs[k].type === 'line') n++; return n; }
   function saveTake(i) {
+    if (!LINES_TO_YOUR_AUDIO) return;
     var g = st.segs[i], s = story(); if (!takes() || !g || !g.blob) return;
     var n = lineNumber(i), name = who(s, g.speaker).name || 'Narrator';
     takes().add({ id: st.runId + '-' + i, kind: 'line', group: st.runId, groupTitle: (s && s.title) || 'Story', idx: n,

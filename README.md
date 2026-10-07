@@ -109,7 +109,7 @@ Picking a Preset, Our Voices or My Voices voice needs no setup. Right before gen
 
 **Your audio (nothing gets lost)**
 
-Every take is saved quietly on the device: each single-voice generation, each Story line the moment it finishes, and every full story track. Nothing is downloaded automatically; it simply stays after a refresh or closing the app. A new generation never wipes earlier ones. Story runs are grouped (full track first, then lines in order). **Clear all** removes every saved take, the player and Story mode's finished lines at the same time.
+Every take is saved quietly on the device: each single-voice generation and every full story track. Story lines stay in the multi-voice story list itself, each with ▶ play and ⬇ Clip, instead of filling Your audio. Nothing is downloaded automatically; it simply stays after a refresh or closing the app. A new generation never wipes earlier ones. **Clear all** removes every saved take, the player and Story mode's finished lines at the same time.
 
 Every clip has a round ▶ button right next to its name that turns into ❚❚ while playing, with a progress ring. Tap to pause, tap again to resume. Only one clip plays at a time. In Story mode, finished lines can be played while the rest are still generating. The ⬇ icon downloads a clip only when tapped.
 
