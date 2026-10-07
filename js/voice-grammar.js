@@ -62,6 +62,22 @@
       .replace(/\s*\n\s*/g, ' ')
       .trim();
 
+    // Things a voice can't say or stumbles on: emojis, markdown stars, #hashtags, "&".
+    s = s
+      .replace(/[\u{1F000}-\u{1FAFF}\u{2600}-\u{27BF}\u{FE0F}\u{200D}]/gu, '')
+      .replace(/^\s*\*[^*]{1,40}\*\s*|\s*\*[^*]{1,40}\*\s*$/g, ' ')   // *whispers* at the start/end = stage direction
+      .replace(/[*_~`]+/g, '')
+      .replace(/(?:\s+#[A-Za-z]\w*)+\s*$/g, '')                    // trailing #hashtags
+      .replace(/(^|\s)#(?=[A-Za-z])/g, '$1')
+      .replace(/\s*&\s*/g, ' and ')
+      .replace(/\bw\/\s*/gi, 'with ')
+      .replace(/[ \t]+/g, ' ').trim();
+
+    // Shouted runs ("THIS IS SO GOOD") read better as normal words; a single shouted word stays.
+    s = s.replace(/\b[A-Z][A-Z']+(?:\s+[A-Z][A-Z']*)+\b/g, function (m) {
+      return m.split(/\s+/).length < 2 ? m : m.toLowerCase().replace(/\bi\b/g, 'I');
+    });
+
     // Messy punctuation.
     s = s
       .replace(/\.{4,}/g, '...')
@@ -110,11 +126,24 @@
       return pre + ch.toUpperCase();
     });
 
+    // Flowing speech: no stop-start breaks in the middle of a thought.
+    s = s
+      .replace(/\.\.\.\s*([A-Za-z][A-Za-z']*)/g, function (m, w) {      // "Well... I guess" → "Well, I guess"
+        var keep = /^I('|$)/.test(w) || (w.length > 1 && w === w.toUpperCase()) ||
+          (names || []).some(function (n) { return String(n).split(/\s+/)[0] === w; });
+        return ', ' + (keep ? w : w.charAt(0).toLowerCase() + w.slice(1));
+      })
+      .replace(/\s*\u2014\s*/g, ', ')                              // dashes → a comma pause
+      .replace(/\?!/g, '?')
+      .replace(/,\s*,/g, ',').replace(/,\s*([.!?])/g, '$1').replace(/^\s*,\s*/, '')
+      .replace(/ {2,}/g, ' ').trim();
+
     // End every line with punctuation so the voice lands the sentence.
     var end = re('^([\\s\\S]*?[A-Za-z0-9])(["\')]*)(\\s*' + TAGS + ')$').exec(s);
     if (end) {
       var body = end[1];
-      var last = body.split(/[.!?]["')]*\s+/).pop().replace(re(TAG, 'g'), ' ').replace(/^[\s"'(]+/, '');
+      var last = body.split(/[.!?]["')]*\s+/).pop().replace(re(TAG, 'g'), ' ').replace(/^[\s"'(]+/, '')
+        .replace(/^(?:so|and|but|well|okay|ok|hey|oh|um|uh|hmm|wait|now|then|guys|man|look),?\s+/i, '');   // "So, what now" is still a question
       var mark = QUESTION.test((last.match(/^[A-Za-z']+/) || [''])[0]) ? '?' : '.';
       s = body + mark + end[2] + end[3];
     }
