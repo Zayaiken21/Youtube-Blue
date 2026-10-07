@@ -1,9 +1,24 @@
 {
   "preset": [
     {
+      "file": "voice_preview_callum - husky trickster.mp3",
+      "name": "voice preview callum husky trickster",
+      "size": 33436
+    },
+    {
+      "file": "voice_preview_daniel - steady broadcaster.mp3",
+      "name": "voice preview daniel steady broadcaster",
+      "size": 45975
+    },
+    {
       "file": "voice_preview_gale - male character 18yr.mp3",
       "name": "voice preview gale male character 18yr",
       "size": 571186
+    },
+    {
+      "file": "voice_preview_george - warm, captivating storyteller.mp3",
+      "name": "voice preview george warm, captivating storyteller",
+      "size": 27603
     },
     {
       "file": "voice_preview_joselyn - female character 25yr.mp3",
@@ -24,6 +39,11 @@
       "file": "voice_preview_michael - male character 18yr.mp3",
       "name": "voice preview michael male character 18yr",
       "size": 632626
+    },
+    {
+      "file": "voice_preview_older character.mp3",
+      "name": "voice preview older character",
+      "size": 208188
     },
     {
       "file": "Young Male Country Voice.wav",
