@@ -15,15 +15,15 @@
   <meta name="mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
   <meta name="apple-mobile-web-app-title" content="YT Blue">
-  <link rel="stylesheet" href="css/style.css?v=29">
+  <link rel="stylesheet" href="css/style.css?v=30">
   <script src="js/core.js" defer></script>
   <script src="js/voice-grammar.js?v=2" defer></script>
   <script src="js/comic-panels.js?v=2" defer></script>
   <script src="js/vendor/mp4-muxer.min.js" defer></script>
   <script src="js/comic-sync.js?v=4" defer></script>
-  <script src="js/comic-ocr.js?v=1" defer></script>
+  <script src="js/comic-ocr.js?v=2" defer></script>
   <script src="js/comic-voice.js?v=1" defer></script>
-  <script src="js/comic.js?v=15" defer></script>
+  <script src="js/comic.js?v=16" defer></script>
 </head>
 <body data-page="comic">
   <header class="topbar">
@@ -239,7 +239,8 @@
               <button class="btn btn-sm" type="button" id="capFillBtn">✨ Fill captions</button>
               <button class="btn btn-ghost btn-sm" type="button" id="capClearBtn">Clear</button>
             </div>
-            <p class="muted small" id="capFillNote" style="margin:6px 0 0">Spoken lines from Story Studio are shared out across the panels in order (scene headings and [tags] are left out).</p>
+            <p class="muted small" id="capFillNote" style="margin:6px 0 0">Each spoken line goes on the panel whose speech bubble shows it (the panels are read on your device), in story order. Use ◀ ▶ on a panel to move a line if needed.</p>
+            <p class="small cx-match" id="capMatchNote" hidden></p>
           </div>
 
           <div class="cx-group">

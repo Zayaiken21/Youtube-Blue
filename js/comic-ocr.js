@@ -109,7 +109,7 @@
     return best;
   }
   var STOP = /^(the|a|an|to|of|and|is|it|i|you|my|me|be|so|in|on|at|for|do|im|its|this|that|we|he|she|they|was|are|am|oh|um|uh)$/;
-  function sim(line, ocr) {
+  function sim(line, ocr, raw) {
     var lw = words(line).filter(function (w) { return w.length >= 2; }), ow = words(ocr);
     if (!lw.length || !ow.length) return 0;
     var joined = ow.join(''), tot = 0, got = 0;
@@ -118,6 +118,7 @@
       tot += weight; got += weight * wordHit(w, ow, joined);
     });
     var s = got / tot;
+    if (raw) return s;
     return s < 0.25 ? 0 : s;     // a stray letter or two is not a match
   }
 
@@ -163,7 +164,7 @@
     // 2) Lines that couldn't be read go between their anchors: onto panels there that have words nobody
     //    matched (a bubble or sign the reader couldn't make out); if there are fewer such panels than lines,
     //    the earlier ones join the panel before them (a second bubble), the last ones take the free panels.
-    var k0 = 0;
+    var k0 = 0, q;
     while (k0 < L) {
       if (anchor[k0]) { k0++; continue; }
       var k1 = k0; while (k1 < L && !anchor[k1]) k1++;                 // lines k0..k1-1 are unread
@@ -171,11 +172,29 @@
       var free = []; for (j = pa + 1; j < pb; j++) if (!anchoredPanel[j] && inkOf[j] >= 1) free.push(j);
       var gap = k1 - k0;
       if (free.length > gap) free = free.map(function (j) { return j; }).sort(function (x, y) { return inkOf[y] - inkOf[x]; }).slice(0, gap).sort(function (x, y) { return x - y; });
+      if (!free.length && pb - pa <= 1 && pa >= 0 && pb < N) {
+        // Two neighbouring panels and the lines spoken between their bubbles: each line goes with the
+        // panel it talks about ("Two suitcases, a cooler…" with the suitcase panel). The split point is
+        // where the talk turns from the first panel's topic to the next; with no clue, they stay with the first.
+        var aff = function (line, p) {
+          var anchorText = lines.filter(function (l, k) { return anchor[k] && at[k] === p; }).join(' ');
+          return Math.max(sim(line, texts[p], true), 0.8 * sim(line, anchorText, true));
+        };
+        var bestS = gap, bestV = -1e9;
+        for (var sp = 0; sp <= gap; sp++) {
+          var v = 0;
+          for (q = 0; q < gap; q++) v += q < sp ? aff(lines[k0 + q], pa) : aff(lines[k0 + q], pb);
+          v -= sp < gap ? 0.15 : 0;                                      // moving lines forward needs a real clue
+          if (v > bestV + 1e-9) { bestV = v; bestS = sp; }
+        }
+        for (q = 0; q < gap; q++) at[k0 + q] = q < bestS ? pa : pb;
+        k0 = k1; continue;
+      }
       if (!free.length) {   // no panel with unread words: any panel in between, or share the neighbour's
         for (j = pa + 1; j < pb; j++) free.push(j);
         if (free.length > gap) free = free.filter(function (j, q) { return q % Math.ceil(free.length / gap) === 0; }).slice(0, gap);
       }
-      for (var q = 0; q < gap; q++) {
+      for (q = 0; q < gap; q++) {
         var off = gap - free.length;                                   // leftover lines join the panel before
         at[k0 + q] = q >= off ? free[q - off] : (pa >= 0 ? pa : (free[0] != null ? free[0] : 0));
       }

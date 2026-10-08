@@ -72,10 +72,12 @@
     });
   }
   var DB = 'youtube-blue-comic';
+  var S_match = null;   // how the captions were placed: { how: 'ocr'|'even', read, panels, lines }
   var saveProject = YB.debounce(function () {
     var data = {
       pages: pages.map(function (p) { return { id: p.id, name: p.name, blob: p.blob }; }),
-      panels: panels.map(function (q) { return { id: q.id, pageId: q.pageId, x: q.x, y: q.y, w: q.w, h: q.h, dur: q.dur, motion: q.motion || '', cap: q.cap || {}, who: q.who || '', storyId: q.storyId || '' }; })
+      panels: panels.map(function (q) { return { id: q.id, pageId: q.pageId, x: q.x, y: q.y, w: q.w, h: q.h, dur: q.dur, motion: q.motion || '', cap: q.cap || {}, who: q.who || '', storyId: q.storyId || '', lines: q.lines || null, capMatch: q.capMatch || '', capEdited: !!q.capEdited }; }),
+      match: S_match
     };
     kv(DB, 'readwrite', function (st) { st.put(data, 'project'); });
   }, 400);
@@ -212,7 +214,10 @@
         '<div class="cx-pbtns"><button type="button" class="btn btn-ghost btn-icon btn-sm" data-up aria-label="Move earlier"' + (i === 0 ? ' disabled' : '') + '>↑</button>' +
         '<button type="button" class="btn btn-ghost btn-icon btn-sm" data-down aria-label="Move later"' + (i === panels.length - 1 ? ' disabled' : '') + '>↓</button>' +
         '<button type="button" class="btn btn-danger btn-icon btn-sm" data-del aria-label="Remove panel ' + (i + 1) + '">✕</button></div>' +
-        '<label class="cx-cap"><span class="muted small">💬 Caption · ' + YB.esc(langName(S.showLang)) + (S.showLang !== S.srcLang && !capOf(q, S.showLang) && capOf(q, S.srcLang) ? ' · not translated yet' : '') + '</span>' +
+        '<label class="cx-cap"><span class="muted small">💬 Caption · ' + YB.esc(langName(S.showLang)) + (S.showLang !== S.srcLang && !capOf(q, S.showLang) && capOf(q, S.srcLang) ? ' · not translated yet' : '') +
+        (q.lines && q.lines.length && !q.capEdited && q.storyId ? ' <span class="cx-mv">' +
+          (i > 0 ? '<button type="button" class="cx-mvbtn" data-mvprev aria-label="Move the first line of panel ' + (i + 1) + ' to the panel before">◀ line</button>' : '') +
+          (i < panels.length - 1 ? '<button type="button" class="cx-mvbtn" data-mvnext aria-label="Move the last line of panel ' + (i + 1) + ' to the next panel">line ▶</button>' : '') + '</span>' : '') + '</span>' +
         '<textarea data-cap rows="2" dir="' + (RTL.indexOf(S.showLang) !== -1 ? 'rtl' : 'ltr') + '" placeholder="What\'s said in this panel (optional)">' + YB.esc(capOf(q, S.showLang)) + '</textarea></label></li>';
     }).join('') || '<li class="muted small">No panels yet.</li>';
     panels.forEach(function (q) {
@@ -315,6 +320,8 @@
     $('panelList').addEventListener('click', function (e) {
       var li = e.target.closest('li[data-id]'); if (!li) return;
       var id = li.getAttribute('data-id'), i = panels.findIndex(function (q) { return q.id === id; });
+      if (e.target.closest('[data-mvprev]')) { e.preventDefault(); moveLine(i, -1); return; }
+      if (e.target.closest('[data-mvnext]')) { e.preventDefault(); moveLine(i, 1); return; }
       if (e.target.closest('[data-up]')) { move(panels, i, -1); changed(); }
       else if (e.target.closest('[data-down]')) { move(panels, i, 1); changed(); }
       else if (e.target.closest('[data-del]')) removePanel(id);
@@ -324,6 +331,7 @@
       if (!e.target.matches('[data-cap]')) return;
       var li = e.target.closest('li[data-id]'), q = li && panels.find(function (x) { return x.id === li.getAttribute('data-id'); }); if (!q) return;
       setCap(q, S.showLang, e.target.value);
+      if (S.showLang === S.srcLang) q.capEdited = true;   // your own words: never re-placed automatically
       saveProject(); renderFacts(); drawPreview();
     });
     $('panelList').addEventListener('change', function (e) {
@@ -434,6 +442,7 @@
     var a = $('audioCheck'); a.src = audio.url; $('audioRow').hidden = false;
     a.onloadedmetadata = function () { audio.dur = isFinite(a.duration) ? a.duration : 0; renderAll(); };
     analyzeVoice(blob);
+    if (typeof autoMatch === 'function') autoMatch();
     a.onerror = function () { YB.toast('That audio file couldn\'t be opened'); };
   }
   /* ---------- Auto-sync: panels and captions follow the voice (js/comic-sync.js) ---------- */
@@ -1456,6 +1465,46 @@
 
   // Story lines → panels. Each line goes on the panel that shows it (matched by the words in its
   // speech bubbles), keeping the story order; if the panels can't be read, lines are spread evenly.
+  function renderMatchNote() {
+    var el = $('capMatchNote'); if (!el) return;
+    var fromStory = panels.some(function (q) { return q.storyId; });
+    if (!S_match || !fromStory) { el.hidden = true; return; }
+    el.hidden = false;
+    el.className = 'small cx-match' + (S_match.how === 'ocr' ? ' ok' : ' warn');
+    el.textContent = S_match.how === 'ocr'
+      ? '🔎 Lines placed by reading the speech bubbles (' + S_match.read + ' of ' + S_match.panels + ' panels had readable words). Each line plays over the panel that shows it.'
+      : S_match.why === 'no-ocr'
+        ? '⚠️ The panels couldn\'t be read on this device (no connection to the text reader), so lines were spread in order. They\'ll be re-matched automatically next time it can connect — or move a line with ◀ ▶.'
+        : '⚠️ These panels have little readable text, so lines were spread in order. Move a line to the right panel with ◀ ▶.';
+  }
+  // Captions filled from a story but never matched to the bubbles (an older fill, or the reader couldn't
+  // load): match them now, by themselves. Captions you typed are never changed.
+  var autoMatchTried = false;
+  function autoMatch() {
+    if (autoMatchTried || filling || !panels.length || !window.YBComicOCR) return;
+    var sid = (panels.find(function (q) { return q.storyId; }) || {}).storyId;
+    if (!sid || panels.some(function (q) { return q.capEdited; })) return;
+    if (panels.every(function (q) { return q.capMatch === 'ocr' || !q.storyId; })) return;
+    var st = (YB.store.get('stories', []) || []).find(function (x) { return x.id === sid; }); if (!st) return;
+    autoMatchTried = true;
+    $('capStory').value = sid;
+    fillFromStory({ auto: true });
+  }
+  // ◀ ▶ on a panel: move its first line to the panel before, or its last line to the panel after.
+  function moveLine(i, dir) {
+    var q = panels[i], to = panels[i + dir]; if (!q || !to || !q.lines || !q.lines.length) return;
+    var st = (YB.store.get('stories', []) || []).find(function (x) { return x.id === q.storyId; }); if (!st) return;
+    var lines = storyLines(st);
+    to.lines = to.lines || [];
+    if (dir < 0) to.lines.push(q.lines.shift()); else to.lines.unshift(q.lines.pop());
+    [q, to].forEach(function (p) {
+      p.cap = {}; p.storyId = st.id; p.capEdited = false;
+      if (p.lines.length) p.cap[S.srcLang] = p.lines.map(function (k) { return lines[k]; }).join(' ');
+    });
+    chunkCache = {}; syncCache = {};
+    changed();
+  }
+
   var filling = false;
   function fillFromStory(opts) {
     opts = opts && opts.auto ? opts : {};
@@ -1477,15 +1526,17 @@
           lines.forEach(function (l, k) { groups[lines.length >= n ? Math.min(n - 1, Math.floor(k * n / lines.length)) : Math.round(k * (n - 1) / Math.max(1, lines.length - 1))].push(k); });
         }
         panels.forEach(function (q, i) {
-          q.cap = {}; q.storyId = st.id; q.who = ''; q.capAuto = true;
+          q.cap = {}; q.storyId = st.id; q.who = ''; q.capAuto = true; q.capEdited = false;
+          q.lines = groups[i].slice(); q.capMatch = res && !res.fallback ? 'ocr' : 'even';
           if (!groups[i].length) return;
           q.cap[S.srcLang] = groups[i].map(function (k) { return lines[k]; }).join(' ');
           // the character who says most in this panel voices it
           var tally = {}; groups[i].forEach(function (k) { tally[whos[k]] = (tally[whos[k]] || 0) + lines[k].length; });
           q.who = Object.keys(tally).sort(function (a, b) { return tally[b] - tally[a]; })[0] || '';
         });
+        S_match = { how: res && !res.fallback ? 'ocr' : 'even', read: res ? res.readable : 0, panels: panels.length, lines: lines.length, why: res ? (res.fallback ? 'little-text' : '') : 'no-ocr' };
         S.showLang = S.srcLang; chunkCache = {}; syncCache = {}; saveSettings();
-        changed(); renderSubs();
+        changed(); renderSubs(); renderMatchNote();
         var how = res && !res.fallback ? ' — each line is on the panel whose speech bubble shows it' : res ? ' — the panels have little readable text, so lines are spread in order' : ' — couldn\'t read the panels (offline?), so lines are spread in order';
         YB.toast('Captions filled from "' + st.title + '"' + how);
         return true;
@@ -2062,6 +2113,7 @@
       }, Promise.resolve()).then(function () {
         var ids = pages.map(function (p) { return p.id; });
         panels = (data.panels || []).filter(function (q) { return ids.indexOf(q.pageId) !== -1; });
+        S_match = data.match || null;
         view.pageId = pages[0] ? pages[0].id : '';
       });
     });
@@ -2076,7 +2128,8 @@
   Promise.all([loadCustom('customBg'), loadCustom('customOv')]).then(function (c) { custom.bg = c[0]; custom.ov = c[1]; looks = {}; lruStore = {}; lruOrder = []; renderLooks(); drawPreview(); });
   renderLooks();
   restore().then(function () {
-    renderAll(); renderSubs();
+    renderAll(); renderSubs(); renderMatchNote();
     setAudioMode(S.audioMode === 'file' ? 'none' : S.audioMode);   // a picked file can't be reopened after a reload
+    autoMatch();
   });
 })();

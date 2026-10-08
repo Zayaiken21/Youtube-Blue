@@ -1099,3 +1099,9 @@ input[type="range"] { min-height: 32px; }            /* finger-friendly */
 .pr-sample { max-height: none; }
 .pr-rules { margin: 12px 0 0; padding-left: 18px; display: grid; gap: 4px; color: var(--muted); }
 .pr-rules code, .pr-format .card-sub code { font-size: .8rem; }
+.cx-match { margin: 6px 0 0; }
+.cx-match.ok { color: #a7f3d0; }
+.cx-match.warn { color: #fde68a; }
+.cx-mv { display: inline-flex; gap: 4px; margin-left: 6px; }
+.cx-mvbtn { padding: 1px 8px; border-radius: 999px; border: 1px solid var(--line); background: var(--surface-2); color: var(--text); font: inherit; font-size: .75rem; font-weight: 700; cursor: pointer; }
+.cx-mvbtn:hover { background: var(--surface-3); }
