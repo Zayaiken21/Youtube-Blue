@@ -534,6 +534,17 @@
       var dS = sp.ends.map(function (e, i) { return e - sp.starts[i]; });
       return { durs: dS, starts: sp.starts.slice(), total: Math.max(sp.ends[sp.ends.length - 1], (audio.dur || 0) + 0.35), sync: sp };
     }
+    // Voice added but not analysed (yet, or this device can't): still fit every panel inside the voice,
+    // sharing its length by how much each caption says — never longer than the audio.
+    if (audio.dur && (S.audioMode === 'voice' || S.audioMode === 'file') && panels.length && window.YBAudioSync) {
+      var wts = panels.map(function (q) { return window.YBAudioSync.weight(capOf(q, S.srcLang) || capOf(q, S.showLang)) || 0; });
+      var avgW = wts.reduce(function (a, b) { return a + b; }, 0) / panels.length || 1;
+      wts = wts.map(function (v) { return v > 0 ? v : avgW * 0.35; });
+      var sumW = wts.reduce(function (a, b) { return a + b; }, 0), span = audio.dur + 0.3;
+      var dF = wts.map(function (v) { return span * v / sumW; }), sF = [], tF = 0;
+      dF.forEach(function (d) { sF.push(tF); tF += d; });
+      return { durs: dF, starts: sF, total: span };
+    }
     if (S.capOn && S.capTiming) {
       // every panel stays up long enough to read its caption at the chosen pace
       durs = panels.map(function (q, i) {

@@ -86,8 +86,8 @@
     for (k = 0; k <= idx.length; k++) {
       var lo = k ? idx[k - 1] + 1 : 0, hi = k < idx.length ? idx[k] : N, m = hi - lo;
       if (!m) continue;
-      if (k === idx.length) {   // after the last words: show them after the voice
-        var t0 = speechEnd(idx.length - 1) + 0.25, d0 = 1.4;
+      if (k === idx.length) {   // after the last words: a short moment each, all of them within ~1.2 s, so the video ends with the voice
+        var t0 = speechEnd(idx.length - 1) + 0.15, total = Math.max(an.dur + 0.3, t0 + Math.min(1.2, 0.6 * m)), d0 = (total - t0) / m;
         ends[idx[idx.length - 1]] = t0;
         for (i = 0; i < m; i++) { starts[lo + i] = t0 + i * d0; ends[lo + i] = t0 + (i + 1) * d0; }
         continue;

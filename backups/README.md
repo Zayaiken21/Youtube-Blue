@@ -4,6 +4,7 @@ Full copies of the site at known-good points. To restore one, unzip it over the 
 
 | File | What it is | Git commit |
 |---|---|---|
+| `youtube-blue-before-comic-restore-2026-10-08.zip` | Everything as of Oct 8 afternoon (Prompts page, voice sync, panel reading) — before the panel-length fix | `44812dd` |
 | `youtube-blue-before-camera-styles-2026-10-07.zip` | Before camera styles, templates, faster export and mic recording | `98014e4` |
 | `youtube-blue-before-subtitles-2026-10-07.zip` | Working Comic to Video page, before subtitles and translation | `6fe1c6b` |
 | `youtube-blue-before-grammar-2026-10-06.zip` | Before the story grammar tidy-up | `1d82a91` |
