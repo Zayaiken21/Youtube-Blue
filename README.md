@@ -48,11 +48,13 @@ Each page script only touches its own page, so you can edit one without affectin
    - Shape (9:16, 1:1, 16:9), transition and an optional channel tag.
 4. **Preview & export.** Play the preview, then **🎬 Make the video**. Chrome, Edge and new Safari build the MP4 directly (WebCodecs + `js/vendor/mp4-muxer.min.js`, MIT), usually much faster than the video's length, with a progress bar and time left. Other browsers, or a device that turns out slower than real time, record in real time instead. Shorts can be up to 3 minutes; the page warns when a Short runs longer.
 
-**Narrate & dub (Voice track → 🗣 Narrate & dub).** Each panel's caption is spoken as its own clip on your Chatterbox server, so panels and captions are timed to the real speech: a panel lasts as long as its clip plus a short breath, and each caption appears as its words are spoken.
-- **Voice:** *Each character's Voice Studio voice* (from the story's cast; available after *Fill captions*), or any Preset, Our Voices, My Voices or Chatterbox voice.
-- **Dub:** pick the language under Narrate & dub and press *Make narration*. The captions are translated first, automatically and by the app itself; this needs no server, and the subtitles work straight away. Only the speaking step uses your Chatterbox server, because that's what clones the voices. Other languages use Chatterbox Multilingual, which keeps the same voice by cloning it from the same sample. The page asks before switching the server's model.
-- **Languages:** Chatterbox speaks 23 languages. Indonesian, Vietnamese and Bengali stay subtitles only.
-- **Saved clips:** clips are kept on the device per language, so only changed panels are made again. *Make one video per language* gives each language its own dubbed voice.
+**Narrate & dub (Voice track → 🗣 Narrate & dub).** Each panel's caption is spoken as its own clip, so panels and captions are timed to the real speech: a panel lasts as long as its clip plus a short breath, and each caption appears as its words are spoken. Pick a language and press *Make narration*. Missing translations are made first, automatically and instantly on the device in Chrome or Edge on a computer.
+
+Two voice engines:
+- **📱 On this device, no server (default):** Piper neural voices run in the browser (`js/comic-voice.js`: espeak-ng phonemizer in WebAssembly, ONNX Runtime Web, Piper voice models from Hugging Face). Each voice downloads once (about 20–75 MB) into the browser cache, then works instantly and offline. Voices are available for English, Spanish, Portuguese, French, German, Italian, Russian, Arabic, Turkish, Vietnamese and Chinese. You can pick one voice, or *A different voice for each character*.
+- **☁️ Chatterbox, my cloned voices:** your own voices (each character's Voice Studio voice), the same voice in every language via Chatterbox Multilingual (23 languages). Needs the Colab server; the page asks before switching its model.
+
+Clips are saved on the device per language, so only changed panels are made again. *Make one video per language* gives each language its own dubbed voice.
 
 **Subtitles (on by default).** Every panel has its own caption, so a subtitle never runs across two panels. *Fill captions* shares a Story Studio story's spoken lines across the panels in order (grammar tidied, `[tags]` and scene headings left out), and any caption can be edited under *Order & timing*.
 - **Styles:** Bold pop, Karaoke, Clean box, Minimal, Highlight bar, Comic bubble, Neon and Typewriter. You can change the size, text and highlight colours, words per caption (2–8) and ALL CAPS.

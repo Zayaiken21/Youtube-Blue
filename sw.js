@@ -1,11 +1,11 @@
 /* Youtube Blue — service worker
    Network first (so your edits show up right away), cache as offline backup.
    Bump CACHE when you want installed copies to drop old files. */
-const CACHE = 'yt-blue-v17';
+const CACHE = 'yt-blue-v18';
 const ASSETS = [
   './', 'index.html', 'design.html', 'analytics.html', 'scheduler.html', 'stories.html', 'voice.html', 'comic.html',
   'css/style.css',
-  'js/core.js', 'js/home.js', 'js/design.js', 'js/analytics.js', 'js/scheduler.js', 'js/stories.js', 'js/comic-panels.js', 'js/vendor/mp4-muxer.min.js', 'js/comic.js', 'js/voice-grammar.js', 'js/voice.js', 'js/voice-library.js', 'js/voice-takes.js', 'js/voice-story.js',
+  'js/core.js', 'js/home.js', 'js/design.js', 'js/analytics.js', 'js/scheduler.js', 'js/stories.js', 'js/comic-panels.js', 'js/vendor/mp4-muxer.min.js', 'js/comic-voice.js', 'js/comic.js', 'js/voice-grammar.js', 'js/voice.js', 'js/voice-library.js', 'js/voice-takes.js', 'js/voice-story.js',
   'manifest.webmanifest',
   'icons/logo.svg', 'icons/icon-192.png', 'icons/icon-512.png', 'icons/maskable-512.png',
   'icons/apple-touch-icon.png', 'icons/favicon-32.png'

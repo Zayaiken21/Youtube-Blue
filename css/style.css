@@ -1037,3 +1037,5 @@ input[type="range"] { min-height: 32px; }            /* finger-friendly */
 .rec-btn.is-rec { color: #fff; background: rgba(239, 68, 68, .85); border-color: rgba(239, 68, 68, .9); animation: recPulse 1.2s ease-in-out infinite; }
 @keyframes recPulse { 0%, 100% { box-shadow: 0 0 0 0 rgba(239, 68, 68, .5); } 50% { box-shadow: 0 0 0 6px rgba(239, 68, 68, 0); } }
 #recPreview { width: 100%; margin-top: 8px; }
+.cx-engine { width: 100%; }
+.cx-engine button { flex: 1 1 200px; }

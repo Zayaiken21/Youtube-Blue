@@ -15,12 +15,13 @@
   <meta name="mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
   <meta name="apple-mobile-web-app-title" content="YT Blue">
-  <link rel="stylesheet" href="css/style.css?v=24">
+  <link rel="stylesheet" href="css/style.css?v=25">
   <script src="js/core.js" defer></script>
   <script src="js/voice-grammar.js?v=2" defer></script>
   <script src="js/comic-panels.js?v=2" defer></script>
   <script src="js/vendor/mp4-muxer.min.js" defer></script>
-  <script src="js/comic.js?v=9" defer></script>
+  <script src="js/comic-voice.js?v=1" defer></script>
+  <script src="js/comic.js?v=11" defer></script>
 </head>
 <body data-page="comic">
   <header class="topbar">
@@ -148,7 +149,11 @@
               <input type="file" id="audioInput" accept="audio/*,.wav,.mp3,.m4a,.ogg">
             </div>
             <div id="audioNarrate" class="cx-sub cx-narrate" hidden>
-              <p class="muted small" style="margin:0 0 10px">Pick a language and press the button. <b>Translating is ours and instant</b>: it happens right here, on this device in Chrome or Edge on a computer. <b>Speaking</b> uses your Chatterbox server, because it's what clones your voices, so every character keeps their voice in every language. Panels and captions are timed to the real speech.</p>
+              <div class="seg cx-engine" role="radiogroup" aria-label="Voice engine">
+                <button type="button" data-engine="device" role="radio">📱 On this device · no server</button>
+                <button type="button" data-engine="chatterbox" role="radio">☁️ Chatterbox · my cloned voices</button>
+              </div>
+              <p class="muted small" id="engineNote" style="margin:8px 0 10px"></p>
               <div class="fields">
                 <label class="field"><span>Language</span><select id="narrLang"></select></label>
                 <label class="field"><span>Voice</span><select id="dubVoice"></select></label>
@@ -161,7 +166,7 @@
                 <div class="progress"><i id="narrBar"></i></div>
                 <span class="small" id="narrText"></span>
               </div>
-              <p class="muted small" style="margin:8px 0 0">The voice step needs your Chatterbox server running in Colab. Other languages use its Multilingual model; you'll be asked before it switches. Clips are saved on this device, so only changed panels are made again.</p>
+              <p class="muted small" style="margin:8px 0 0">Translating is built in and instant. Panels and captions are timed to the real speech. Clips are saved on this device, so only changed panels are made again.</p>
             </div>
             <div class="cx-audio-row" id="audioRow" hidden>
               <audio id="audioCheck" controls preload="metadata"></audio>

@@ -1463,7 +1463,19 @@
      timed to the real speech. Clips are saved on this device per language. */
   var DUB_LANGS = ['ar', 'da', 'de', 'el', 'en', 'es', 'fi', 'fr', 'he', 'hi', 'it', 'ja', 'ko', 'ms', 'nl', 'no', 'pl', 'pt', 'ru', 'sv', 'sw', 'tr', 'zh'];
   function dubCode(l) { return l === 'zh-CN' ? 'zh' : l; }
-  function canDub(l) { return DUB_LANGS.indexOf(dubCode(l)) !== -1; }
+  function chatterboxDub(l) { return DUB_LANGS.indexOf(dubCode(l)) !== -1; }
+  function onDevice() { return S.voiceEngine !== 'chatterbox' && !!window.YBLocalVoice; }
+  function canDub(l) { return onDevice() ? window.YBLocalVoice.supports(l) : chatterboxDub(l); }
+  // On-device voice for a panel: one chosen voice, or a different voice per character.
+  function devVoiceFor(q, lang) {
+    var list = window.YBLocalVoice ? window.YBLocalVoice.voices(lang) : []; if (!list.length) return '';
+    var pick = (S.devVoices || {})[lang] || 'mix';
+    if (pick !== 'mix' && list.some(function (v) { return v.id === pick; })) return pick;
+    var st = (YB.store.get('stories', []) || []).find(function (x) { return x.id === q.storyId; });
+    var ids = ['narrator'].concat(((st && st.characters) || []).map(function (c) { return c.id; }));
+    var k = Math.max(0, ids.indexOf(q.who || 'narrator'));
+    return list[k % list.length].id;
+  }
   var narr = { lang: '', clips: {}, busy: false, cancel: false };   // clips: panelId → { blob, dur, sig }
   var NARR_LEAD = 0.15, NARR_GAP = 0.45;
   function strHash(t) { var h = 5381; t = String(t); for (var i = 0; i < t.length; i++) h = ((h * 33) ^ t.charCodeAt(i)) >>> 0; return h.toString(36); }
@@ -1474,7 +1486,7 @@
     if (c && c.id) return 'builtin:' + c.id;
     return S.dubFallback || '';
   }
-  function narrSig(q, lang) { return strHash(capOf(q, lang) + '|' + voiceForPanel(q) + '|' + lang); }
+  function narrSig(q, lang) { return strHash(capOf(q, lang) + '|' + (onDevice() ? 'dev:' + devVoiceFor(q, lang) : voiceForPanel(q)) + '|' + lang); }
   function narrReady(lang) {
     return panels.length > 0 && narr.lang === lang && Object.keys(narr.clips).length > 0 && panels.some(function (q) { return capOf(q, lang); }) && panels.every(function (q) { return !capOf(q, lang) || (narr.clips[q.id] && narr.clips[q.id].sig === narrSig(q, lang)); });
   }
@@ -1629,8 +1641,33 @@
     if (!todo.length) { YB.toast('Add captions first — the narration speaks each panel\'s caption'); return; }
     narr.busy = true; narr.cancel = false; renderNarr();
     var note = function (t) { $('narrText').textContent = t; };
+    // On this device: Piper voices in the browser — no server, works offline once a voice is downloaded.
+    function speakOnDevice() {
+      var list = panels.filter(function (q) { return capOf(q, lang); }), k = 0;
+      var next = function () {
+        if (narr.cancel) throw new Error('cancelled');
+        if (k >= list.length) return 'device';
+        var q = list[k++], sig = narrSig(q, lang), have = narr.clips[q.id], vid = devVoiceFor(q, lang);
+        bar(k / list.length);
+        if (have && have.sig === sig) return next();
+        note('Speaking panel ' + (panels.indexOf(q) + 1) + ' of ' + panels.length + ' · ' + langName(lang) + ' · on this device');
+        var say = function (t) {
+          return window.YBLocalVoice.speak(t, vid, function (f) {
+            note('Downloading the ' + (window.YBLocalVoice.find(vid) || {}).name + ' voice (only the first time)… ' + Math.round(f * 100) + '%');
+          });
+        };
+        return say(capOf(q, lang)).catch(function (e) {
+          if (/download|internet|engine/i.test(e.message)) throw e;            // can't continue without the voice
+          return say(capOf(q, lang).replace(/[^\p{L}\p{N}\s.,!?'’-]/gu, ' ')).catch(function () { skipped++; return null; });   // retry plain text, else leave this panel silent
+        }).then(function (blob) {
+          if (!blob) return next();
+          return clipDur(blob).then(function (buf) { var c = { blob: blob, dur: buf.duration, sig: sig }; narr.clips[q.id] = c; made++; kv(DB, 'readwrite', function (st) { st.put(c, narrKey(lang, q.id)); }); return next(); });
+        });
+      };
+      return Promise.resolve().then(next);
+    }
     var bar = function (p) { $('narrBar').style.width = (p * 100).toFixed(1) + '%'; };
-    var made = 0, type = '', translated = false;
+    var made = 0, skipped = 0, type = '', translated = false;
     // 1. words: translated here first (instant on Chrome/Edge desktop) — no server needed
     var needTr = lang !== S.srcLang && todo.some(function (q) { return !capOf(q, lang); });
     (needTr ? translateLangs([lang], function (t) { note(t + ' · ' + langName(lang)); }).then(function (r) {
@@ -1639,12 +1676,14 @@
     }) : Promise.resolve()).then(function () {
       return narr.lang === lang ? null : loadNarration(lang);
     }).then(function () {
+      if (onDevice()) return speakOnDevice();
       // 2. voice: only this step needs Chatterbox (it's what speaks in your cloned voices)
       note((translated ? '✓ Captions translated · ' : '') + 'Connecting to your Chatterbox server for the voice…'); bar(0.02);
       return connect().catch(function (e) {
         throw new Error((translated ? 'The ' + langName(lang) + ' captions are translated and the subtitles are ready. ' : '') + 'To speak them in your voices, start your Chatterbox server in Colab, then press this again.');
       });
-    }).then(function () { return untilFree(note); }).then(function () { return ensureModel(lang, note); }).then(function (t) {
+    }).then(function (dev) { if (dev === 'device') return 'device'; return untilFree(note).then(function () { return ensureModel(lang, note); }); }).then(function (t) {
+      if (t === 'device') return;
       type = t;
       var list = panels.filter(function (q) { return capOf(q, lang); }), k = 0;
       var next = function () {
@@ -1667,11 +1706,13 @@
       bar(1); note('Building the voice track…');
       chunkCache = {};
       return applyNarration().then(function () {
-        narr.busy = false; note('✓ Narration ready · ' + langName(lang) + (made ? ' · ' + made + ' new clip' + (made === 1 ? '' : 's') : ''));
+        narr.busy = false; note('✓ Narration ready · ' + langName(lang) + (made ? ' · ' + made + ' new clip' + (made === 1 ? '' : 's') : '') + (skipped ? ' · ' + skipped + ' panel' + (skipped === 1 ? '' : 's') + ' couldn\'t be spoken (left silent)' : ''));
       });
     }).then(function () { renderAll(); renderNarr(); }, function (e) {
       narr.busy = false; renderNarr();
-      note(e && e.message === 'cancelled' ? 'Stopped — finished panels are saved; press Make narration to continue.' : '⚠️ ' + (e && e.message || 'Something went wrong.'));
+      var msg = e && e.message || 'Something went wrong.';
+      if (translated && !/captions are translated/.test(msg)) msg = 'The ' + langName(lang) + ' captions are translated and the subtitles are ready. ' + msg;
+      note(e && e.message === 'cancelled' ? 'Stopped — finished panels are saved; press Make narration to continue.' : '⚠️ ' + msg);
       if (Object.keys(narr.clips).length) applyNarration();
     });
   }
@@ -1680,7 +1721,17 @@
     $('audioNarrate').hidden = S.audioMode !== 'narrate';
     if (S.audioMode !== 'narrate') return;
     var lang = S.showLang, ready = narrReady(lang), auto = panels.some(function (q) { return q.who; });
-    $('narrLang').innerHTML = S.langs.map(function (l) { return '<option value="' + l + '"' + (l === lang ? ' selected' : '') + (canDub(l) ? '' : ' disabled') + '>' + langName(l) + (canDub(l) ? '' : ' (subtitles only)') + '</option>'; }).join('');
+    document.querySelectorAll('[data-engine]').forEach(function (b) { var on = (b.getAttribute('data-engine') === 'chatterbox') === !onDevice(); b.classList.toggle('on', on); b.setAttribute('aria-checked', on ? 'true' : 'false'); });
+    $('engineNote').textContent = onDevice() ? 'Free and private. Runs right here, with no server. Each voice downloads once (about 20–75 MB), then it works instantly, even offline. Ready-made voices, not your cloned ones.' : 'Your own cloned voices, the same voice in every language. Needs your Chatterbox server running in Colab.';
+    $('narrLang').innerHTML = S.langs.map(function (l) { var ok = canDub(l), other = onDevice() ? chatterboxDub(l) : (window.YBLocalVoice && window.YBLocalVoice.supports(l)); return '<option value="' + l + '"' + (l === lang ? ' selected' : '') + (ok ? '' : ' disabled') + '>' + langName(l) + (ok ? '' : other ? (onDevice() ? ' (Chatterbox only)' : ' (on-device only)') : ' (subtitles only)') + '</option>'; }).join('');
+    if (onDevice()) {
+      var dv = window.YBLocalVoice.voices(lang), cur = (S.devVoices || {})[lang] || 'mix';
+      $('dubVoice').innerHTML = dv.length ? '<option value="mix">A different voice for each character</option>' + dv.map(function (x) { return '<option value="' + x.id + '"' + (x.id === cur ? ' selected' : '') + '>' + YB.esc(x.name) + '</option>'; }).join('') : '<option value="">No on-device voice for ' + langName(lang) + ' — use Chatterbox</option>';
+      if (cur === 'mix') $('dubVoice').value = 'mix';
+      $('narrMake').disabled = narr.busy || !dv.length; $('narrStop').hidden = !narr.busy; $('narrProg').hidden = !narr.busy && !$('narrText').textContent;
+      $('narrMake').textContent = ready ? '🔁 Make again with changes' : '🎙 Make narration · ' + langName(lang);
+      return;
+    }
     var opts = [], lib = YB.store.get('voiceLibCache', null) || {}, mine = YB.store.get('myVoices', []) || [], builtin = YB.store.get('voiceList', []) || [];
     if (auto) opts.push('<option value="auto">Each character\'s Voice Studio voice</option>');
     function group(label, items) { if (items.length) opts.push('<optgroup label="' + label + '">' + items.join('') + '</optgroup>'); }
@@ -1711,7 +1762,13 @@
   function wireNarr() {
     if (!$('audioNarrate')) return;
     $('narrLang').addEventListener('change', function () { S.showLang = this.value; saveSettings(); renderSubs(); renderList(); applyNarration().then(function () { renderAll(); }); });
-    $('dubVoice').addEventListener('change', function () { S.dubVoice = this.value; saveSettings(); renderNarr(); });
+    $('dubVoice').addEventListener('change', function () {
+      if (onDevice()) { S.devVoices = S.devVoices || {}; S.devVoices[S.showLang] = this.value; } else S.dubVoice = this.value;
+      saveSettings(); renderNarr();
+    });
+    document.querySelectorAll('[data-engine]').forEach(function (b) {
+      b.addEventListener('click', function () { S.voiceEngine = b.getAttribute('data-engine'); saveSettings(); renderNarr(); if (S.audioMode === 'narrate') applyNarration().then(function () { renderAll(); renderNarr(); }); });
+    });
     $('narrMake').addEventListener('click', makeNarration);
     $('narrStop').addEventListener('click', function () { narr.cancel = true; });
   }
