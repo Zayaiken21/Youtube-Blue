@@ -1188,7 +1188,7 @@
     if (!story) return;
     var cast = [{ id: 'narrator', name: 'Narrator' }].concat(story.characters || []);
     $('importSpeaker').innerHTML = '<option value="all">All spoken lines</option>' + cast.map(function (c) {
-      var n = (story.blocks || []).filter(function (b) { return b.type === 'line' && b.speaker === c.id && b.text.trim(); }).length;
+      var n = (story.blocks || []).filter(function (b) { return b.type === 'line' && (b.speaker === c.id || (story.mode === 'multi' && (b.with || []).indexOf(c.id) !== -1)) && b.text.trim(); }).length;
       return n ? '<option value="' + YB.esc(c.id) + '">' + YB.esc(c.name) + ' only (' + n + ' lines)</option>' : '';
     }).join('');
   }
@@ -1200,7 +1200,7 @@
     if (!story) return '';
     var tags = knownTags();
     return (story.blocks || []).filter(function (b) {
-      return b.type === 'line' && (speaker === 'all' || b.speaker === speaker);
+      return b.type === 'line' && (speaker === 'all' || b.speaker === speaker || (story.mode === 'multi' && (b.with || []).indexOf(speaker) !== -1));   // group lines count for everyone in them
     }).map(function (b) {
       return b.text.replace(/\[([^\]]*)\]/g, function (m, inner) { return tags.indexOf(inner.trim().toLowerCase()) !== -1 ? '[' + inner.trim().toLowerCase() + ']' : ' '; })
         .replace(/[ \t]+/g, ' ').trim();

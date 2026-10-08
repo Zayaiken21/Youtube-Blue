@@ -92,10 +92,19 @@
       if (b.type !== 'line') return;
       var text = tidy(clean(b.text));
       if (!text || !/[\w]/.test(V.prepareText(text).replace(/\[[^\]]*\]/g, ''))) return;   // nothing speakable
-      var speaker = cast(s).some(function (c) { return c.id === b.speaker; }) ? b.speaker : 'narrator';
+      var ids = cast(s).map(function (c) { return c.id; });
+      var speaker = ids.indexOf(b.speaker) !== -1 ? b.speaker : 'narrator';
       if (pendingScene) { out.push({ type: 'scene', text: pendingScene }); pendingScene = ''; }
+      // Group line: several characters say it at the same time. Each voice is made on its own,
+      // then the parts are layered together in the story track (see stitch()).
+      var group = s.mode === 'multi' ? [speaker].concat((b.with || []).filter(function (id, k, a) { return id !== speaker && ids.indexOf(id) !== -1 && a.indexOf(id) === k; })) : [speaker];
+      if (group.length > 1) {
+        var gid = 'g' + (b.id || out.length);
+        group.forEach(function (id, k) { out.push({ type: 'line', speaker: id, text: text, lines: 1, status: 'idle', grp: gid, gi: k, gn: group.length }); });
+        return;
+      }
       var last = out[out.length - 1];
-      if (opts.merge && last && last.type === 'line' && last.speaker === speaker) { last.text += ' ' + text; last.lines++; return; }
+      if (opts.merge && last && last.type === 'line' && !last.grp && last.speaker === speaker) { last.text += ' ' + text; last.lines++; return; }
       out.push({ type: 'line', speaker: speaker, text: text, lines: 1, status: 'idle' });
     });
     return out;
@@ -386,7 +395,7 @@
   /* ---------- Saved run (survives reloads and closing the app) ---------- */
   function clipKey(i) { return 'clip:' + st.runId + ':' + i; }
   function signature(segs) {
-    var t = segs.map(function (g) { return g.type + '|' + (g.speaker || '') + '|' + g.text; }).join('\n'), h = 5381;
+    var t = segs.map(function (g) { return g.type + '|' + (g.speaker || '') + '|' + (g.grp ? 'grp' + g.gn + '|' : '') + g.text; }).join('\n'), h = 5381;
     for (var i = 0; i < t.length; i++) h = ((h * 33) ^ t.charCodeAt(i)) >>> 0;
     return t.length + ':' + h.toString(36);
   }
@@ -398,7 +407,7 @@
       startedAt: st.run ? st.run.startedAt : Date.now(), sig: signature(st.segs),
       segs: st.segs.map(function (g) {
         return g.type === 'scene' ? { type: 'scene', text: g.text }
-          : { type: 'line', speaker: g.speaker, text: g.text, lines: g.lines, status: g.status, jobId: g.jobId || null, voice: g.voice || null, error: errLite(g.error), handedAt: g.handedAt || 0 };
+          : { type: 'line', speaker: g.speaker, text: g.text, lines: g.lines, status: g.status, jobId: g.jobId || null, voice: g.voice || null, error: errLite(g.error), handedAt: g.handedAt || 0, grp: g.grp || null, gi: g.gi || 0, gn: g.gn || 0 };
       })
     });
   }
@@ -446,7 +455,7 @@
     resetRunData();
     st.segs = rec.segs.map(function (r) {
       return r.type === 'scene' ? { type: 'scene', text: r.text }
-        : { type: 'line', speaker: r.speaker, text: r.text, lines: r.lines || 1, status: r.status === 'fetching' ? 'running' : (r.status || 'idle'), jobId: r.jobId || null, voice: r.voice, error: r.error, fails: 0, handedAt: r.handedAt || 0 };
+        : { type: 'line', speaker: r.speaker, text: r.text, lines: r.lines || 1, status: r.status === 'fetching' ? 'running' : (r.status || 'idle'), jobId: r.jobId || null, voice: r.voice, error: r.error, fails: 0, handedAt: r.handedAt || 0, grp: r.grp || null, gi: r.gi || 0, gn: r.gn || 0 };
     });
     var run = st.run = { token: Date.now(), queue: [], inflight: [], timer: null, total: lineSegs().length, posting: false, hold: 0, cycle: 0, startedAt: rec.startedAt || Date.now(), resumed: true };
     if (!st.active) setActive(true); else { renderStoryPicker(); }
@@ -475,14 +484,21 @@
   function renderStats() {
     var lines = lineSegs(), s = story();
     if (!s) { $('storyStats').textContent = ''; return; }
-    var spoken = lines.reduce(function (t, g) { return t + g.lines; }, 0);
-    var words = lines.reduce(function (t, g) { return t + (g.text.replace(/\[[^\]]*\]/g, ' ').match(/[\w'’-]+/g) || []).length; }, 0);
+    var spoken = lines.reduce(function (t, g) { return t + (g.gi ? 0 : g.lines); }, 0);   // a group line counts once
+    var words = lines.reduce(function (t, g) { return t + (g.gi ? 0 : (g.text.replace(/\[[^\]]*\]/g, ' ').match(/[\w'’-]+/g) || []).length); }, 0);
     $('storyStats').textContent = spoken + ' spoken line' + (spoken === 1 ? '' : 's') + ' → ' + lines.length + ' job' + (lines.length === 1 ? '' : 's') +
       ' · ' + speakersUsed().length + ' voice' + (speakersUsed().length === 1 ? '' : 's') + ' · about ' + mmss((words / 150) * 60) + ' of speech';
   }
 
   var STATUS_LABEL = { idle: 'Waiting', queued: 'Queued', running: 'Generating', fetching: 'Downloading', done: 'Done', failed: 'Failed' };
   function statusLabel(s) { return STATUS_LABEL[s] || 'Working'; }
+
+  // "👥 together with Mom + Grandma" on each part of a group line.
+  function groupTag(s, g, i) {
+    if (!g.grp) return '';
+    var mates = st.segs.filter(function (x, k) { return k !== i && x.grp === g.grp; }).map(function (x) { return who(s, x.speaker).name || 'Narrator'; });
+    return ' <span class="grp-tag" title="Said at the same time — layered in the story track">👥 together with ' + YB.esc(mates.join(' + ')) + '</span>';
+  }
 
   function renderSegments() {
     var s = story(), n = 0;
@@ -502,7 +518,7 @@
         actions = '<div class="seg-actions"><span class="small" style="color:#fecaca">' + YB.esc(g.error.message) + '</span></div>';
       }
       return '<li style="--c:' + YB.esc(c.color || '#1e7bff') + '" data-i="' + i + '"><span class="num">' + n + '</span>' +
-        '<div><div class="who">' + play + '<span class="who-name">' + YB.esc(c.name) + '</span>' + (g.lines > 1 ? ' <span class="muted small">(' + g.lines + ' lines)</span>' : '') + '</div>' +
+        '<div><div class="who">' + play + '<span class="who-name">' + YB.esc(c.name) + '</span>' + groupTag(s, g, i) + (g.lines > 1 ? ' <span class="muted small">(' + g.lines + ' lines)</span>' : '') + '</div>' +
         '<div class="say">' + YB.esc(g.text.length > 220 ? g.text.slice(0, 217) + '…' : g.text) + '</div>' + actions + '</div>' +
         '<span class="st" data-s="' + status + '">' + statusLabel(status) + '</span></li>';
     }).join('');
@@ -966,17 +982,39 @@
     return Promise.all(decodes).then(function (buffers) {
       var parts = [], gap = Math.round(SAMPLE_RATE * Number(opts.pause) / 1000), sceneGap = Math.round(SAMPLE_RATE * Number(opts.scenePause) / 1000);
       var pendingScene = false, first = true;
-      order.forEach(function (g, i) {
-        if (g.type === 'scene') { pendingScene = true; return; }
-        if (!first) parts.push(new Float32Array(gap + (pendingScene ? sceneGap : 0)));
+      function prep(i) {
         var line = trim(mono(buffers[i]));
-        if (V.levelOn()) { var gl = V.matchGain(line, SAMPLE_RATE); if (gl !== 1) for (var k = 0; k < line.length; k++) line[k] *= gl; }   // story track only
-        parts.push(line);
+        if (V.levelOn()) { var gl = V.matchGain(line, SAMPLE_RATE); if (gl !== 1) { line = Float32Array.from(line); for (var k = 0; k < line.length; k++) line[k] *= gl; } }   // story track only
+        return line;
+      }
+      for (var i = 0; i < order.length; i++) {
+        var g = order[i];
+        if (g.type === 'scene') { pendingScene = true; continue; }
+        if (!first) parts.push(new Float32Array(gap + (pendingScene ? sceneGap : 0)));
+        if (g.grp) {   // everyone in the group speaks at once
+          var members = [];
+          while (i < order.length && order[i].type === 'line' && order[i].grp === g.grp) { members.push(prep(i)); i++; }
+          i--;
+          parts.push(layer(members));
+        } else parts.push(prep(i));
         first = false; pendingScene = false;
-      });
+      }
       parts.push(new Float32Array(Math.round(SAMPLE_RATE * 0.3)));
       return encodeWav(parts, SAMPLE_RATE);
     });
+  }
+
+  // Layer several voices saying the same line: tiny natural offsets (people never start in perfect sync),
+  // a gain that keeps the loudness close to one voice, and a soft limiter so peaks never clip.
+  function layer(lines) {
+    if (lines.length === 1) return lines[0];
+    var step = Math.round(SAMPLE_RATE * 0.035), len = 0;
+    lines.forEach(function (l, k) { len = Math.max(len, l.length + k * step); });
+    var out = new Float32Array(len), gain = 1 / Math.sqrt(lines.length), peak = 0, k, j;
+    for (k = 0; k < lines.length; k++) { var l = lines[k], off = k * step; for (j = 0; j < l.length; j++) out[off + j] += l[j] * gain; }
+    for (j = 0; j < len; j++) { var a = Math.abs(out[j]); if (a > peak) peak = a; }
+    if (peak > 0.98) { var f = 0.98 / peak; for (j = 0; j < len; j++) out[j] *= f; }
+    return out;
   }
 
   function encodeWav(parts, rate) {

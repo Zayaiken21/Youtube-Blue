@@ -179,7 +179,7 @@
   function renderCast() {
     var s = story();
     var cards = cast(s).map(function (c) {
-      var isN = c.id === 'narrator', count = s.blocks.filter(function (b) { return b.type === 'line' && b.speaker === c.id; }).length;
+      var isN = c.id === 'narrator', count = s.blocks.filter(function (b) { return speaksIn(s, b, c.id); }).length;
       return '<div class="cast-card" style="--c:' + YB.esc(c.color) + '">' +
         '<h4>' + YB.esc(c.name) + (isN ? ' <span class="badge">always</span>' : '') + '</h4>' +
         '<p>' + YB.esc(c.role || '—') + '</p>' +
@@ -190,6 +190,28 @@
         '</div>';
     }).join('');
     $('cast').innerHTML = cards + '<button class="cast-add" type="button" id="addCharTile"><span class="btn btn-plus" aria-hidden="true">+</span>Add character</button>';
+  }
+
+  /* ---------- Group lines (several characters say the same line together) ---------- */
+  var openGroups = {};   // blocks whose "Together" picker is open (screen only, not saved)
+  function withIds(s, b) {
+    if (s.mode !== 'multi' || b.type !== 'line') return [];
+    var ids = cast(s).map(function (c) { return c.id; });
+    return (b.with || []).filter(function (id, i, a) { return id !== b.speaker && ids.indexOf(id) !== -1 && a.indexOf(id) === i; });
+  }
+  function speaksIn(s, b, id) { return b.type === 'line' && (b.speaker === id || withIds(s, b).indexOf(id) !== -1); }
+  function groupNames(s, b) { return [b.speaker].concat(withIds(s, b)).map(function (id) { return who(s, id).name; }); }
+  function groupHTML(s, b) {
+    var w = withIds(s, b), open = openGroups[b.id] || w.length;
+    if (s.mode !== 'multi' || !open) return '';
+    var others = cast(s).filter(function (c) { return c.id !== b.speaker; });
+    return '<div class="grp-row" role="group" aria-label="Who says this line together">' +
+      '<span class="grp-label">👥 Said together with</span>' +
+      (others.length ? others.map(function (c) {
+        var on = w.indexOf(c.id) !== -1;
+        return '<label class="grp-chip' + (on ? ' on' : '') + '" style="--c:' + YB.esc(c.color) + '"><input type="checkbox" data-grp="' + c.id + '"' + (on ? ' checked' : '') + '>' + YB.esc(c.name) + '</label>';
+      }).join('') : '<span class="muted small">Add another character first.</span>') +
+      '</div>';
   }
 
   function speakerOptions(s, selected) {
@@ -206,12 +228,14 @@
     return '<div class="block ' + b.type + '" data-id="' + b.id + '"' + (color ? ' style="--c:' + YB.esc(color) + '"' : '') + '>' +
       '<div class="block-top"><span class="block-kind">' + (i + 1) + ' · ' + kind + '</span>' +
       (b.type === 'line' ? '<select data-f="speaker" aria-label="Speaker">' + speakerOptions(s, b.speaker) + '</select>' : '') +
+      (b.type === 'line' && s.mode === 'multi' ? '<button type="button" class="grp-btn' + (withIds(s, b).length ? ' on' : '') + '" data-act="group" aria-pressed="' + (withIds(s, b).length ? 'true' : 'false') + '" title="Several characters say this line at the same time">👥 ' + (withIds(s, b).length ? (withIds(s, b).length + 1) + ' together' : 'Together') + '</button>' : '') +
       '<div class="block-tools">' +
       '<button type="button" data-act="up" aria-label="Move up">↑</button>' +
       '<button type="button" data-act="down" aria-label="Move down">↓</button>' +
       '<button type="button" data-act="dup" aria-label="Duplicate">⧉</button>' +
       '<button type="button" data-act="del" aria-label="Delete">✕</button>' +
       '</div></div>' +
+      (b.type === 'line' ? groupHTML(s, b) : '') +
       '<textarea data-f="text" rows="' + (b.type === 'scene' ? 1 : 3) + '" placeholder="' + ph + '">' + YB.esc(b.text) + '</textarea>' +
       '</div>';
   }
@@ -235,7 +259,7 @@
     bar.style.background = target && st.secs > target * 60 * 1.1 ? 'linear-gradient(90deg,#fbbf24,#f87171)' : '';
 
     var rows = cast(s).map(function (c) {
-      var ls = s.blocks.filter(function (b) { return b.type === 'line' && b.speaker === c.id; });
+      var ls = s.blocks.filter(function (b) { return speaksIn(s, b, c.id); });
       return { c: c, lines: ls.length, words: ls.reduce(function (t, b) { return t + words(b.text); }, 0) };
     }).filter(function (r) { return r.lines; });
     $('castBreakdown').innerHTML = rows.length ? '<div class="label" style="margin-bottom:8px">Who speaks how much</div>' + rows.map(function (r) {
@@ -293,7 +317,11 @@
     var s = story(), c = s.characters.find(function (x) { return x.id === id; }); if (!c) return;
     if (!confirm('Remove ' + c.name + '? Their lines will move to the Narrator.')) return;
     s.characters = s.characters.filter(function (x) { return x.id !== id; });
-    s.blocks.forEach(function (b) { if (b.speaker === id) b.speaker = 'narrator'; });
+    s.blocks.forEach(function (b) {
+      if (b.with) b.with = b.with.filter(function (x) { return x !== id; });
+      if (b.speaker === id) b.speaker = 'narrator';
+      if (b.with) { b.with = b.with.filter(function (x) { return x !== b.speaker; }); if (!b.with.length) delete b.with; }
+    });
     touch(); renderCast(); renderBlocks(); renderStats();
   }
 
@@ -320,10 +348,14 @@
     var s = story(), i = s.blocks.findIndex(function (b) { return b.id === id; }); if (i === -1) return;
     if (act === 'up' && i > 0) { var t = s.blocks[i - 1]; s.blocks[i - 1] = s.blocks[i]; s.blocks[i] = t; }
     else if (act === 'down' && i < s.blocks.length - 1) { var t2 = s.blocks[i + 1]; s.blocks[i + 1] = s.blocks[i]; s.blocks[i] = t2; }
-    else if (act === 'dup') s.blocks.splice(i + 1, 0, Object.assign({}, s.blocks[i], { id: YB.uid() }));
+    else if (act === 'dup') s.blocks.splice(i + 1, 0, Object.assign({}, s.blocks[i], { id: YB.uid() }, s.blocks[i].with ? { with: s.blocks[i].with.slice() } : {}));
     else if (act === 'del') {
       if (s.blocks[i].text.trim() && !confirm('Delete this block?')) return;
       s.blocks.splice(i, 1);
+    } else if (act === 'group') {
+      if (withIds(s, s.blocks[i]).length) { if (openGroups[id]) { delete openGroups[id]; } else openGroups[id] = 1; }
+      else if (openGroups[id]) delete openGroups[id]; else openGroups[id] = 1;
+      renderBlocks(); return;
     } else return;
     touch(); renderBlocks(); renderStats();
   }
@@ -341,8 +373,9 @@
       if (b.type === 'scene') { out.push(''); out.push('=== ' + b.text.trim().toUpperCase() + ' ==='); }
       else if (b.type === 'note') out.push('  (' + b.text.trim().replace(/^\[|\]$/g, '') + ')');
       else {
-        var c = who(s, b.speaker);
-        var tag = s.mode === 'single' && c.id !== 'narrator' ? 'NARRATOR (as ' + c.name.toUpperCase() + ', ' + c.voice.toLowerCase() + ' voice)' : c.name.toUpperCase();
+        var c = who(s, b.speaker), grp = s.mode === 'multi' && withIds(s, b).length;
+        var tag = grp ? groupNames(s, b).join(' + ').toUpperCase() + ' (together)'
+          : s.mode === 'single' && c.id !== 'narrator' ? 'NARRATOR (as ' + c.name.toUpperCase() + ', ' + c.voice.toLowerCase() + ' voice)' : c.name.toUpperCase();
         out.push(tag + ': ' + b.text.trim());
       }
     });
@@ -355,7 +388,10 @@
       var scene = '', n = 0, lines = [];
       s.blocks.forEach(function (b) {
         if (b.type === 'scene') scene = b.text.trim();
-        if (b.type === 'line' && b.speaker === c.id && b.text.trim()) { n++; lines.push(n + '. ' + (scene ? '[' + scene + '] ' : '') + b.text.trim()); }
+        if (speaksIn(s, b, c.id) && b.text.trim()) {
+          var mates = s.mode === 'multi' ? groupNames(s, b).filter(function (nm) { return nm !== c.name; }) : [];
+          n++; lines.push(n + '. ' + (scene ? '[' + scene + '] ' : '') + (mates.length ? '(together with ' + mates.join(' + ') + ') ' : '') + b.text.trim());
+        }
       });
       if (!lines.length) return;
       out.push('────────────────────────────────');
@@ -379,7 +415,8 @@
       if (b.type === 'scene') return '<p class="scene">— ' + YB.esc(b.text) + ' —</p>';
       if (b.type === 'note') return '<p class="note">' + YB.esc(b.text) + '</p>';
       var c = who(s, b.speaker);
-      var label = s.mode === 'single' && c.id !== 'narrator' ? 'as ' + c.name + ' · ' + c.voice : c.name;
+      var label = s.mode === 'multi' && withIds(s, b).length ? groupNames(s, b).join(' + ')
+        : s.mode === 'single' && c.id !== 'narrator' ? 'as ' + c.name + ' · ' + c.voice : c.name;
       return '<p><span class="who" style="color:' + YB.esc(c.color) + '">' + YB.esc(label) + '</span>' + YB.esc(b.text) + '</p>';
     }).join('') + '<p class="scene">— END —</p>';
     $('prompter').hidden = false;
@@ -573,9 +610,21 @@
       $('blocks').addEventListener(ev, function (e) { if (e.target === tagUi.target) saveTagCursor(); });
     });
     $('blocks').addEventListener('change', function (e) {
-      var el = e.target, wrap = el.closest('.block'); if (!wrap || el.getAttribute('data-f') !== 'speaker') return;
+      var el = e.target, wrap = el.closest('.block'); if (!wrap) return;
       var s = story(), b = s.blocks.find(function (x) { return x.id === wrap.getAttribute('data-id'); });
-      if (b) { b.speaker = el.value; wrap.style.setProperty('--c', who(s, b.speaker).color); touch(); renderStats(); renderCast(); }
+      if (!b) return;
+      if (el.hasAttribute('data-grp')) {   // tick who joins in on this line
+        var id = el.getAttribute('data-grp'), w = withIds(s, b).filter(function (x) { return x !== id; });
+        if (el.checked) w.push(id);
+        if (w.length) b.with = w; else delete b.with;
+        touch(); renderBlocks(); renderStats(); renderCast();
+        var again = document.querySelector('.block[data-id="' + b.id + '"] [data-grp="' + id + '"]'); if (again) again.focus({ preventScroll: true });
+        return;
+      }
+      if (el.getAttribute('data-f') !== 'speaker') return;
+      b.speaker = el.value;
+      if (b.with) { b.with = b.with.filter(function (x) { return x !== b.speaker; }); if (!b.with.length) delete b.with; }
+      touch(); renderBlocks(); renderStats(); renderCast();
     });
     $('blocks').addEventListener('click', function (e) {
       var btn = e.target.closest('[data-act]'); if (!btn) return;
