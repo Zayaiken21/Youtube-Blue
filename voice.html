@@ -22,7 +22,7 @@
   <script src="js/voice-library.js?v=8" defer></script>
   <script src="js/voice-takes.js?v=4" defer></script>
   <script src="js/voice-sync.js?v=1" defer></script>
-  <script src="js/voice-story.js?v=27" defer></script>
+  <script src="js/voice-story.js?v=28" defer></script>
 </head>
 <body data-page="voice">
   <header class="topbar">
@@ -197,7 +197,7 @@
           </label>
           <label class="field"><span>Lines per run</span>
             <select id="storyParallel">
-              <option value="all">All lines — keeps going if you close the app</option>
+              <option value="all">All lines</option>
               <option value="1">1 line, then stop</option>
               <option value="2">2 lines, then stop</option>
               <option value="3">3 lines, then stop</option>
@@ -209,7 +209,7 @@
           </label>
           <label class="field check-field"><input id="storyMerge" type="checkbox"><span>Join a speaker's back-to-back lines</span></label>
         </div>
-        <p class="muted small" style="margin:10px 0 0">Every line keeps its place in the script. <b>All lines</b> voices the whole story; pick a number to make just that many lines, then stop — press Generate again for the next ones (finished lines are kept). Each run's lines go to the server, so they keep generating even if you close or swipe away the app; reopen Voice Studio and the timer shows how long it has been going. <b>Stop</b> sends nothing more: a line the server is already making is still collected and becomes the last one (press Stop again to leave it).</p>
+        <p class="muted small" style="margin:10px 0 0">Every line keeps its place in the script. <b>All lines</b> voices the whole story; pick a number to make just that many lines, then stop — press Generate again for the next ones (finished lines are kept). Generating always keeps going by itself if you close or swipe away the app — nothing to turn on; reopen Voice Studio and the timer shows how long it has been going. <b>Stop</b> sends nothing more: a line the server is already making is still collected and becomes the last one (press Stop again to leave it).</p>
         <div class="label" style="margin:16px 0 6px">Lines in order</div>
         <ol class="story-lines" id="storySegments"></ol>
         <div class="row" style="margin-top:10px">

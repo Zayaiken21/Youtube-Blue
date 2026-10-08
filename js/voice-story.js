@@ -473,7 +473,7 @@
       segs.forEach(function (g, i) {
         if (g.type !== 'line' || g.status === 'failed') return;
         if (g.status === 'done' && blobs[i]) { g.blob = blobs[i]; g.url = URL.createObjectURL(blobs[i]); return; }
-        if (!g.inRun && !g.jobId && !g.handedAt) { g.status = 'idle'; return; }   // not part of this run (lines per run)
+        if (!g.inRun) { g.status = 'idle'; g.jobId = null; g.handedAt = 0; return; }   // not part of this run (lines per run)
         if (run.stopping && !g.jobId && !g.handedAt) { g.status = 'idle'; return; }
         if (!g.voice || !g.voice.id) { g.status = 'failed'; g.error = V.makeErr('validation', 'This line lost its voice — press Retry failed lines.'); return; }
         if (g.jobId) { g.status = g.status === 'queued' ? 'queued' : 'running'; run.inflight.push(i); }
@@ -645,7 +645,10 @@
     // Part of the story is already made (an earlier run of N lines, or a stopped run): carry on from there.
     var cont = !onlyFailed && doneN > 0 && doneN < lines.length;
     if (cont) onlyFailed = 'continue';
-    lines.forEach(function (g) { g.inRun = 0; });
+    lines.forEach(function (g) {
+      g.inRun = 0;
+      if (!(g.status === 'done' && g.blob)) { g.jobId = null; g.handedAt = 0; if (g.status !== 'failed') g.status = 'idle'; }   // nothing carried over from an older run
+    });
     st.segs.forEach(function (g, i) {
       if (g.type !== 'line') return;
       if (onlyFailed === true && g.status !== 'failed') return;
@@ -1186,7 +1189,7 @@
     window.addEventListener('pagehide', flushAll);
     window.addEventListener('yb-audio-cleared', function () {
       if (st.run || st.preparing) return;            // a running story keeps going; its lines arrive fresh
-      st.segs.forEach(function (g) { if (g.type === 'line') { if (g.url) URL.revokeObjectURL(g.url); g.url = null; g.blob = null; if (g.status === 'done' || g.status === 'failed') { g.status = 'idle'; g.error = null; } } });
+      st.segs.forEach(function (g) { if (g.type === 'line') { if (g.url) URL.revokeObjectURL(g.url); g.url = null; g.blob = null; g.jobId = null; g.handedAt = 0; if (g.status === 'done' || g.status === 'failed') { g.status = 'idle'; g.error = null; } } });
       V.db.delPrefix('clip:'); V.db.delPrefix('sent:');
       YB.store.remove(RUN_KEY);
       st.lastNote = ''; $('storyRunNote').textContent = '';
