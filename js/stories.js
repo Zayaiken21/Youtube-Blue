@@ -360,6 +360,195 @@
     touch(); renderBlocks(); renderStats();
   }
 
+  /* ---------- Import a script (paste or PDF / Word file) — parsing lives in js/script-import.js ---------- */
+  var imp = { parsed: null, off: {}, other: 'narrator', dest: 'new', title: '', busy: false };
+
+  function impParse(text, fileTitle) {
+    var P = window.YBScriptImport;
+    if (!P) return;
+    var p = text.trim() ? P.parse(text) : null;
+    var prev = imp.parsed;
+    imp.parsed = p; imp.off = {};
+    if (p) {
+      if (!prev || prev.suggestOther !== p.suggestOther) imp.other = p.suggestOther;
+      imp.title = p.title || fileTitle || imp.title || '';
+      $('impTitleIn').value = imp.title;
+    }
+    renderImport();
+  }
+
+  function impColor(i, s) { return COLORS[(i + 1) % COLORS.length]; }
+
+  function renderImport() {
+    var p = imp.parsed, has = p && (p.lines || p.items.length);
+    $('impPreview').hidden = !has;
+    $('impGo').disabled = !has || imp.busy;
+    if (!has) { $('impGo').textContent = 'Import'; return; }
+    var on = p.cast.filter(function (c) { return !imp.off[c.key]; });
+    var groups = p.items.filter(function (it) { return it.type === 'line' && (it.all || it.who.length > 1); }).length;
+    var scenes = p.items.filter(function (it) { return it.type === 'scene'; }).length;
+    $('impSum').innerHTML = '<span class="stat-pill"><b>' + p.lines + '</b> spoken lines</span>' +
+      '<span class="stat-pill"><b>' + on.length + '</b> character' + (on.length === 1 ? '' : 's') + (p.narratorLines ? ' + Narrator' : '') + '</span>' +
+      (groups ? '<span class="stat-pill">👥 <b>' + groups + '</b> said together</span>' : '') +
+      (scenes ? '<span class="stat-pill"><b>' + scenes + '</b> scene' + (scenes === 1 ? '' : 's') + '</span>' : '');
+    $('impCast').innerHTML = (p.cast.length ? p.cast.map(function (c, i) {
+      var off = imp.off[c.key];
+      return '<label class="grp-chip' + (off ? '' : ' on') + '" style="--c:' + impColor(i) + '" title="' + YB.esc(c.role || '') + '">' +
+        '<input type="checkbox" data-imp-char="' + YB.esc(c.key) + '"' + (off ? '' : ' checked') + '>' + YB.esc(c.name) +
+        ' <span class="muted small">' + c.count + '</span></label>';
+    }).join('') : '<span class="muted small">No character names found — check the formats below, or everything goes to the Narrator.</span>') +
+      (p.narratorLines ? '<span class="grp-chip on imp-narr" style="--c:#1e7bff">🎙️ Narrator <span class="muted small">' + p.narratorLines + '</span></span>' : '');
+    var unnamed = impItems().filter(function (it) { return it.kind === 'text'; }).length;
+    $('impOtherN').textContent = unnamed;
+    $('impOtherField').hidden = !unnamed;
+    $('impOther').querySelectorAll('[data-other]').forEach(function (b) { b.classList.toggle('on', b.getAttribute('data-other') === imp.other); });
+    $('impDest').querySelectorAll('[data-dest]').forEach(function (b) { b.classList.toggle('on', b.getAttribute('data-dest') === imp.dest); });
+    var list = impItems(), shown = list.slice(0, 60), ci = {};
+    p.cast.forEach(function (c, i) { ci[c.key] = impColor(i); });
+    $('impLines').innerHTML = shown.map(function (it) {
+      if (it.kind === 'scene') return '<li class="imp-scene">— ' + YB.esc(it.text) + ' —</li>';
+      if (it.kind === 'note') return '<li class="imp-note">' + YB.esc(it.text) + '</li>';
+      if (it.kind === 'text') {
+        var how = imp.other === 'narrator' ? '<b style="color:#1e7bff">Narrator</b>' : imp.other === 'note' ? '<i>Direction</i>' : '<i>left out</i>';
+        return '<li class="imp-text' + (imp.other === 'skip' ? ' imp-skip' : '') + '"><span class="imp-who">' + how + '</span>' + YB.esc(it.text) + '</li>';
+      }
+      var names = it.keys.map(function (k) {
+        if (k === 'narrator') return '<b style="color:#1e7bff">Narrator</b>';
+        var c = p.cast.find(function (x) { return x.key === k; });
+        return '<b style="color:' + ci[k] + '">' + YB.esc(c ? c.name : k) + '</b>';
+      }).join(' + ');
+      return '<li><span class="imp-who">' + names + (it.keys.length > 1 ? ' <span class="grp-tag">👥</span>' : '') + '</span>' + YB.esc(it.text) + '</li>';
+    }).join('') + (list.length > shown.length ? '<li class="imp-more">…and ' + (list.length - shown.length) + ' more</li>' : '');
+    var spoken = list.filter(function (it) { return it.kind === 'line' || (it.kind === 'text' && imp.other === 'narrator'); }).length;
+    $('impGo').textContent = 'Import ' + spoken + ' line' + (spoken === 1 ? '' : 's');
+  }
+
+  // What the import will produce, with ticks applied: { kind: line|text|scene|note, keys, text }
+  function impItems() {
+    var p = imp.parsed, out = [];
+    if (!p) return out;
+    var allKeys = p.cast.filter(function (c) { return !imp.off[c.key]; }).map(function (c) { return c.key; });
+    p.items.forEach(function (it) {
+      if (it.type === 'scene' || it.type === 'note') return out.push({ kind: it.type, text: it.text });
+      if (it.type === 'text') return out.push({ kind: 'text', text: it.text });
+      var keys = it.all ? (allKeys.length ? allKeys : ['narrator']) : it.who;
+      if (keys.some(function (k) { return imp.off[k]; })) return out.push({ kind: 'text', text: it.raw || it.text });   // unticked "name" → plain text
+      if (!keys.length) keys = ['narrator'];
+      out.push({ kind: 'line', keys: keys.filter(function (k, i) { return keys.indexOf(k) === i; }), text: it.text });
+    });
+    return out;
+  }
+
+  function openImport(dest) {
+    imp.dest = dest || (story() && storyHasText(story()) ? 'new' : 'replace');
+    $('importModal').hidden = false; document.body.classList.add('no-scroll');
+    $('impErr').hidden = true;
+    renderImport();
+    setTimeout(function () { $('impText').focus(); }, 30);
+  }
+  function closeImport() { $('importModal').hidden = true; document.body.classList.remove('no-scroll'); }
+  function storyHasText(s) { return s.blocks.some(function (b) { return b.text.trim() && !/^\[.*\]$/.test(b.text.trim()); }); }
+
+  function impFile(file) {
+    if (!file || !window.YBScriptImport) return;
+    imp.busy = true; $('impErr').hidden = true;
+    $('impFileNote').textContent = 'Reading ' + file.name + '…';
+    renderImport();
+    window.YBScriptImport.readFile(file).then(function (r) {
+      imp.busy = false;
+      var text = r.text.replace(/\r\n?/g, '\n').replace(/\n{4,}/g, '\n\n\n').trim();
+      $('impText').value = text;
+      $('impFileNote').textContent = '✓ ' + file.name;
+      imp.parsed = null; imp.title = '';
+      impParse(text, r.title);
+      if (imp.parsed && !imp.parsed.lines) impError('Opened ' + file.name + ', but no "Name: line" style dialogue was found — everything would go to the Narrator. Check the formats below.');
+    }, function (e) {
+      imp.busy = false;
+      $('impFileNote').textContent = file.name;
+      impError(e && e.message ? e.message : 'That file couldn\'t be read.');
+      renderImport();
+    });
+  }
+  function impError(msg) { var el = $('impErr'); el.textContent = msg; el.hidden = false; }
+
+  function doImport() {
+    var p = imp.parsed; if (!p) return;
+    var items = impItems(), cur = story(), dest = imp.dest, title = $('impTitleIn').value.trim();
+    if (dest !== 'new' && !cur) dest = 'new';
+    if (dest === 'replace' && storyHasText(cur) && !confirm('Replace the script of “' + cur.title + '” with the imported one? Its characters are replaced too.')) return;
+    var s = dest === 'new'
+      ? { id: YB.uid(), title: title || 'Imported script', template: 'blank', mode: 'multi', wpm: 150, target: 0, characters: [], blocks: [], updated: Date.now() }
+      : cur;
+    var keep = dest === 'append' ? s.characters.slice() : [];
+    var pool = dest === 'new' ? [] : s.characters.slice();   // replace: reuse a matching character (keeps its color and voice)
+    var used = {};
+    function idFor(k) {
+      if (k === 'narrator') return 'narrator';
+      if (used[k]) return used[k];
+      var c = p.cast.find(function (x) { return x.key === k; });
+      var name = c ? c.name : k, nk = name.toLowerCase();
+      var found = keep.find(function (x) { return x.name.toLowerCase() === nk; }) || pool.find(function (x) { return x.name.toLowerCase() === nk; });
+      if (!found) {
+        var all = keep.length;
+        found = { id: YB.uid(), name: name, role: (c && c.role) || '', voice: 'Warm & friendly', notes: '', color: COLORS[(all + 1) % COLORS.length] };
+      } else if (c && c.role && !found.role) found.role = c.role;
+      if (keep.indexOf(found) === -1) keep.push(found);
+      used[k] = found.id;
+      return found.id;
+    }
+    var blocks = [];
+    items.forEach(function (it) {
+      if (it.kind === 'scene') blocks.push({ id: YB.uid(), type: 'scene', speaker: 'narrator', text: it.text });
+      else if (it.kind === 'note') blocks.push({ id: YB.uid(), type: 'note', speaker: 'narrator', text: it.text });
+      else if (it.kind === 'text') {
+        if (imp.other === 'narrator') blocks.push({ id: YB.uid(), type: 'line', speaker: 'narrator', text: it.text });
+        else if (imp.other === 'note') blocks.push({ id: YB.uid(), type: 'note', speaker: 'narrator', text: it.text });
+      } else {
+        var ids = it.keys.map(idFor), b = { id: YB.uid(), type: 'line', speaker: ids[0], text: it.text };
+        if (ids.length > 1) b.with = ids.slice(1);
+        blocks.push(b);
+      }
+    });
+    s.characters = keep;
+    if (dest === 'append') s.blocks = s.blocks.filter(function (b) { return b.text.trim(); }).concat(blocks);
+    else s.blocks = blocks;
+    if (s.characters.length) s.mode = 'multi';
+    if (dest !== 'append' && title) s.title = title;
+    s.updated = Date.now();
+    if (dest === 'new') stories.unshift(s);
+    currentId = s.id;
+    persist(); renderAll(); closeImport();
+    var n = blocks.filter(function (b) { return b.type === 'line'; }).length;
+    YB.toast('Imported ' + n + ' line' + (n === 1 ? '' : 's') + ' · ' + s.characters.length + ' character' + (s.characters.length === 1 ? '' : 's'));
+    $('impText').value = ''; imp.parsed = null; $('impFileNote').textContent = '…or drop a file here';
+  }
+
+  function wireImport() {
+    if (!$('importModal')) return;
+    var later = YB.debounce(function () { impParse($('impText').value); $('impErr').hidden = true; }, 250);
+    $('impText').addEventListener('input', later);
+    $('impFile').addEventListener('change', function () { impFile(this.files[0]); this.value = ''; });
+    $('importScript').addEventListener('click', function () { openImport(); });
+    $('importStory').addEventListener('click', function () { openImport('new'); });
+    $('impClose').addEventListener('click', closeImport);
+    $('impCancel').addEventListener('click', closeImport);
+    $('importModal').addEventListener('click', function (e) { if (e.target === this) closeImport(); });
+    document.addEventListener('keydown', function (e) { if (e.key === 'Escape' && !$('importModal').hidden) closeImport(); });
+    $('impGo').addEventListener('click', doImport);
+    $('impTitleIn').addEventListener('input', function () { imp.title = this.value; });
+    $('impCast').addEventListener('change', function (e) {
+      var k = e.target.getAttribute('data-imp-char'); if (k === null) return;
+      if (e.target.checked) delete imp.off[k]; else imp.off[k] = true;
+      renderImport();
+    });
+    $('impOther').addEventListener('click', function (e) { var b = e.target.closest('[data-other]'); if (b) { imp.other = b.getAttribute('data-other'); renderImport(); } });
+    $('impDest').addEventListener('click', function (e) { var b = e.target.closest('[data-dest]'); if (b) { imp.dest = b.getAttribute('data-dest'); renderImport(); } });
+    var drop = $('impDrop');
+    ['dragenter', 'dragover'].forEach(function (ev) { drop.addEventListener(ev, function (e) { e.preventDefault(); drop.classList.add('drag'); }); });
+    ['dragleave', 'drop'].forEach(function (ev) { drop.addEventListener(ev, function (e) { e.preventDefault(); drop.classList.remove('drag'); }); });
+    drop.addEventListener('drop', function (e) { var f = e.dataTransfer && e.dataTransfer.files[0]; if (f) impFile(f); });
+  }
+
   /* ---------- Exports ---------- */
   function scriptText(s) {
     var st = stats(s), out = [];
@@ -551,7 +740,10 @@
     });
     $('delStory').addEventListener('click', function () {
       if (!confirm('Delete “' + story().title + '”? This cannot be undone.')) return;
+      var gone = currentId;
       stories = stories.filter(function (s) { return s.id !== currentId; });
+      var vc = YB.store.get('voiceCast', null);   // its Voice Studio character voices go with it
+      if (vc && vc[gone]) { delete vc[gone]; YB.store.set('voiceCast', vc); }
       if (!stories.length) newStory('classic', 'My first story');
       currentId = stories[0].id; persist(); renderAll();
     });
@@ -665,6 +857,7 @@
     if (!stories.length) newStory('classic', 'My first story');
     if (!story()) currentId = stories[0].id;
     bind();
+    wireImport();
     renderAll();
   }
 

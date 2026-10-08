@@ -15,9 +15,10 @@
   <meta name="mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
   <meta name="apple-mobile-web-app-title" content="YT Blue">
-  <link rel="stylesheet" href="css/style.css?v=26">
+  <link rel="stylesheet" href="css/style.css?v=27">
   <script src="js/core.js" defer></script>
-  <script src="js/stories.js?v=8" defer></script>
+  <script src="js/script-import.js?v=1" defer></script>
+  <script src="js/stories.js?v=9" defer></script>
 </head>
 <body data-page="stories">
   <header class="topbar">
@@ -51,7 +52,10 @@
       <aside class="card sticky-side" aria-labelledby="listTitle">
         <div class="row between">
           <h2 id="listTitle" style="margin:0">Stories</h2>
-          <button class="btn btn-sm" type="button" id="newStory">＋ New</button>
+          <div class="row" style="gap:6px">
+            <button class="btn btn-ghost btn-sm" type="button" id="importStory" title="Paste a script or open a PDF / Word file">📄 Import</button>
+            <button class="btn btn-sm" type="button" id="newStory">＋ New</button>
+          </div>
         </div>
         <ul class="story-list" id="storyList" style="margin-top:12px"></ul>
         <div class="row" style="margin-top:12px">
@@ -109,6 +113,7 @@
             <button class="btn" type="button" data-add="line">＋ Line</button>
             <button class="btn btn-ghost" type="button" data-add="scene">＋ Scene</button>
             <button class="btn btn-ghost" type="button" data-add="note">＋ Direction / SFX</button>
+            <button class="btn btn-ghost" type="button" id="importScript">📄 Import script</button>
           </div>
         </section>
 
@@ -151,6 +156,64 @@
         <button class="btn" type="submit" id="charSave">Add character</button>
       </div>
     </form>
+  </div>
+
+  <!-- Import a script -->
+  <div class="modal" id="importModal" hidden role="dialog" aria-modal="true" aria-labelledby="importTitle">
+    <div class="card modal-box imp-box">
+      <div class="row between" style="flex-wrap:nowrap">
+        <h2 id="importTitle" style="margin:0">📄 Import a script</h2>
+        <button class="btn btn-ghost btn-sm" type="button" id="impClose" aria-label="Close">✕</button>
+      </div>
+      <p class="card-sub" style="margin:8px 0 12px">Paste a script, or open a <b>PDF</b>, <b>Word</b> (.docx, .doc), .odt, .rtf or .txt file. Characters are added from the names in front of each line.</p>
+      <div class="imp-drop" id="impDrop">
+        <textarea id="impText" rows="7" spellcheck="false" aria-label="Script text" placeholder="NARRATOR: Meet Alex.&#10;ALEX: Ugh… the Wi-Fi is down?&#10;BELLA: First world tragedy.&#10;ALL: Deal!"></textarea>
+        <div class="row imp-file-row">
+          <label class="btn btn-ghost btn-sm" for="impFile">📂 Open a file</label>
+          <input type="file" id="impFile" hidden accept=".pdf,.docx,.doc,.docm,.dotx,.odt,.rtf,.txt,.text,.md,.markdown,.fountain,.html,.htm,application/pdf,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document,application/vnd.oasis.opendocument.text,application/rtf,text/plain">
+          <span class="muted small" id="impFileNote">…or drop a file here</span>
+        </div>
+      </div>
+      <details class="imp-help">
+        <summary>Which formats work?</summary>
+        <ul class="small muted">
+          <li><code>ALEX: Ugh, the Wi-Fi is down!</code> — a name, then a colon (times like <code>00:05</code> in front are fine)</li>
+          <li>A name in CAPITALS on its own line, with their words right under it (screenplay style)</li>
+          <li><code>MOM &amp; DAD: Happy birthday!</code> or <code>ALL: Deal!</code> — said together (a group line)</li>
+          <li><code>NARRATOR:</code> goes to the Narrator · <code>Scene 2:</code> / <code>INT. KITCHEN</code> start a scene · <code>[SFX: …]</code> and <code>(laughing)</code> become directions and reaction tags</li>
+          <li>A <code>Characters:</code> list with <code>Name – role</code> fills in each character's role</li>
+        </ul>
+      </details>
+      <div id="impPreview" hidden>
+        <div class="imp-sum" id="impSum"></div>
+        <div class="label">Characters found <span class="muted small">— untick anything that isn't a character</span></div>
+        <div class="imp-cast" id="impCast"></div>
+        <div class="imp-opts">
+          <label class="field"><span>Story title</span><input type="text" id="impTitleIn" maxlength="120" autocomplete="off"></label>
+          <div class="field" id="impOtherField"><span>Text without a name (<b id="impOtherN">0</b>)</span>
+            <div class="seg" id="impOther" role="group" aria-label="Text without a name">
+              <button type="button" data-other="narrator">🎙️ Narrator reads it</button>
+              <button type="button" data-other="note">📝 Direction</button>
+              <button type="button" data-other="skip">Leave out</button>
+            </div>
+          </div>
+          <div class="field"><span>Put it in</span>
+            <div class="seg" id="impDest" role="group" aria-label="Where to put it">
+              <button type="button" data-dest="new">✨ A new story</button>
+              <button type="button" data-dest="replace">Replace this story's script</button>
+              <button type="button" data-dest="append">Add to the end</button>
+            </div>
+          </div>
+        </div>
+        <div class="label" style="margin-top:12px">Preview</div>
+        <ol class="imp-lines" id="impLines"></ol>
+      </div>
+      <p class="small" id="impErr" role="alert" hidden></p>
+      <div class="row end" style="margin-top:14px">
+        <button class="btn btn-ghost" type="button" id="impCancel">Cancel</button>
+        <button class="btn" type="button" id="impGo" disabled>Import</button>
+      </div>
+    </div>
   </div>
 
   <!-- Teleprompter -->

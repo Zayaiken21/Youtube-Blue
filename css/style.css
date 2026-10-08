@@ -1048,3 +1048,31 @@ input[type="range"] { min-height: 32px; }            /* finger-friendly */
 #recPreview { width: 100%; margin-top: 8px; }
 .cx-engine { width: 100%; }
 .cx-engine button { flex: 1 1 200px; }
+
+/* Story Studio: import a script */
+.imp-box { max-width: 680px; background: #0a1a3a; }
+.imp-drop { display: grid; gap: 8px; padding: 10px; border-radius: 12px; border: 1px dashed var(--line); background: rgba(8, 23, 50, .5); transition: border-color .15s, background .15s; }
+.imp-drop.drag { border-color: var(--primary); background: rgba(30, 123, 255, .14); }
+.imp-drop textarea { min-height: 120px; font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: .85rem; }
+.imp-file-row { gap: 10px; align-items: center; }
+.imp-help { margin-top: 10px; }
+.imp-help summary { cursor: pointer; font-size: .85rem; font-weight: 700; color: var(--sky); }
+.imp-help ul { margin: 8px 0 0; padding-left: 18px; display: grid; gap: 4px; }
+.imp-help code, .imp-box .card-sub code { font-size: .8rem; }
+#impPreview { margin-top: 14px; display: grid; gap: 10px; }
+#impPreview[hidden] { display: none; }
+.imp-sum { display: flex; flex-wrap: wrap; gap: 6px; }
+.imp-cast { display: flex; flex-wrap: wrap; gap: 6px; }
+.imp-cast .grp-chip .muted { font-weight: 600; }
+.imp-narr { cursor: default; }
+.imp-opts { display: grid; gap: 10px; }
+.imp-opts .seg { flex-wrap: wrap; }
+.imp-lines { list-style: none; margin: 0; padding: 8px; max-height: 260px; overflow-y: auto; border-radius: 10px; border: 1px solid var(--line-soft); background: #081732; display: grid; gap: 4px; font-size: .88rem; }
+.imp-lines li { display: flex; gap: 8px; align-items: baseline; line-height: 1.35; min-width: 0; overflow-wrap: anywhere; }
+.imp-who { flex: none; min-width: 74px; max-width: 45%; font-size: .8rem; }
+.imp-scene { justify-content: center; font-weight: 800; color: var(--sky); padding-top: 4px; }
+.imp-note { color: #fcd34d; font-style: italic; }
+.imp-text { color: var(--muted); }
+.imp-skip { text-decoration: line-through; opacity: .55; }
+.imp-more { color: var(--muted); justify-content: center; }
+#impErr { color: #fecaca; margin: 10px 0 0; }

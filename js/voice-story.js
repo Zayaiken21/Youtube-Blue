@@ -1004,14 +1004,15 @@
     });
   }
 
-  // Layer several voices saying the same line: tiny natural offsets (people never start in perfect sync),
-  // a gain that keeps the loudness close to one voice, and a soft limiter so peaks never clip.
+  // Several voices saying the same line, in sync: the main speaker (first part) sets the timing and
+  // every other voice is lined up with it word by word (js/voice-sync.js), then mixed without clipping.
   function layer(lines) {
     if (lines.length === 1) return lines[0];
-    var step = Math.round(SAMPLE_RATE * 0.035), len = 0;
-    lines.forEach(function (l, k) { len = Math.max(len, l.length + k * step); });
+    if (window.YBVoiceSync) { try { return window.YBVoiceSync.chorus(lines, SAMPLE_RATE); } catch (e) { console.warn('voice sync failed, using a plain mix', e); } }
+    var len = 0;
+    lines.forEach(function (l) { len = Math.max(len, l.length); });
     var out = new Float32Array(len), gain = 1 / Math.sqrt(lines.length), peak = 0, k, j;
-    for (k = 0; k < lines.length; k++) { var l = lines[k], off = k * step; for (j = 0; j < l.length; j++) out[off + j] += l[j] * gain; }
+    for (k = 0; k < lines.length; k++) { var l = lines[k]; for (j = 0; j < l.length; j++) out[j] += l[j] * gain; }
     for (j = 0; j < len; j++) { var a = Math.abs(out[j]); if (a > peak) peak = a; }
     if (peak > 0.98) { var f = 0.98 / peak; for (j = 0; j < len; j++) out[j] *= f; }
     return out;
