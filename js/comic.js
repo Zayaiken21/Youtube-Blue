@@ -509,6 +509,11 @@
       $('voiceTakeNote').textContent = 'Using this audio from Voice Studio.';
       var meta = key.indexOf('take:') === 0 ? (YB.store.get('voiceTakes', []) || []).find(function (x) { return 'take:' + x.id === key; }) : null;
       useAudio(blob, $('voiceTake').selectedOptions[0] ? $('voiceTake').selectedOptions[0].textContent : 'Voice Studio audio', meta && meta.marks);
+      // a story track on panels with no captions yet: put that story's lines on the panels that show them
+      if (meta && meta.kind === 'story' && panels.length && !captionedCount()) {
+        var st = (YB.store.get('stories', []) || []).find(function (x) { return x.title === meta.groupTitle; });
+        if (st) { $('capStory').value = st.id; fillFromStory({ auto: true }); }
+      }
     });
   }
 
@@ -1410,29 +1415,71 @@
     return (st.blocks || []).filter(function (b) { return b.type === 'line' && b.text && b.text.trim(); })
       .filter(function (b) { return b.text.replace(/\[[^\]]*\]/g, ' ').trim(); }).map(function (b) { return b.speaker || 'narrator'; });
   }
-  function fillFromStory() {
-    var st = (YB.store.get('stories', []) || []).find(function (x) { return x.id === $('capStory').value; });
-    if (!st) { YB.toast('Write a story in Story Studio first'); return; }
-    var lines = storyLines(st), whos = storyWho(st), n = panels.length; if (!lines.length || !n) { YB.toast('That story has no spoken lines yet'); return; }
-    if (captionedCount() && !confirm('Replace the captions on every panel with lines from "' + st.title + '"?')) return;
-    var groups = panels.map(function () { return []; });
-    if (lines.length >= n) {
-      // every panel gets at least one line; extra lines go where the text is shortest so the timing stays even
-      lines.forEach(function (l, k) { groups[Math.min(n - 1, Math.floor(k * n / lines.length))].push(k); });
-    } else {
-      lines.forEach(function (l, k) { groups[Math.round(k * (n - 1) / Math.max(1, lines.length - 1))].push(k); });
-    }
-    panels.forEach(function (q, i) {
-      q.cap = {}; q.storyId = st.id; q.who = '';
-      if (!groups[i].length) return;
-      q.cap[S.srcLang] = groups[i].map(function (k) { return lines[k]; }).join(' ');
-      // the character who says most in this panel voices it
-      var tally = {}; groups[i].forEach(function (k) { tally[whos[k]] = (tally[whos[k]] || 0) + lines[k].length; });
-      q.who = Object.keys(tally).sort(function (a, b) { return tally[b] - tally[a]; })[0] || '';
+  // Read the words in every panel's speech bubbles (js/comic-ocr.js); saved per panel so each is read once.
+  var ocrMem = {};
+  function ocrKey(q) { return 'ocr:' + q.pageId + ':' + [q.x, q.y, q.w, q.h].map(Math.round).join(','); }
+  function panelTexts(onProgress) {
+    if (!window.YBComicOCR) return Promise.reject(new Error('no-ocr'));
+    var keys = panels.map(ocrKey);
+    return Promise.all(keys.map(function (k) {
+      if (ocrMem[k] != null) return ocrMem[k];
+      return kv('youtube-blue-comic', 'readonly', function (st, out) { var r = st.get(k); r.onsuccess = function () { out.v = r.result; }; });
+    })).then(function (saved) {
+      var todo = [];
+      panels.forEach(function (q, i) { if (saved[i] == null) todo.push(i); else ocrMem[keys[i]] = saved[i]; });
+      if (!todo.length) return keys.map(function (k) { return ocrMem[k]; });
+      var canv = todo.map(function (i) {
+        var q = panels[i], p = pageOf(q); if (!p) return null;
+        var sc = Math.max(1, Math.min(3, 1100 / Math.max(q.w, q.h)));   // small panels are enlarged so the letters are big enough
+        var c = document.createElement('canvas'); c.width = Math.round(q.w * sc); c.height = Math.round(q.h * sc);
+        var x = c.getContext('2d'); x.imageSmoothingQuality = 'high'; x.drawImage(p.img, q.x, q.y, q.w, q.h, 0, 0, c.width, c.height);
+        return c;
+      });
+      return window.YBComicOCR.read(canv, function (n, of) { if (onProgress) onProgress(n, of); }).then(function (texts) {
+        todo.forEach(function (i, n) { ocrMem[keys[i]] = texts[n] || ''; });
+        kv('youtube-blue-comic', 'readwrite', function (st) { todo.forEach(function (i) { st.put(ocrMem[keys[i]], keys[i]); }); });
+        return keys.map(function (k) { return ocrMem[k]; });
+      });
     });
-    S.showLang = S.srcLang; chunkCache = {}; saveSettings();
-    changed(); renderSubs();
-    YB.toast('Captions filled from "' + st.title + '" — check them under Order & timing');
+  }
+
+  // Story lines → panels. Each line goes on the panel that shows it (matched by the words in its
+  // speech bubbles), keeping the story order; if the panels can't be read, lines are spread evenly.
+  var filling = false;
+  function fillFromStory(opts) {
+    opts = opts && opts.auto ? opts : {};
+    if (filling) return Promise.resolve(false);
+    var st = (YB.store.get('stories', []) || []).find(function (x) { return x.id === $('capStory').value; });
+    if (!st) { if (!opts.auto) YB.toast('Write a story in Story Studio first'); return Promise.resolve(false); }
+    var lines = storyLines(st), whos = storyWho(st), n = panels.length; if (!lines.length || !n) { if (!opts.auto) YB.toast('That story has no spoken lines yet'); return Promise.resolve(false); }
+    if (!opts.auto && captionedCount() && !confirm('Replace the captions on every panel with lines from "' + st.title + '"?')) return Promise.resolve(false);
+    filling = true;
+    var btn = $('capFillBtn'), label = btn.textContent; btn.disabled = true;
+    btn.textContent = '🔎 Reading the panels…';
+    return panelTexts(function (k, of) { btn.textContent = '🔎 Reading the panels… ' + Math.min(k + 1, of) + '/' + of; })
+      .then(function (texts) { return window.YBComicOCR.match(lines, texts); }, function (e) { console.warn('[Comic] panel reading unavailable', e); return null; })
+      .then(function (res) {
+        var groups;
+        if (res) groups = res.groups;
+        else {
+          groups = panels.map(function () { return []; });
+          lines.forEach(function (l, k) { groups[lines.length >= n ? Math.min(n - 1, Math.floor(k * n / lines.length)) : Math.round(k * (n - 1) / Math.max(1, lines.length - 1))].push(k); });
+        }
+        panels.forEach(function (q, i) {
+          q.cap = {}; q.storyId = st.id; q.who = ''; q.capAuto = true;
+          if (!groups[i].length) return;
+          q.cap[S.srcLang] = groups[i].map(function (k) { return lines[k]; }).join(' ');
+          // the character who says most in this panel voices it
+          var tally = {}; groups[i].forEach(function (k) { tally[whos[k]] = (tally[whos[k]] || 0) + lines[k].length; });
+          q.who = Object.keys(tally).sort(function (a, b) { return tally[b] - tally[a]; })[0] || '';
+        });
+        S.showLang = S.srcLang; chunkCache = {}; syncCache = {}; saveSettings();
+        changed(); renderSubs();
+        var how = res && !res.fallback ? ' — each line is on the panel whose speech bubble shows it' : res ? ' — the panels have little readable text, so lines are spread in order' : ' — couldn\'t read the panels (offline?), so lines are spread in order';
+        YB.toast('Captions filled from "' + st.title + '"' + how);
+        return true;
+      }).then(function (r) { filling = false; btn.textContent = label; btn.disabled = false; return r; },
+        function (e) { filling = false; btn.textContent = label; btn.disabled = false; console.error(e); return false; });
   }
 
   /* ---------- Translation (MyMemory, free) ---------- */
@@ -1945,7 +1992,7 @@
     $('capCaps').checked = !!S.capCaps; $('capCaps').addEventListener('change', function () { S.capCaps = this.checked; saveSettings(); drawPreview(); });
     $('capTiming').checked = !!S.capTiming; $('capTiming').addEventListener('change', function () { S.capTiming = this.checked; saveSettings(); renderAll(); });
     $('capPace').value = String(S.capPace || 15); $('capPace').addEventListener('change', function () { S.capPace = +this.value; saveSettings(); renderAll(); });
-    $('capFillBtn').addEventListener('click', fillFromStory);
+    $('capFillBtn').addEventListener('click', function () { fillFromStory(); });
     $('capClearBtn').addEventListener('click', function () {
       if (!captionedCount() || !confirm('Remove every caption (all languages)?')) return;
       panels.forEach(function (q) { q.cap = {}; }); chunkCache = {}; changed(); renderSubs();

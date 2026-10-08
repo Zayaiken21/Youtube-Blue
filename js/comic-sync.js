@@ -92,12 +92,14 @@
         for (i = 0; i < m; i++) { starts[lo + i] = t0 + i * d0; ends[lo + i] = t0 + (i + 1) * d0; }
         continue;
       }
-      var cut = c.starts[k], from = k ? speechEnd(k - 1) + 0.15 : 0, room = cut - from;
+      var cut = c.starts[k], from = k ? speechEnd(k - 1) + 0.06 : 0, room = cut - from;
       // fit in the pause when there's room (at least ~0.35 s each); otherwise right after the last words
       // Speaking panels always start on time. A picture-only panel uses the pause when there's room;
       // otherwise it takes a short moment from the end of the panel before it (never delaying the next words).
-      var fits = room >= 0.35 * m, d = fits ? Math.min(1.5, room / m) : 0.35;
-      var begin = Math.max(k ? c.starts[k - 1] + 0.3 : 0, cut - d * m);
+      // Picture-only panels live in the pause only — never over anyone's words. If the pause is too short
+      // for them, they're skipped (zero time) rather than showing the wrong picture while someone speaks.
+      var d = room >= 0.12 * m ? Math.min(1.5, room / m) : 0;
+      var begin = Math.max(k ? Math.min(cut, c.starts[k - 1] + 0.3) : 0, cut - d * m);
       if (k) ends[idx[k - 1]] = begin;
       for (i = 0; i < m; i++) { starts[lo + i] = begin + i * (cut - begin) / m; ends[lo + i] = begin + (i + 1) * (cut - begin) / m; }
       if (!k) starts[lo] = 0;
