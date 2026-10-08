@@ -189,6 +189,10 @@ In a multi-voice story, tap **👥 Together** on any line and tick who says it w
 - `MOM & DAD:` / `Mom and Dad:` become a group line; `ALL:`, `EVERYONE:`, `BOTH:` make everyone in the script say it together.
 - `NARRATOR:` goes to the Narrator. `Scene 2: …`, `INT. KITCHEN`, and Word headings start scenes. `[SFX: …]`, `Music: …`, `Note: …` become directions. `(laughing)`, `*sighs*` become `[laugh]` / `[sigh]` reaction tags. A `Characters:` list (`Alex – the hero`) fills in each character's role.
 
+**Only labeled lines are spoken.** A list of how each character sounds — under a heading like `CHARACTERS`, `Voice tones` or `Cast`, or a run of short `Name: how they sound` notes before the dialogue (`Customer: Confused, then dramatically outraged.`) — becomes each character's role, never spoken lines. A CAPS title at the top is the title, not a character. Text with no name in front is left out by default whenever the script has named speakers.
+
+**Narrator vs. main character.** `NARRATOR:` lines keep the Narrator's own voice. When the main character tells the story, write `ALEX (narrating): …` or `NARRATOR (Alex): …`, or mark them in the Characters list (`Alex – main character and narrator`); the import window's **Narration is read by** menu picks them automatically, and you can switch any script's narration to a character there.
+
 The preview shows every line with who says it. Untick anything that was mistaken for a name, choose what happens to text with no name (Narrator reads it / Direction / Leave out — when the script labels its own `NARRATOR:` lines, unlabeled headings and instructions are left out by default), set the title, and choose **a new story**, **replace this story's script**, or **add to the end**. Pictures and scanned PDFs have no text to read, so the window says so and asks for the text instead.
 
 ### Characters belong to each story

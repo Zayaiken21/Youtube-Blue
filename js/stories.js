@@ -361,7 +361,7 @@
   }
 
   /* ---------- Import a script (paste or PDF / Word file) — parsing lives in js/script-import.js ---------- */
-  var imp = { parsed: null, off: {}, other: 'narrator', dest: 'new', title: '', busy: false };
+  var imp = { parsed: null, off: {}, other: 'narrator', dest: 'new', title: '', busy: false, narr: 'narrator' };
 
   function impParse(text, fileTitle) {
     var P = window.YBScriptImport;
@@ -371,6 +371,7 @@
     imp.parsed = p; imp.off = {};
     if (p) {
       if (!prev || prev.suggestOther !== p.suggestOther) imp.other = p.suggestOther;
+      if (!prev || prev.narratorAs !== p.narratorAs) imp.narr = p.narratorAs || 'narrator';
       imp.title = p.title || fileTitle || imp.title || '';
       $('impTitleIn').value = imp.title;
     }
@@ -378,6 +379,8 @@
   }
 
   function impColor(i, s) { return COLORS[(i + 1) % COLORS.length]; }
+  // Who reads narration: the Narrator's own voice, or a (ticked) character such as the main character.
+  function impNarrator() { var k = imp.narr; return k && k !== 'narrator' && !imp.off[k] && imp.parsed && imp.parsed.cast.some(function (c) { return c.key === k; }) ? k : 'narrator'; }
 
   function renderImport() {
     var p = imp.parsed, has = p && (p.lines || p.items.length);
@@ -399,6 +402,11 @@
     }).join('') : '<span class="muted small">No character names found — check the formats below, or everything goes to the Narrator.</span>') +
       (p.narratorLines ? '<span class="grp-chip on imp-narr" style="--c:#1e7bff">🎙️ Narrator <span class="muted small">' + p.narratorLines + '</span></span>' : '');
     var unnamed = impItems().filter(function (it) { return it.kind === 'text'; }).length;
+    var nk = impNarrator(), showNarr = p.cast.length && (p.narratorLines || p.narratorAs || (unnamed && imp.other === 'narrator'));
+    $('impNarrField').hidden = !showNarr;
+    $('impNarr').innerHTML = '<option value="narrator">The Narrator (its own voice)</option>' + p.cast.filter(function (c) { return !imp.off[c.key]; }).map(function (c) {
+      return '<option value="' + YB.esc(c.key) + '"' + (c.key === nk ? ' selected' : '') + '>' + YB.esc(c.name) + ' — the main character narrates</option>';
+    }).join('');
     $('impOtherN').textContent = unnamed;
     $('impOtherField').hidden = !unnamed;
     $('impOther').querySelectorAll('[data-other]').forEach(function (b) { b.classList.toggle('on', b.getAttribute('data-other') === imp.other); });
@@ -409,14 +417,15 @@
       if (it.kind === 'scene') return '<li class="imp-scene">— ' + YB.esc(it.text) + ' —</li>';
       if (it.kind === 'note') return '<li class="imp-note">' + YB.esc(it.text) + '</li>';
       if (it.kind === 'text') {
-        var how = imp.other === 'narrator' ? '<b style="color:#1e7bff">Narrator</b>' : imp.other === 'note' ? '<i>Direction</i>' : '<i>left out</i>';
+        var nkey = impNarrator(), nc = nkey !== 'narrator' && p.cast.find(function (x) { return x.key === nkey; });
+        var how = imp.other === 'narrator' ? (nc ? '<b style="color:' + ci[nkey] + '">' + YB.esc(nc.name) + '</b> <span class="muted">narrating</span>' : '<b style="color:#1e7bff">Narrator</b>') : imp.other === 'note' ? '<i>Direction</i>' : '<i>left out</i>';
         return '<li class="imp-text' + (imp.other === 'skip' ? ' imp-skip' : '') + '"><span class="imp-who">' + how + '</span>' + YB.esc(it.text) + '</li>';
       }
       var names = it.keys.map(function (k) {
         if (k === 'narrator') return '<b style="color:#1e7bff">Narrator</b>';
         var c = p.cast.find(function (x) { return x.key === k; });
         return '<b style="color:' + ci[k] + '">' + YB.esc(c ? c.name : k) + '</b>';
-      }).join(' + ');
+      }).join(' + ') + (it.narr ? ' <span class="muted">narrating</span>' : '');
       return '<li><span class="imp-who">' + names + (it.keys.length > 1 ? ' <span class="grp-tag">👥</span>' : '') + '</span>' + YB.esc(it.text) + '</li>';
     }).join('') + (list.length > shown.length ? '<li class="imp-more">…and ' + (list.length - shown.length) + ' more</li>' : '');
     var spoken = list.filter(function (it) { return it.kind === 'line' || (it.kind === 'text' && imp.other === 'narrator'); }).length;
@@ -434,7 +443,9 @@
       var keys = it.all ? (allKeys.length ? allKeys : ['narrator']) : it.who;
       if (keys.some(function (k) { return imp.off[k]; })) return out.push({ kind: 'text', text: it.raw || it.text });   // unticked "name" → plain text
       if (!keys.length) keys = ['narrator'];
-      out.push({ kind: 'line', keys: keys.filter(function (k, i) { return keys.indexOf(k) === i; }), text: it.text });
+      var nk = impNarrator(), narr = !!it.narr;
+      if (nk !== 'narrator' && keys.indexOf('narrator') !== -1) { keys = keys.map(function (k) { return k === 'narrator' ? nk : k; }); narr = true; }
+      out.push({ kind: 'line', keys: keys.filter(function (k, i) { return keys.indexOf(k) === i; }), text: it.text, narr: narr });
     });
     return out;
   }
@@ -501,7 +512,7 @@
       if (it.kind === 'scene') blocks.push({ id: YB.uid(), type: 'scene', speaker: 'narrator', text: it.text });
       else if (it.kind === 'note') blocks.push({ id: YB.uid(), type: 'note', speaker: 'narrator', text: it.text });
       else if (it.kind === 'text') {
-        if (imp.other === 'narrator') blocks.push({ id: YB.uid(), type: 'line', speaker: 'narrator', text: it.text });
+        if (imp.other === 'narrator') blocks.push({ id: YB.uid(), type: 'line', speaker: idFor(impNarrator()), text: it.text });
         else if (imp.other === 'note') blocks.push({ id: YB.uid(), type: 'note', speaker: 'narrator', text: it.text });
       } else {
         var ids = it.keys.map(idFor), b = { id: YB.uid(), type: 'line', speaker: ids[0], text: it.text };
@@ -542,6 +553,7 @@
       renderImport();
     });
     $('impOther').addEventListener('click', function (e) { var b = e.target.closest('[data-other]'); if (b) { imp.other = b.getAttribute('data-other'); renderImport(); } });
+    $('impNarr').addEventListener('change', function () { imp.narr = this.value; renderImport(); });
     $('impDest').addEventListener('click', function (e) { var b = e.target.closest('[data-dest]'); if (b) { imp.dest = b.getAttribute('data-dest'); renderImport(); } });
     var drop = $('impDrop');
     ['dragenter', 'dragover'].forEach(function (ev) { drop.addEventListener(ev, function (e) { e.preventDefault(); drop.classList.add('drag'); }); });

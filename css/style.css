@@ -1076,3 +1076,4 @@ input[type="range"] { min-height: 32px; }            /* finger-friendly */
 .imp-skip { text-decoration: line-through; opacity: .55; }
 .imp-more { color: var(--muted); justify-content: center; }
 #impErr { color: #fecaca; margin: 10px 0 0; }
+.imp-opts [hidden] { display: none; }

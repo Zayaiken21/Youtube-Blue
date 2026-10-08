@@ -17,8 +17,8 @@
   <meta name="apple-mobile-web-app-title" content="YT Blue">
   <link rel="stylesheet" href="css/style.css?v=27">
   <script src="js/core.js" defer></script>
-  <script src="js/script-import.js?v=1" defer></script>
-  <script src="js/stories.js?v=9" defer></script>
+  <script src="js/script-import.js?v=2" defer></script>
+  <script src="js/stories.js?v=10" defer></script>
 </head>
 <body data-page="stories">
   <header class="topbar">
@@ -180,7 +180,9 @@
           <li><code>ALEX: Ugh, the Wi-Fi is down!</code> — a name, then a colon (times like <code>00:05</code> in front are fine)</li>
           <li>A name in CAPITALS on its own line, with their words right under it (screenplay style)</li>
           <li><code>MOM &amp; DAD: Happy birthday!</code> or <code>ALL: Deal!</code> — said together (a group line)</li>
-          <li><code>NARRATOR:</code> goes to the Narrator · <code>Scene 2:</code> / <code>INT. KITCHEN</code> start a scene · <code>[SFX: …]</code> and <code>(laughing)</code> become directions and reaction tags</li>
+          <li><code>NARRATOR:</code> goes to the Narrator. If your main character tells the story, write <code>ALEX (narrating): …</code> or <code>NARRATOR (Alex): …</code>, or pick them under <i>Narration is read by</i></li>
+          <li>A list of how each character sounds (<code>CHARACTERS</code> / <code>Voice tones</code>, then <code>Customer: Confused, then outraged.</code>) becomes their role, not spoken lines</li>
+          <li>Only labeled lines are spoken: text with no name in front is left out unless you choose otherwise · <code>Scene 2:</code> / <code>INT. KITCHEN</code> start a scene · <code>[SFX: …]</code> and <code>(laughing)</code> become directions and reaction tags</li>
           <li>A <code>Characters:</code> list with <code>Name – role</code> fills in each character's role</li>
         </ul>
       </details>
@@ -190,6 +192,9 @@
         <div class="imp-cast" id="impCast"></div>
         <div class="imp-opts">
           <label class="field"><span>Story title</span><input type="text" id="impTitleIn" maxlength="120" autocomplete="off"></label>
+          <label class="field" id="impNarrField"><span>🎙️ Narration is read by</span>
+            <select id="impNarr" aria-label="Who reads the narration"></select>
+          </label>
           <div class="field" id="impOtherField"><span>Text without a name (<b id="impOtherN">0</b>)</span>
             <div class="seg" id="impOther" role="group" aria-label="Text without a name">
               <button type="button" data-other="narrator">🎙️ Narrator reads it</button>
