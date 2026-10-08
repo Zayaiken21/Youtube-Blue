@@ -1,0 +1,76 @@
+YOUTUBE BLUE — CHARACTER CREATOR PROMPT  (v1 · Import-Safe)
+Copy everything below this line into your AI. Fill in the YOUR CAST box first.
+Paste the answer into Story Studio → Import to add the characters, their roles and voice notes in one go.
+
+────────────────────────────────────────
+
+You are a character designer for short animated stories made in YouTube Blue, an app that gives every character their own voice and builds videos from comic panels. Design a cast that is memorable, easy to voice, and easy to draw the same way every time. Your answer will be imported by a strict parser, so the OUTPUT FORMAT below is a hard rule.
+
+YOUR CAST (fill in or leave "you choose")
+• Story idea or setting: [you choose]
+• Number of characters: [4]
+• Audience and tone: [family-friendly comedy, not babyish]
+• Must include (optional): [e.g. a grandma, a talking dog, a narrator]
+• Art style for images (optional): [simple stick-figure cartoon / 3D animated / comic book / anime …]
+• Who tells the story: [no narrator  /  a separate NARRATOR  /  the main character narrates]
+
+DESIGN RULES
+1. Each character has ONE clear comedic job in the cast (the planner, the chaos, the skeptic, the know-it-all…) so they never sound alike.
+2. Names are short, easy to say, and all different in sound and first letter.
+3. Voice direction must be something a voice actor or AI voice can follow: age, pitch (high / medium / low), pace (fast / medium / slow), energy, and one texture word (warm, raspy, bright, dry, squeaky, booming…).
+4. Looks must stay identical from picture to picture: give fixed colors, one signature item, and the same outfit every time.
+5. Original characters only — no copyrighted or real people.
+
+OUTPUT FORMAT — follow exactly
+Your whole answer must be ONE plain-text block, in this order:
+
+TITLE: <a name for this cast, e.g. "The Car Trip Family">
+=== CHARACTERS ===
+NAME | role and personality in one or two sentences | voice direction: age, pitch, pace, energy, texture
+NAME | … | …
+=== END ===
+=== CHARACTER BIBLE ===
+(everything in this part is for you and your image AI — it is never imported)
+NAME
+  Look: body shape, hair, face, skin/fur colors, outfit and its colors, one signature item
+  Image prompt: one ready-to-use sentence that draws this character the same way every time, in the chosen art style, plain background
+  Expressions: 4 short expression names to draw (e.g. smug, panicked, delighted, unimpressed)
+  Catchphrase: one short line they would say
+  Voice test line: one sentence that shows off their voice
+  Suggested Chatterbox settings: Exaggeration 0.3–0.8, CFG / pace 0.3–0.6, Temperature 0.6–0.9 (pick values that suit the voice)
+  Gets along with / clashes with: one line
+(repeat for each character)
+
+Rules for the CHARACTERS section — this is the part that gets imported
+• One line per character, exactly three parts separated by " | ".
+• NAME in CAPITALS, one or two words, spelled the same everywhere.
+• If there is a separate narrator, include: NARRATOR | Tells the story | voice direction
+• If the main character narrates, write "narrates the story" in their role.
+• No bullet points, numbers, markdown (** or #), emojis or blank lines inside this section.
+• Do not put spoken dialogue anywhere in this answer — no "NAME: words" lines at all. (Stories are written with the YouTube Blue Master Story Prompt, which can reuse this exact CHARACTERS block.)
+
+EXAMPLE OF A CORRECT ANSWER (different cast — do not copy it)
+TITLE: The Car Trip Family
+=== CHARACTERS ===
+JAYDEN | Main character, 9, narrates the story; confident, sarcastic, secretly organized | Kid, medium-high pitch, fast, playful energy, bright
+AUNT NICOLE | Cheerfully unreasonable; thinks overpacking is a lifestyle | Adult woman, medium pitch, slow and calm, warm
+UNCLE MARCUS | Over-prepared gadget lover, dead serious about nonsense | Adult man, low pitch, slow, deadpan, booming
+GRANDMA | Tiny, sharp, hears everything, shows up for the punchline | Elderly woman, high pitch, quick, feisty, raspy
+=== END ===
+=== CHARACTER BIBLE ===
+JAYDEN
+  Look: skinny stick-figure kid, messy brown hair, big round eyes, blue t-shirt, red sneakers; signature item: a clipboard
+  Image prompt: simple stick-figure cartoon boy with messy brown hair, big round eyes, blue t-shirt and red sneakers holding a clipboard, plain white background
+  Expressions: smug, panicked, unimpressed, delighted
+  Catchphrase: "I have a system."
+  Voice test line: "Okay, nobody panic — I made a list, and the list has a list."
+  Suggested Chatterbox settings: Exaggeration 0.6, CFG / pace 0.4, Temperature 0.8
+  Gets along with / clashes with: Grandma (secret team) / Uncle Marcus (gadgets vs. lists)
+(…and so on for each character)
+
+FINAL SELF-CHECK before you answer
+☐ The answer starts with "TITLE:".
+☐ The CHARACTERS section has exactly one "NAME | role | voice" line per character, then "=== END ===".
+☐ Every name is in CAPITALS and spelled the same everywhere.
+☐ There are no "NAME: dialogue" lines anywhere.
+☐ Each character's look has fixed colors and a signature item so images stay consistent.

@@ -375,13 +375,13 @@
 
   var LABEL_SCENE = /^(scene|setting|location|place|chapter|act|episode|ep|part|sequence|segment|shot)$/;
   var LABEL_NOTE = /^(music|sfx|sound|sounds|sound effects?|fx|on[ -]?screen(?: text)?|text on screen|b-?roll|camera|visuals?|action|directions?|stage directions?|transition|beat|pause|note|notes|tip|tips|warning|reminder|important|ps|p\.s|todo|caption|captions|graphics?|overlay|cut to|cue|timing|duration|length|runtime|time|date|style|tone|mood|format|music cue)$/;
-  var LABEL_DROP = /^(title|subtitle|written by|writer|author|by|logline|synopsis|summary|genre|audience|target|word count|words|page|pages|version|draft|copyright|source|sources|link|links|email|phone|website|url|http|https|www|theme|moral|hook|cta|description|characters?|cast|cast list|character list|cast of characters|roles|key|legend|storyboard|visual style|script)$/;
+  var LABEL_DROP = /^(title|subtitle|written by|writer|author|by|logline|synopsis|summary|genre|audience|target|word count|words|page|pages|version|draft|copyright|source|sources|link|links|email|phone|website|url|http|https|www|theme|moral|hook|cta|description|characters?|cast|cast list|character list|cast of characters|roles|key|legend|storyboard|visual style|script|voice script|import validation|validation|log ?line|premise|payoff|ending|structure|beat sheet|image prompts?|thumbnail|hashtags?|tags|runtime|narrator status|status|companion|notes for ai|instructions?|format|output|word count|read time|target length)$/;
   var ALL_WORDS = /^(all|everyone|everybody|both|together|all together|all of them|all three|all four|the group|group|chorus|crowd|kids|the kids|everyone together)$/;
   // Headings that start a list of characters / voice notes ("CHARACTERS", "Voice direction", "Cast (auto-add)")
   var CASTHEAD = /^(?:the\s+)?(?:main\s+)?(?:characters?|cast|cast list|character list|cast of characters|roles|voices?|voice (?:notes|direction|guide|styles?|casting|tones?)|character (?:notes|tones?|voices?|descriptions?|guide|breakdown|list|styles?)|tones?(?: guide)?|who'?s who|performance notes|delivery(?: notes)?|vocal (?:direction|notes)|characters? (?:and|&) (?:voices?|tones?|roles?))(?:\s*[:\-–—].*)?$/i;
   var CASTWORDS = /^(?:the|main|characters?|cast|list|of|and|&|\+|\/|voices?|tones?|notes?|direction|guide|styles?|roles?|descriptions?|breakdown|casting|who'?s|who|performance|delivery|vocal|personalities|personality|vibes?)$/i;
   function castHeading(text) {
-    var t = String(text || '').replace(/\([^)]*\)/g, ' ').replace(/[*_#:.\-–—]+/g, ' ').replace(/\s+/g, ' ').trim();
+    var t = String(text || '').replace(/\([^)]*\)/g, ' ').replace(/[*_#:.=\[\]\-–—]+/g, ' ').replace(/\s+/g, ' ').trim();
     if (!t) return false;
     var w = t.split(' ');
     if (w.length <= 6 && CASTHEAD.test(t)) return true;
@@ -391,11 +391,17 @@
   // Words that describe how someone sounds or who they are — used to spot a list of voice notes.
   var DESC = /\b(?:tone|voice|voiced|delivery|energy|deadpan|sarcastic|dramatic|confident|calm|excited|robotic|polite|serious|nervous|confused|friendly|grumpy|cheerful|whiny|deep|high|low|slow|fast|raspy|soft|loud|outraged|exhausted|enthusiastic|passive|aggressive|monotone|main character|best friend|sidekick|villain|hero|narrator|witty|goofy|smart|funny|relatable|kind|wise|shy|bossy|sweet|sassy|bored|tired|young|old|elderly|childlike|cartoon|accent|squeaky|gruff|warm|cold|cheeky|curious|clumsy|brave|scared|anxious|optimistic|pessimistic|chaotic|clueless|sincere|dry|upbeat|chill|hyper|stern|gentle|mysterious|corporate|professional|absurd(?:ly)?)\b|\b\w{3,}(?:ly|ive|ous|ful|ic|ish|esque)\b/i;
   var PRONOUN = /\b(?:I|I'm|I'll|I've|I'd|me|my|mine|myself|we|we're|we'll|us|our|ours|you|you're|you'll|your|yours|let's)\b/i;
+  var DESC_ALL = new RegExp(DESC.source, 'gi');
   function isDescription(t) {
     t = String(t || '').trim();
     var w = t.split(/\s+/).filter(Boolean).length;
-    return w > 0 && w <= 14 && !/[?!]["”']?$/.test(t) && !/["“”]/.test(t) && !PRONOUN.test(t) && DESC.test(t);
+    if (!w || /[?!]["”']?$/.test(t) || /["“”]/.test(t) || PRONOUN.test(t)) return false;
+    var hits = (t.match(DESC_ALL) || []).length;
+    // short notes need one describing word; longer notes ("Main character, 9 years old. Fast, confident, sarcastic…") need more
+    return w <= 14 ? hits >= 1 : w <= 50 && hits >= Math.ceil(w / 12);
   }
+  // "Narrator: NO. Jayden narrates his own story." / "Narrator: Absent." are notes about the narrator, not lines
+  var NARR_META = /^(?:no|none|absent|not (?:included|used|present|needed)|n\/a|off|disabled|omitted)\b|\bno (?:dummy |separate |real )?narrator\b|\bnarrates (?:his|her|their) own\b|\bnarrator (?:is|will be) (?:absent|not)\b/i;
   var MINOR = /^(of|the|de|da|del|van|von|der|la|le|du|di|al|el|bin|and|y|mc)$/i;
   var EMOTION = [[/laugh/i, 'laugh'], [/chuckl|giggl/i, 'chuckle'], [/sigh/i, 'sigh'], [/gasp/i, 'gasp'], [/cough/i, 'cough'],
     [/clear(s|ing)? (his |her |their )?throat/i, 'clear throat'], [/sniff/i, 'sniff'], [/groan/i, 'groan'], [/shush|shh/i, 'shush']];
@@ -447,6 +453,15 @@
     if (parts.length > 1 && parts.length <= 8 && parts.every(function (p) { return oneName(p, capsOnly) && p.split(/\s+/).length <= 3; })) return { names: parts, paren: paren };
     if (oneName(n, capsOnly)) return { names: [n], paren: paren };
     return null;
+  }
+
+  // A character note → a short role (first sentence) + the full note for the voice notes.
+  function setNote(c, text) {
+    text = String(text || '').replace(/^[-–—:,|\s]+/, '').replace(/\s+/g, ' ').trim();
+    if (!text) return;
+    var first = (/^(.{3,80}?[.;!])(\s|$)/.exec(text) || [null, text])[1].replace(/[.;\s]+$/, '');
+    if (!c.role) c.role = first.slice(0, 60);
+    if (text.length > c.role.length + 2 && !c.notes) c.notes = text.slice(0, 400);
   }
 
   function emotionTag(paren) {
@@ -509,9 +524,78 @@
     return { k: 'text', text: trimmed };
   }
 
+  /* ---------- Strict "YouTube Blue Script Format" ----------
+     TITLE: …
+     === CHARACTERS ===
+     NAME | role | voice direction
+     === SCRIPT ===
+     NAME: spoken words
+     === END ===
+     Only lines inside SCRIPT are ever spoken; everything else is notes. */
+  var SECTION = /^\s*(?:={2,}|\[|#{1,3})\s*([A-Za-z][A-Za-z &/'’-]{1,40}?)\s*(?:={2,}|\])?\s*$/;
+  var SECTION_NAMES = /^(?:script|dialogue|voice script|story script|the script|characters?|cast|character list|end|end of script|end script|notes|story notes|storyboard|companion|companion notes|details|info|visuals?|image prompts?|voice settings|character bible|production notes|validation|import validation|title|metadata)$/i;
+  function sectionOf(line) {
+    var m = SECTION.exec(line);
+    if (!m || !/^\s*(={2,}|\[)/.test(line) && !/^\s*#{1,3}\s*[A-Z &]+\s*$/.test(line)) return null;
+    var n = m[1].trim().toLowerCase();
+    if (!SECTION_NAMES.test(n)) return null;
+    if (/^(script|dialogue|voice script|story script|the script)$/.test(n)) return 'script';
+    if (/^(characters?|cast|character list)$/.test(n)) return 'characters';
+    if (/^(end|end of script|end script)$/.test(n)) return 'end';
+    return 'other';
+  }
+  function strictParse(lines) {
+    var hasScript = lines.some(function (l) { var x = sectionOf(l); return x === 'script' || (x === 'characters' && /^\s*(={2,}|\[)/.test(l)); });
+    if (!hasScript) return null;
+    var sec = null, title = '', decl = [], body = [];
+    lines.forEach(function (l) {
+      var s2 = sectionOf(l);
+      if (s2) { sec = s2; return; }
+      var t = l.trim(); if (!t) { if (sec === 'script') body.push(''); return; }
+      var tm = /^(?:#!?\s*)?title\s*[:：]\s*(.+)$/i.exec(t);
+      if (tm && sec !== 'script') { if (!title) title = tm[1].replace(/^["“]|["”]$/g, '').trim(); return; }
+      if (sec === 'script') { body.push(l); return; }
+      if (sec === 'characters') {
+        var parts = t.replace(/^[-*•]\s*/, '').split(/\s*\|\s*/);
+        var name, rest;
+        if (parts.length > 1) { name = parts[0]; rest = parts.slice(1); }
+        else { var mm = /^(.{1,40}?)\s*(?:[:\t]|\s[–—-]\s)\s*(.*)$/.exec(t); if (!mm) return; name = mm[1]; rest = [mm[2]]; }
+        var sp = speakerLabel(name);
+        if (sp && !sp.all && sp.names.length === 1) decl.push({ name: sp.names[0], role: (rest[0] || '').trim(), voice: (rest.slice(1).join(' | ') || '').trim() });
+      }
+    });
+    return { title: title, decl: decl, body: body };
+  }
+
   function parse(input) {
-    var lines = String(input || '').replace(/\r\n?/g, '\n').replace(/\u2028|\u2029/g, '\n').split('\n');
+    var raw = String(input || '').replace(/\r\n?/g, '\n').replace(/\u2028|\u2029/g, '\n').split('\n');
+    var st = strictParse(raw);
+    if (!st) return parseLoose(raw);
+    var r = parseLoose(st.body, true);
+    r.strict = true;
+    if (st.title) r.title = nice(st.title).slice(0, 120);
+    // declared characters: roles + voice notes, and characters with no lines yet are still added
+    var byKey = {}; r.cast.forEach(function (c) { byKey[c.key] = c; });
+    var declKeys = {};
+    st.decl.forEach(function (d) {
+      var k = key(d.name);
+      if (k === 'narrator' || k === 'the narrator') { r.narratorVoice = d.voice || d.role; return; }
+      declKeys[k] = 1;
+      var c = byKey[k];
+      if (!c) { c = byKey[k] = { key: k, name: nice(d.name), count: 0, role: '', notes: '' }; r.cast.push(c); }
+      c.role = ''; c.notes = '';
+      setNote(c, d.role);
+      if (d.voice) { c.voice = d.voice; c.notes = (c.notes ? c.notes + ' · ' : '') + 'Voice: ' + d.voice; }
+      if (/\bnarrat|storytell/i.test(d.role + ' ' + d.voice) && !r.narratorAs) r.narratorAs = k;
+    });
+    // a speaker in the script that isn't in the CHARACTERS list is probably a mistake: shown, but unticked
+    if (st.decl.length) r.cast.forEach(function (c) { if (!declKeys[c.key]) c.undeclared = true; });
+    return r;
+  }
+
+  function parseLoose(lines, strict) {
     var cls = lines.map(classify);
+    if (strict) cls = cls.map(function (c) { return c.k === 'text' ? { k: 'drop' } : c; });   // in the SCRIPT section only labeled lines count
 
     // Second pass: a mixed-case name alone on a line counts as a cue once that name has spoken elsewhere.
     var known = {};
@@ -551,7 +635,7 @@
     function person(n) {
       var k = key(n);
       if (k === 'narrator' || k === 'the narrator' || k === 'narration' || k === 'storyteller' || k === 'vo' || k === 'v o') return 'narrator';
-      if (!cast[k]) { cast[k] = { key: k, name: nice(n), count: 0, role: '' }; order.push(k); }
+      if (!cast[k]) { cast[k] = { key: k, name: nice(n), count: 0, role: '', notes: '' }; order.push(k); }
       return k;
     }
     function close() { cur = null; }
@@ -580,8 +664,8 @@
         if (nmKey && !castSeen[nmKey] && roleWords <= 14 && !/[?!]["”']?$/.test(em[1] || '') && !PRONOUN.test(em[1] || '') && c.k !== 'scene' && c.k !== 'heading') {
           var pk = person(nm.names[0]), roleText = (em[1] || '').replace(/^[-–—:,\s]+/, '').replace(/[.\s]+$/, '');
           castSeen[nmKey] = 1;
-          if (nm.narrates || /\bnarrat/i.test(roleText)) { if (pk !== 'narrator') narratorAs = pk; }
-          if (pk !== 'narrator' && roleText) cast[pk].role = roleText.slice(0, 80);
+          if (nm.narrates || /\bnarrat|storytell/i.test(roleText)) { if (pk !== 'narrator') narratorAs = pk; }
+          if (pk !== 'narrator' && roleText) { cast[pk].role = ''; cast[pk].notes = ''; setNote(cast[pk], roleText); }
           castMode = 'in';
           continue;
         }
@@ -629,6 +713,15 @@
     var quoted = items.find(function (it) { return it.front && /^["“].{2,70}["”]$/.test(it.text); });
     if (quoted) { if (title && title !== quoted.text) items.unshift({ type: 'text', text: title, front: true }); title = quoted.text.replace(/^["“]|["”]$/g, ''); items.splice(items.indexOf(quoted), 1); }
 
+    // Notes about the narrator ("Narrator: NO. JAYDEN narrates his own story.") are removed, and tell us who narrates.
+    for (var q = items.length - 1; q >= 0; q--) {
+      var mt = items[q];
+      if (mt.type !== 'line' || mt.all || mt.who.length !== 1 || mt.who[0] !== 'narrator' || !NARR_META.test(mt.text)) continue;
+      var nm2 = /([A-Z][A-Za-z'’-]+(?:\s+[A-Z][A-Za-z'’-]+)?)\s+(?:narrates|is the narrator|tells the story)/.exec(mt.text);
+      if (nm2 && cast[key(nm2[1])]) narratorAs = key(nm2[1]);
+      items.splice(q, 1);
+    }
+
     // A run of "Name: how they sound" lines before the dialogue (no heading) is a list of voice notes, not lines.
     (function () {
       var start = items.findIndex(function (it) { return it.type === 'line'; });
@@ -645,7 +738,7 @@
       if (!run.every(function (it) { return later(it.who[0]); })) return;
       run.forEach(function (it) {
         var ck = it.who[0], c = cast[ck];
-        if (c) { c.count--; if (!c.role) c.role = it.text.replace(/[.\s]+$/, '').slice(0, 80); if (/\bnarrat/i.test(it.text)) narratorAs = ck; }
+        if (c) { c.count--; setNote(c, it.text); if (/\bnarrat|storytell/i.test(it.text)) narratorAs = ck; }
         items.splice(items.indexOf(it), 1);
       });
     })();

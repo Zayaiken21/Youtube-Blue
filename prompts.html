@@ -1,0 +1,85 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>Prompts — Youtube Blue</title>
+  <meta name="description" content="Ready-made prompts for your AI that answer in the YouTube Blue format — stories and characters that import with no cleanup.">
+  <meta name="theme-color" content="#06101f">
+  <meta name="color-scheme" content="dark">
+  <link rel="manifest" href="manifest.webmanifest">
+  <link rel="icon" href="icons/logo.svg" type="image/svg+xml">
+  <link rel="icon" href="icons/favicon-32.png" sizes="32x32" type="image/png">
+  <link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="apple-mobile-web-app-title" content="YT Blue">
+  <link rel="stylesheet" href="css/style.css?v=29">
+  <script src="js/core.js" defer></script>
+  <script src="js/prompts.js?v=1" defer></script>
+</head>
+<body data-page="prompts">
+  <header class="topbar">
+    <div class="container topbar-inner">
+      <a class="brand" href="index.html"><img src="icons/logo.svg" alt="" width="34" height="34"><span>Youtube <b>Blue</b></span></a>
+      <nav class="nav" id="nav" aria-label="Main">
+        <div class="nav-head"><img src="icons/logo.svg" alt="" width="30" height="30">Youtube Blue</div>
+        <a href="index.html" data-page="home"><span class="nav-ico">🏠</span>Home</a>
+        <a href="design.html" data-page="design"><span class="nav-ico">🎨</span>Channel Design</a>
+        <a href="analytics.html" data-page="analytics"><span class="nav-ico">📊</span>Analytics</a>
+        <a href="scheduler.html" data-page="scheduler"><span class="nav-ico">🗓️</span>Upload Scheduler</a>
+        <a href="stories.html" data-page="stories"><span class="nav-ico">✍️</span>Story Studio</a>
+        <a href="voice.html" data-page="voice"><span class="nav-ico">🎙️</span>Voice Studio</a>
+        <a href="comic.html" data-page="comic"><span class="nav-ico">🎞️</span>Comic to Video</a>
+        <a href="prompts.html" data-page="prompts"><span class="nav-ico">🧠</span>Prompts</a>
+        <div class="nav-foot"><button class="btn" type="button" data-install hidden>📲 Add to Home Screen</button></div>
+      </nav>
+      <button class="menu-btn" type="button" aria-label="Open menu" aria-expanded="false" aria-controls="nav"><span></span><span></span><span></span></button>
+    </div>
+  </header>
+  <div class="scrim"></div>
+
+    <main class="page container">
+    <div class="page-head">
+      <div class="eyebrow">🧠 Prompts</div>
+      <h1>Prompts for your AI</h1>
+      <p>Copy a ready-made prompt into ChatGPT, Claude or Gemini. Every prompt makes your AI answer in the <b>YouTube Blue Script Format</b>, so you can paste the result straight into <a href="stories.html">Story Studio</a> → <b>📄 Import</b> — characters, roles, scenes and lines land in the right place, and notes never become spoken lines.</p>
+    </div>
+
+    <div class="seg pr-cats" id="prCats" role="tablist" aria-label="Prompt categories"></div>
+    <div class="pr-grid" id="prGrid" aria-live="polite"></div>
+
+    <section class="card pr-format" aria-labelledby="fmtTitle">
+      <h2 id="fmtTitle">The YouTube Blue Script Format</h2>
+      <p class="card-sub">What the prompts ask your AI to write. You can also type a script this way yourself — only the lines inside <code>=== SCRIPT ===</code> are ever spoken.</p>
+      <pre class="pr-pre pr-sample">TITLE: The Great Car Packing Disaster
+=== CHARACTERS ===
+JAYDEN | Main character, 9, narrates his own story | Fast, bright kid voice
+AUNT NICOLE | Cheerfully unreasonable about luggage | Calm, warm
+=== SCRIPT ===
+JAYDEN (narrating): I said I could pack the car in ten minutes.
+AUNT NICOLE: Just three small bags. And the inflatable flamingo.
+SCENE: The driveway
+JAYDEN + AUNT NICOLE: [gasp] We forgot Grandma!
+ALL: Start the car!
+=== END ===
+(anything after END — storyboard, image prompts, hashtags — is ignored)</pre>
+      <ul class="pr-rules small">
+        <li><code>NAME | role | voice</code> under CHARACTERS becomes each character's role and voice notes — never a spoken line.</li>
+        <li>Under SCRIPT, every line is <code>NAME: spoken words</code>. Lines without a name are left out.</li>
+        <li><code>A + B:</code> or <code>ALL:</code> say a line together · <code>NAME (narrating):</code> when the main character tells the story · <code>NARRATOR:</code> only for a real narrator.</li>
+        <li><code>SCENE:</code> starts a scene (not spoken) · <code>[laugh] [sigh] [gasp]</code> and other reaction tags go inside the line.</li>
+      </ul>
+      <div class="row" style="margin-top:12px">
+        <a class="btn" href="stories.html">✍️ Open Story Studio</a>
+        <button class="btn btn-ghost" type="button" id="copyFormat">📋 Copy this example</button>
+      </div>
+    </section>
+  </main>
+
+  <footer class="foot">
+    <div class="container">Youtube Blue is an independent creator tool and is not affiliated with or endorsed by YouTube or Google. Your data stays on your device.</div>
+  </footer>
+</body>
+</html>

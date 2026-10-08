@@ -15,14 +15,14 @@
   <meta name="mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
   <meta name="apple-mobile-web-app-title" content="YT Blue">
-  <link rel="stylesheet" href="css/style.css?v=28">
+  <link rel="stylesheet" href="css/style.css?v=29">
   <script src="js/core.js" defer></script>
   <script src="js/voice-grammar.js?v=2" defer></script>
-  <script src="js/voice.js?v=23" defer></script>
+  <script src="js/voice.js?v=24" defer></script>
   <script src="js/voice-library.js?v=8" defer></script>
   <script src="js/voice-takes.js?v=4" defer></script>
   <script src="js/voice-sync.js?v=1" defer></script>
-  <script src="js/voice-story.js?v=26" defer></script>
+  <script src="js/voice-story.js?v=27" defer></script>
 </head>
 <body data-page="voice">
   <header class="topbar">
@@ -37,6 +37,7 @@
         <a href="stories.html" data-page="stories"><span class="nav-ico">✍️</span>Story Studio</a>
         <a href="voice.html" data-page="voice"><span class="nav-ico">🎙️</span>Voice Studio</a>
         <a href="comic.html" data-page="comic"><span class="nav-ico">🎞️</span>Comic to Video</a>
+        <a href="prompts.html" data-page="prompts"><span class="nav-ico">🧠</span>Prompts</a>
         <div class="nav-foot"><button class="btn" type="button" data-install hidden>📲 Add to Home Screen</button></div>
       </nav>
       <button class="menu-btn" type="button" aria-label="Open menu" aria-expanded="false" aria-controls="nav"><span></span><span></span><span></span></button>
@@ -194,16 +195,21 @@
               <option value="2500">2.5 s</option>
             </select>
           </label>
-          <label class="field"><span>Lines sent at a time</span>
+          <label class="field"><span>Lines per run</span>
             <select id="storyParallel">
-              <option value="1">1 at a time</option>
-              <option value="2">2 at a time</option>
-              <option value="3">3 at a time</option>
+              <option value="all">All lines — keeps going if you close the app</option>
+              <option value="1">1 line, then stop</option>
+              <option value="2">2 lines, then stop</option>
+              <option value="3">3 lines, then stop</option>
+              <option value="5">5 lines, then stop</option>
+              <option value="10">10 lines, then stop</option>
+              <option value="custom">Enter a number…</option>
             </select>
+            <input type="number" id="storyBatchN" min="1" max="999" step="1" inputmode="numeric" placeholder="How many lines?" aria-label="How many lines per run" hidden style="margin-top:8px">
           </label>
           <label class="field check-field"><input id="storyMerge" type="checkbox"><span>Join a speaker's back-to-back lines</span></label>
         </div>
-        <p class="muted small" style="margin:10px 0 0">Every line keeps its place in the script. Several voices are generated at the same time, then stitched into one track in story order. You can close or swipe away the app at any time: the rest of the lines go straight to the server and the story keeps generating in the background. Reopen Voice Studio and your finished track is waiting.</p>
+        <p class="muted small" style="margin:10px 0 0">Every line keeps its place in the script. <b>All lines</b> voices the whole story; pick a number to make just that many lines, then stop — press Generate again for the next ones (finished lines are kept). Each run's lines go to the server, so they keep generating even if you close or swipe away the app; reopen Voice Studio and the timer shows how long it has been going. <b>Stop</b> sends nothing more: a line the server is already making is still collected and becomes the last one (press Stop again to leave it).</p>
         <div class="label" style="margin:16px 0 6px">Lines in order</div>
         <ol class="story-lines" id="storySegments"></ol>
         <div class="row" style="margin-top:10px">

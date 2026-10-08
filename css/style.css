@@ -1079,3 +1079,23 @@ input[type="range"] { min-height: 32px; }            /* finger-friendly */
 .imp-opts [hidden] { display: none; }
 .cx-sync { margin: 8px 0 0; color: #a7f3d0; }
 .cx-synced { color: #a7f3d0; font-weight: 700; }
+.imp-ok { border-color: #34d399; color: #a7f3d0; }
+
+/* Prompts page */
+.pr-cats { margin: 4px 0 16px; }
+.pr-count { display: inline-block; min-width: 1.4em; padding: 0 6px; margin-left: 4px; border-radius: 999px; background: rgba(255,255,255,.12); font-size: .75rem; }
+.pr-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 420px), 1fr)); gap: 16px; align-items: start; }
+.pr-card { display: grid; gap: 12px; align-content: start; min-width: 0; }
+.pr-top { display: flex; gap: 12px; align-items: center; }
+.pr-top h2 { margin: 0; font-size: 1.25rem; }
+.pr-tag { font-size: .78rem; font-weight: 700; color: var(--sky); }
+.pr-card p { margin: 0; }
+.pr-gets { display: flex; flex-wrap: wrap; gap: 6px; }
+.pr-gets .stat-pill { font-size: .78rem; padding: 4px 10px; }
+.pr-steps { margin: 0; padding-left: 20px; display: grid; gap: 4px; font-size: .9rem; }
+.pr-actions { gap: 8px; }
+.pr-pre { margin: 0; max-height: 360px; overflow: auto; padding: 12px; border-radius: 10px; border: 1px solid var(--line-soft); background: #081732; color: var(--text); font: .78rem/1.5 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; white-space: pre-wrap; overflow-wrap: anywhere; }
+.pr-format { margin-top: 16px; }
+.pr-sample { max-height: none; }
+.pr-rules { margin: 12px 0 0; padding-left: 18px; display: grid; gap: 4px; color: var(--muted); }
+.pr-rules code, .pr-format .card-sub code { font-size: .8rem; }

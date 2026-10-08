@@ -10,6 +10,7 @@ A blue creator toolkit for designing a YouTube channel, tracking analytics, and 
 | Channel Design — banner, profile picture, thumbnail, About, keywords, checklist | `design.html` | `js/design.js` |
 | Analytics — video log, KPIs, goals, charts, insights, CSV import/export | `analytics.html` | `js/analytics.js` |
 | Story Studio — templates, characters (+), one-voice / multi-voice, teleprompter | `stories.html` | `js/stories.js` |
+| Prompts — ready-made AI prompts (copy / PDF) that answer in the YouTube Blue format | `prompts.html` | `js/prompts.js`, `prompts/` |
 | Voice Studio — Chatterbox text-to-speech, predefined voices, voice cloning, download | `voice.html` | `js/voice.js` |
 | Voice Studio · Story mode — multi-voice story narration in script order | `voice.html` | `js/voice-story.js` |
 
@@ -109,7 +110,7 @@ If a job fails, the exact `job.error` from the server is shown in an expandable 
 
 **Story mode (multiple voices)**
 
-Switch to **Story · multiple voices** to voice a Story Studio script. Give each character a built-in voice or a clone reference (saved per story). Story mode has no shared settings card: each character has its own **🎚️ Voice settings** dropdown with everything — presets for the active model, temperature, speed, seed, exaggeration / CFG (when the model supports them), language (Multilingual), and text splitting / chunk size. The controls change with Turbo, Original or Multilingual. Every character starts at the defaults, and their lines are generated with whatever you set. Story audio is always WAV. A character set to **Clone** also gets a small **Choose file → Upload** row to add a new reference, with the same checks as the single-narrator upload. Each spoken line — or a speaker's back-to-back lines — becomes its own job. While the page is open, 1–3 lines are sent at a time (your choice), and every clip keeps its place in the script. When all lines are done, the browser stitches them into one WAV in story order, with your chosen pause between lines and at scene changes. Each line's clip can also be played or downloaded on its own, and **Retry failed lines** re-sends only the lines that failed. The server has one CPU, so sending several jobs keeps it busy without gaps; it doesn't make each line faster.
+Switch to **Story · multiple voices** to voice a Story Studio script. Give each character a built-in voice or a clone reference (saved per story). Story mode has no shared settings card: each character has its own **🎚️ Voice settings** dropdown with everything — presets for the active model, temperature, speed, seed, exaggeration / CFG (when the model supports them), language (Multilingual), and text splitting / chunk size. The controls change with Turbo, Original or Multilingual. Every character starts at the defaults, and their lines are generated with whatever you set. Story audio is always WAV. A character set to **Clone** also gets a small **Choose file → Upload** row to add a new reference, with the same checks as the single-narrator upload. Each spoken line — or a speaker's back-to-back lines — becomes its own job. **Lines per run**: *All lines* voices the whole story; pick 1, 2, 3, 5, 10 or type any number to make just that many lines and stop — pressing Generate again continues with the next ones (finished lines are kept, and a *Story so far* track is saved after each run). Each run's lines go to the server, so they keep generating if you close or swipe away the app, and the timer keeps counting from when you pressed Generate. **Stop** sends nothing more; a line the server is already making is still collected and becomes the last line (press Stop again to leave it). Every clip keeps its place in the script. When all lines are done, the browser stitches them into one WAV in story order, with your chosen pause between lines and at scene changes. Each line's clip can also be played or downloaded on its own, and **Retry failed lines** re-sends only the lines that failed. The server has one CPU, so sending several jobs keeps it busy without gaps; it doesn't make each line faster.
 
 **Keeps going when you close the app**
 
@@ -196,6 +197,21 @@ In a multi-voice story, tap **👥 Together** on any line and tick who says it w
 **Narrator vs. main character.** `NARRATOR:` lines keep the Narrator's own voice. When the main character tells the story, write `ALEX (narrating): …` or `NARRATOR (Alex): …`, or mark them in the Characters list (`Alex – main character and narrator`); the import window's **Narration is read by** menu picks them automatically, and you can switch any script's narration to a character there.
 
 The preview shows every line with who says it. Untick anything that was mistaken for a name, choose what happens to text with no name (Narrator reads it / Direction / Leave out — when the script labels its own `NARRATOR:` lines, unlabeled headings and instructions are left out by default), set the title, and choose **a new story**, **replace this story's script**, or **add to the end**. Pictures and scanned PDFs have no text to read, so the window says so and asks for the text instead.
+
+### The YouTube Blue Script Format (what the Prompts page asks your AI for)
+```
+TITLE: The Great Car Packing Disaster
+=== CHARACTERS ===
+JAYDEN | Main character, 9, narrates his own story | Fast, bright kid voice
+=== SCRIPT ===
+JAYDEN (narrating): I said I could pack the car in ten minutes.
+JAYDEN + AUNT NICOLE: [gasp] We forgot Grandma!
+=== END ===
+```
+When a pasted script has these markers, the importer is strict: only `NAME: words` lines inside `=== SCRIPT ===` are spoken; `NAME | role | voice` lines become each character's role, voice notes and closest voice style; everything after `=== END ===` (storyboards, image prompts, hashtags) is ignored; a name used in the script but missing from CHARACTERS starts unticked. A sheet with only a CHARACTERS block (from the Character Creator prompt) adds those characters to the open story. Scripts without markers still import with the smart rules above, which also skip long character notes, "Narrator: NO / Absent" notes and labels such as "Voice Script:".
+
+## Prompts
+`prompts.html` lists prompts by category (📖 Stories, 🎭 Characters). Each has **Copy prompt**, **PDF**, **.txt** and **Show prompt**. The text lives in `prompts/<name>.txt` (everything after the `────` line is what gets copied); the PDFs are built from the same files with `python3 tools/build-prompt-pdfs.py`. To add a prompt: add its .txt, add it to `PROMPTS` in that script and in `js/prompts.js`, and rebuild.
 
 ### Characters belong to each story
 Every story has its own cast. **＋ New** starts with only the Narrator, an import into a new story brings only the characters in that script, and replacing a story's script replaces its cast (a character with the same name keeps its color and voice). Voice Studio's character voices are saved per story too, and are removed when the story is deleted.

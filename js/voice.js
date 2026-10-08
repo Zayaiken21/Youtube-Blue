@@ -1886,6 +1886,7 @@
     online: function () { return app.state === 'online'; },
     setPreviewing: function (on) { app.previewing = !!on; if (!on) app.lastOwnEnd = Date.now(); },
     noteOwnBackground: function () { markOwnBg(); },
+    cancelServerJob: function (id) { return requestServerCancel(id); },   // only if backend-config.json publishes job_cancel_template
     begin: function (label, startedAt) { if (app.generating) return false; clearRemoteGen(false); app.generating = true; stopPolling(); app.startedAt = startedAt || Date.now();
       showNotice($('genError'), null); $('genProgress').hidden = false; setState('generating', label || 'Generating');
       tickElapsed(); clearInterval(app.elapsedTimer); app.elapsedTimer = setInterval(tickElapsed, 1000); return true; },

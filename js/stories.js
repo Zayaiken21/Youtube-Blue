@@ -370,6 +370,8 @@
     var prev = imp.parsed;
     imp.parsed = p; imp.off = {};
     if (p) {
+      p.cast.forEach(function (c) { if (c.undeclared) imp.off[c.key] = true; });   // not in the script's CHARACTERS list
+      if (!p.lines && p.cast.length && story()) imp.dest = 'append';               // a character sheet: add to this story
       if (!prev || prev.suggestOther !== p.suggestOther) imp.other = p.suggestOther;
       if (!prev || prev.narratorAs !== p.narratorAs) imp.narr = p.narratorAs || 'narrator';
       imp.title = p.title || fileTitle || imp.title || '';
@@ -383,20 +385,20 @@
   function impNarrator() { var k = imp.narr; return k && k !== 'narrator' && !imp.off[k] && imp.parsed && imp.parsed.cast.some(function (c) { return c.key === k; }) ? k : 'narrator'; }
 
   function renderImport() {
-    var p = imp.parsed, has = p && (p.lines || p.items.length);
+    var p = imp.parsed, has = p && (p.lines || p.items.length || p.cast.length);
     $('impPreview').hidden = !has;
     $('impGo').disabled = !has || imp.busy;
     if (!has) { $('impGo').textContent = 'Import'; return; }
     var on = p.cast.filter(function (c) { return !imp.off[c.key]; });
     var groups = p.items.filter(function (it) { return it.type === 'line' && (it.all || it.who.length > 1); }).length;
     var scenes = p.items.filter(function (it) { return it.type === 'scene'; }).length;
-    $('impSum').innerHTML = '<span class="stat-pill"><b>' + p.lines + '</b> spoken lines</span>' +
+    $('impSum').innerHTML = (p.strict ? '<span class="stat-pill imp-ok">✓ YouTube Blue format</span>' : '') + '<span class="stat-pill"><b>' + p.lines + '</b> spoken lines</span>' +
       '<span class="stat-pill"><b>' + on.length + '</b> character' + (on.length === 1 ? '' : 's') + (p.narratorLines ? ' + Narrator' : '') + '</span>' +
       (groups ? '<span class="stat-pill">👥 <b>' + groups + '</b> said together</span>' : '') +
       (scenes ? '<span class="stat-pill"><b>' + scenes + '</b> scene' + (scenes === 1 ? '' : 's') + '</span>' : '');
     $('impCast').innerHTML = (p.cast.length ? p.cast.map(function (c, i) {
       var off = imp.off[c.key];
-      return '<label class="grp-chip' + (off ? '' : ' on') + '" style="--c:' + impColor(i) + '" title="' + YB.esc(c.role || '') + '">' +
+      return '<label class="grp-chip' + (off ? '' : ' on') + '" style="--c:' + impColor(i) + '" title="' + YB.esc(c.undeclared ? 'Not in the CHARACTERS list — probably not a character' : (c.role || '')) + '">' +
         '<input type="checkbox" data-imp-char="' + YB.esc(c.key) + '"' + (off ? '' : ' checked') + '>' + YB.esc(c.name) +
         ' <span class="muted small">' + c.count + '</span></label>';
     }).join('') : '<span class="muted small">No character names found — check the formats below, or everything goes to the Narrator.</span>') +
@@ -429,7 +431,9 @@
       return '<li><span class="imp-who">' + names + (it.keys.length > 1 ? ' <span class="grp-tag">👥</span>' : '') + '</span>' + YB.esc(it.text) + '</li>';
     }).join('') + (list.length > shown.length ? '<li class="imp-more">…and ' + (list.length - shown.length) + ' more</li>' : '');
     var spoken = list.filter(function (it) { return it.kind === 'line' || (it.kind === 'text' && imp.other === 'narrator'); }).length;
-    $('impGo').textContent = 'Import ' + spoken + ' line' + (spoken === 1 ? '' : 's');
+    var newChars = p.cast.filter(function (c) { return !imp.off[c.key]; }).length;
+    $('impGo').textContent = spoken ? 'Import ' + spoken + ' line' + (spoken === 1 ? '' : 's') : 'Add ' + newChars + ' character' + (newChars === 1 ? '' : 's');
+    $('impGo').disabled = imp.busy || (!spoken && !newChars);
   }
 
   // What the import will produce, with ticks applied: { kind: line|text|scene|note, keys, text }
@@ -501,12 +505,17 @@
       var found = keep.find(function (x) { return x.name.toLowerCase() === nk; }) || pool.find(function (x) { return x.name.toLowerCase() === nk; });
       if (!found) {
         var all = keep.length;
-        found = { id: YB.uid(), name: name, role: (c && c.role) || '', voice: 'Warm & friendly', notes: '', color: COLORS[(all + 1) % COLORS.length] };
-      } else if (c && c.role && !found.role) found.role = c.role;
+        found = { id: YB.uid(), name: name, role: (c && c.role) || '', voice: voicePreset(c), notes: (c && c.notes) || '', color: COLORS[(all + 1) % COLORS.length] };
+      } else if (c) {
+        if (c.role && !found.role) found.role = c.role;
+        if (c.notes && !found.notes) found.notes = c.notes;
+      }
       if (keep.indexOf(found) === -1) keep.push(found);
       used[k] = found.id;
       return found.id;
     }
+    // every ticked character joins the cast, even one with no lines yet (a character sheet)
+    p.cast.forEach(function (c) { if (!imp.off[c.key]) idFor(c.key); });
     var blocks = [];
     items.forEach(function (it) {
       if (it.kind === 'scene') blocks.push({ id: YB.uid(), type: 'scene', speaker: 'narrator', text: it.text });
@@ -532,6 +541,18 @@
     var n = blocks.filter(function (b) { return b.type === 'line'; }).length;
     YB.toast('Imported ' + n + ' line' + (n === 1 ? '' : 's') + ' · ' + s.characters.length + ' character' + (s.characters.length === 1 ? '' : 's'));
     $('impText').value = ''; imp.parsed = null; $('impFileNote').textContent = '…or drop a file here';
+  }
+
+  // Pick the closest voice style from a character's description ("deep, slow, wise grandpa" → Wise elder).
+  function voicePreset(c) {
+    if (!c) return 'Warm & friendly';
+    var rules = [[/robot|machine|\bai\b|android|computer/, 'Robot / AI'], [/grandma|grandpa|grandmother|grandfather|elder|old (man|woman|lady)|wise|elderly/, 'Wise elder'],
+      [/\b[1-9] years? old|\bkid\b|child|toddler|little (boy|girl)|childlike|young (boy|girl)/, 'Small / childlike'],
+      [/deep|low pitch|gravel|booming|slow/, 'Deep & slow'], [/grump|cranky|grouch/, 'Grumpy'], [/silly|cartoon|goofy|squeaky/, 'Silly / cartoon'],
+      [/excited|hyper|energetic|high[- ]energy|enthusiastic/, 'High & excited'], [/narrat|storyteller|calm/, 'Calm storyteller']];
+    function pick(t) { t = String(t || '').toLowerCase(); for (var i = 0; i < rules.length; i++) if (rules[i][0].test(t)) return rules[i][1]; return ''; }
+    // the voice direction decides first; the role / notes only if it says nothing useful
+    return pick(c.voice) || pick((c.role || '') + ' ' + (c.notes || '')) || 'Warm & friendly';
   }
 
   function wireImport() {
