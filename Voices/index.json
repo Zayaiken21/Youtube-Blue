@@ -1,6 +1,11 @@
 {
   "preset": [
     {
+      "file": "voice_preview_basic male narrator voice.mp3",
+      "name": "voice preview basic male narrator voice",
+      "size": 694066
+    },
+    {
       "file": "voice_preview_callum - husky trickster.mp3",
       "name": "voice preview callum husky trickster",
       "size": 33436
@@ -14,6 +19,11 @@
       "file": "voice_preview_cinematic male narrator.mp3",
       "name": "voice preview cinematic male narrator",
       "size": 379343
+    },
+    {
+      "file": "voice_preview_dad.mp3",
+      "name": "voice preview dad",
+      "size": 625103
     },
     {
       "file": "voice_preview_daniel - steady broadcaster.mp3",
@@ -36,6 +46,11 @@
       "size": 815065
     },
     {
+      "file": "voice_preview_grandpa.mp3",
+      "name": "voice preview grandpa",
+      "size": 855189
+    },
+    {
       "file": "voice_preview_joselyn - female character 25yr.mp3",
       "name": "voice preview joselyn female character 25yr",
       "size": 584351
@@ -46,6 +61,11 @@
       "size": 665226
     },
     {
+      "file": "voice_preview_male mouse.mp3",
+      "name": "voice preview male mouse",
+      "size": 484668
+    },
+    {
       "file": "voice_preview_maranda - female character 18yr.mp3",
       "name": "voice preview maranda female character 18yr",
       "size": 531062
@@ -54,6 +74,11 @@
       "file": "voice_preview_michael - male character 18yr.mp3",
       "name": "voice preview michael male character 18yr",
       "size": 632626
+    },
+    {
+      "file": "voice_preview_mom.mp3",
+      "name": "voice preview mom",
+      "size": 504103
     },
     {
       "file": "voice_preview_older character.mp3",
