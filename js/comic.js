@@ -72,15 +72,20 @@
     });
   }
   var DB = 'youtube-blue-comic';
-  var S_match = null;   // how the captions were placed: { how: 'ocr'|'even', read, panels, lines }
-  var saveProject = YB.debounce(function () {
+  var unsaved = false, saveSoon = YB.debounce(saveNow, 400);
+  function saveProject() { unsaved = true; saveSoon(); }
+  // leaving the page (switching apps, closing): save right away so the last edit is never lost
+  document.addEventListener('visibilitychange', function () { if (document.hidden && unsaved) saveNow(); });
+  window.addEventListener('pagehide', function () { if (unsaved) saveNow(); });
+  function saveNow() {
+    if (!unsaved) return;
+    unsaved = false;
     var data = {
       pages: pages.map(function (p) { return { id: p.id, name: p.name, blob: p.blob }; }),
-      panels: panels.map(function (q) { return { id: q.id, pageId: q.pageId, x: q.x, y: q.y, w: q.w, h: q.h, dur: q.dur, motion: q.motion || '', cap: q.cap || {}, who: q.who || '', storyId: q.storyId || '', lines: q.lines || null, capMatch: q.capMatch || '', capEdited: !!q.capEdited }; }),
-      match: S_match
+      panels: panels.map(function (q) { return { id: q.id, pageId: q.pageId, x: q.x, y: q.y, w: q.w, h: q.h, dur: q.dur, motion: q.motion || '', cap: q.cap || {}, who: q.who || '', storyId: q.storyId || '' }; })
     };
     kv(DB, 'readwrite', function (st) { st.put(data, 'project'); });
-  }, 400);
+  }
 
   /* ---------- Images & panel detection ---------- */
   function loadImg(blob) {
@@ -205,19 +210,16 @@
   function renderList() {
     var t = timeline();
     $('panelList').innerHTML = panels.map(function (q, i) {
-      var eff = t.durs[i], fitted = Math.abs(eff - q.dur) > 0.05, synced = !!t.sync;
+      var eff = t.durs[i], fitted = Math.abs(eff - q.dur) > 0.05;
       return '<li class="cx-panel' + (q.id === view.sel ? ' on' : '') + '" data-id="' + q.id + '">' +
         '<span class="cx-pnum">' + (i + 1) + '</span><canvas class="cx-thumb" width="120" height="120" data-thumb="' + q.id + '"></canvas>' +
-        '<div class="cx-pmeta"><span class="muted small">Page ' + pageNo(q.pageId) + (synced ? ' · <b class="cx-synced">🎯 ' + eff.toFixed(1) + ' s, timed to the voice</b>' : fitted ? ' · plays ' + eff.toFixed(1) + ' s' : '') + '</span>' +
-        '<span class="cx-pctl"><input type="number" min="0.5" max="20" step="0.5" value="' + (synced ? eff.toFixed(1) : q.dur) + '" data-dur aria-label="Seconds for panel ' + (i + 1) + '"' + (synced ? ' disabled title="Timed to the voice automatically"' : '') + '><span class="muted small">s</span>' +
+        '<div class="cx-pmeta"><span class="muted small">Page ' + pageNo(q.pageId) + (fitted ? ' · plays ' + eff.toFixed(1) + ' s' : '') + '</span>' +
+        '<span class="cx-pctl"><input type="number" min="0.5" max="20" step="0.5" value="' + q.dur + '" data-dur aria-label="Seconds for panel ' + (i + 1) + '"><span class="muted small">s</span>' +
         '<select data-motion aria-label="Motion for panel ' + (i + 1) + '">' + MOTIONS.map(function (m) { return '<option value="' + m[0] + '"' + ((q.motion || '') === m[0] ? ' selected' : '') + '>' + m[1] + '</option>'; }).join('') + '</select></span></div>' +
         '<div class="cx-pbtns"><button type="button" class="btn btn-ghost btn-icon btn-sm" data-up aria-label="Move earlier"' + (i === 0 ? ' disabled' : '') + '>↑</button>' +
         '<button type="button" class="btn btn-ghost btn-icon btn-sm" data-down aria-label="Move later"' + (i === panels.length - 1 ? ' disabled' : '') + '>↓</button>' +
         '<button type="button" class="btn btn-danger btn-icon btn-sm" data-del aria-label="Remove panel ' + (i + 1) + '">✕</button></div>' +
-        '<label class="cx-cap"><span class="muted small">💬 Caption · ' + YB.esc(langName(S.showLang)) + (S.showLang !== S.srcLang && !capOf(q, S.showLang) && capOf(q, S.srcLang) ? ' · not translated yet' : '') +
-        (q.lines && q.lines.length && !q.capEdited && q.storyId ? ' <span class="cx-mv">' +
-          (i > 0 ? '<button type="button" class="cx-mvbtn" data-mvprev aria-label="Move the first line of panel ' + (i + 1) + ' to the panel before">◀ line</button>' : '') +
-          (i < panels.length - 1 ? '<button type="button" class="cx-mvbtn" data-mvnext aria-label="Move the last line of panel ' + (i + 1) + ' to the next panel">line ▶</button>' : '') + '</span>' : '') + '</span>' +
+        '<label class="cx-cap"><span class="muted small">💬 Caption · ' + YB.esc(langName(S.showLang)) + (S.showLang !== S.srcLang && !capOf(q, S.showLang) && capOf(q, S.srcLang) ? ' · not translated yet' : '') + '</span>' +
         '<textarea data-cap rows="2" dir="' + (RTL.indexOf(S.showLang) !== -1 ? 'rtl' : 'ltr') + '" placeholder="What\'s said in this panel (optional)">' + YB.esc(capOf(q, S.showLang)) + '</textarea></label></li>';
     }).join('') || '<li class="muted small">No panels yet.</li>';
     panels.forEach(function (q) {
@@ -242,7 +244,6 @@
 
   function renderAll() {
     renderPages(); renderStage(); renderList(); renderSteps(); renderFacts(); sizePreview(); drawPreview();
-    if (typeof syncNoteText === "function" && audio.sync) syncNoteText();
   }
 
   /* ---------- Editing ---------- */
@@ -320,8 +321,6 @@
     $('panelList').addEventListener('click', function (e) {
       var li = e.target.closest('li[data-id]'); if (!li) return;
       var id = li.getAttribute('data-id'), i = panels.findIndex(function (q) { return q.id === id; });
-      if (e.target.closest('[data-mvprev]')) { e.preventDefault(); moveLine(i, -1); return; }
-      if (e.target.closest('[data-mvnext]')) { e.preventDefault(); moveLine(i, 1); return; }
       if (e.target.closest('[data-up]')) { move(panels, i, -1); changed(); }
       else if (e.target.closest('[data-down]')) { move(panels, i, 1); changed(); }
       else if (e.target.closest('[data-del]')) removePanel(id);
@@ -331,7 +330,6 @@
       if (!e.target.matches('[data-cap]')) return;
       var li = e.target.closest('li[data-id]'), q = li && panels.find(function (x) { return x.id === li.getAttribute('data-id'); }); if (!q) return;
       setCap(q, S.showLang, e.target.value);
-      if (S.showLang === S.srcLang) q.capEdited = true;   // your own words: never re-placed automatically
       saveProject(); renderFacts(); drawPreview();
     });
     $('panelList').addEventListener('change', function (e) {
@@ -431,68 +429,18 @@
   function clearAudio() {
     stopPreview();
     if (audio.url) URL.revokeObjectURL(audio.url);
-    audio = { blob: null, url: '', dur: 0, name: '', sync: null };
-    $('audioRow').hidden = true; $('syncNote').hidden = true; $('syncNote').textContent = ''; $('audioCheck').removeAttribute('src');
+    audio = { blob: null, url: '', dur: 0, name: '' };
+    $('audioRow').hidden = true; $('audioCheck').removeAttribute('src');
     renderAll();
   }
-  function useAudio(blob, name, marks) {
+  function useAudio(blob, name) {
     stopPreview();
     if (audio.url) URL.revokeObjectURL(audio.url);
-    audio = { blob: blob, url: URL.createObjectURL(blob), dur: 0, name: name || 'Voice track', sync: null, marks: Array.isArray(marks) && marks.length ? marks : null };
+    audio = { blob: blob, url: URL.createObjectURL(blob), dur: 0, name: name || 'Voice track' };
     var a = $('audioCheck'); a.src = audio.url; $('audioRow').hidden = false;
     a.onloadedmetadata = function () { audio.dur = isFinite(a.duration) ? a.duration : 0; renderAll(); };
-    analyzeVoice(blob);
-    if (typeof autoMatch === 'function') autoMatch();
     a.onerror = function () { YB.toast('That audio file couldn\'t be opened'); };
   }
-  /* ---------- Auto-sync: panels and captions follow the voice (js/comic-sync.js) ---------- */
-  // Runs by itself whenever audio is added: finds the speech and the pauses, then the timeline
-  // places each panel on the words that belong to it and times every caption to its words.
-  function analyzeVoice(blob) {
-    var mine = audio, note = $('syncNote');
-    if (!window.YBAudioSync) return;
-    note.hidden = false; note.textContent = '🎯 Lining the pictures and captions up with the voice…';
-    blob.arrayBuffer().then(function (buf) {
-      function dec(ctx, b) { return new Promise(function (res, rej) { var p = ctx.decodeAudioData(b, res, rej); if (p && p.then) p.then(res, rej); }); }
-      var Off = window.OfflineAudioContext || window.webkitOfflineAudioContext, copy = buf.slice(0);
-      var first;
-      try { first = dec(new Off(1, 22050, 22050), buf); } catch (e) { first = Promise.reject(e); }
-      return first.catch(function () {   // some browsers only decode in a normal audio context
-        var AC = window.AudioContext || window.webkitAudioContext, ac = new AC();
-        return dec(ac, copy).then(function (ab) { try { ac.close(); } catch (e) { /* ignore */ } return ab; });
-      });
-    }).then(function (ab) {
-      if (audio !== mine) return;
-      var n = ab.length, mono = new Float32Array(n);
-      for (var c = 0; c < ab.numberOfChannels; c++) { var d = ab.getChannelData(c); for (var i = 0; i < n; i++) mono[i] += d[i] / ab.numberOfChannels; }
-      audio.sync = window.YBAudioSync.analyze(mono, ab.sampleRate);
-      // a Voice Studio story track carries the exact time of every line
-      if (audio.marks && audio.marks[audio.marks.length - 1].e <= ab.duration + 1) audio.sync.marks = audio.marks;
-      if (!audio.dur) audio.dur = ab.duration;
-      syncCache = {};
-      renderAll(); syncNoteText();
-    }).catch(function () { if (audio === mine) { note.textContent = 'Couldn\'t read this audio to sync it — panels keep their own times.'; } });
-  }
-  var syncCache = {};
-  function syncOn() { return !!(audio.sync && (S.audioMode === 'voice' || S.audioMode === 'file') && panels.length); }
-  function syncWeights() {
-    return panels.map(function (q) { return window.YBAudioSync.weight(capOf(q, S.srcLang) || capOf(q, S.showLang)); });
-  }
-  function syncPlan() {
-    if (!syncOn()) return null;
-    var w = syncWeights(), key = audio.url + '|' + panels.map(function (q, i) { return q.id + ':' + w[i] + ':' + (capOf(q, S.srcLang) || capOf(q, S.showLang)).length; }).join(',');
-    if (!syncCache[key]) syncCache = {}, syncCache[key] = window.YBAudioSync.plan(audio.sync, w, panels.map(function (q) { return capOf(q, S.srcLang) || capOf(q, S.showLang); }));
-    return syncCache[key];
-  }
-  function syncNoteText() {
-    var note = $('syncNote'); if (!note || !audio.sync) return;
-    note.hidden = false;
-    var pl = syncPlan();
-    if (!panels.length) note.textContent = '🎯 Voice ready — panels will follow it automatically as soon as you add them.';
-    else if (!audio.sync.segs.length) note.textContent = 'No speech found in this audio, so the panels share it evenly.';
-    else note.textContent = '🎯 Synced automatically' + (pl && pl.exact ? ' to every line of the story track' : '') + ': ' + panels.length + ' panel' + (panels.length === 1 ? '' : 's') + (pl && pl.exact ? ' start right before their lines' : ' change in the pauses') + (hasCaptions() ? ', and captions appear as their words are spoken' : '') + '.';
-  }
-
   function mmss(s) { s = Math.max(0, Math.round(s || 0)); return Math.floor(s / 60) + ':' + String(s % 60).padStart(2, '0'); }
   function fillVoiceTakes() {
     var takes = (YB.store.get('voiceTakes', []) || []).filter(function (t) { return t.kind !== 'line'; });
@@ -516,13 +464,7 @@
         clearAudio(); return;
       }
       $('voiceTakeNote').textContent = 'Using this audio from Voice Studio.';
-      var meta = key.indexOf('take:') === 0 ? (YB.store.get('voiceTakes', []) || []).find(function (x) { return 'take:' + x.id === key; }) : null;
-      useAudio(blob, $('voiceTake').selectedOptions[0] ? $('voiceTake').selectedOptions[0].textContent : 'Voice Studio audio', meta && meta.marks);
-      // a story track on panels with no captions yet: put that story's lines on the panels that show them
-      if (meta && meta.kind === 'story' && panels.length && !captionedCount()) {
-        var st = (YB.store.get('stories', []) || []).find(function (x) { return x.title === meta.groupTitle; });
-        if (st) { $('capStory').value = st.id; fillFromStory({ auto: true }); }
-      }
+      useAudio(blob, $('voiceTake').selectedOptions[0] ? $('voiceTake').selectedOptions[0].textContent : 'Voice Studio audio');
     });
   }
 
@@ -536,23 +478,6 @@
       var tlN = panels.map(function (q, i) { var c = clipFor(q); return c ? Math.max(1.2, NARR_LEAD + c.dur + NARR_GAP) : durs[i]; });
       var startsN = [], tN = 0; tlN.forEach(function (d) { startsN.push(tN); tN += d; });
       return { durs: tlN, starts: startsN, total: tN };
-    }
-    var sp = typeof syncPlan === 'function' ? syncPlan() : null;
-    if (sp) {
-      // synced to the voice track: panel times come from the speech, not the number boxes
-      var dS = sp.ends.map(function (e, i) { return e - sp.starts[i]; });
-      return { durs: dS, starts: sp.starts.slice(), total: Math.max(sp.ends[sp.ends.length - 1], (audio.dur || 0) + 0.35), sync: sp };
-    }
-    // Voice added but not analysed (yet, or this device can't): still fit every panel inside the voice,
-    // sharing its length by how much each caption says — never longer than the audio.
-    if (audio.dur && (S.audioMode === 'voice' || S.audioMode === 'file') && panels.length && window.YBAudioSync) {
-      var wts = panels.map(function (q) { return window.YBAudioSync.weight(capOf(q, S.srcLang) || capOf(q, S.showLang)) || 0; });
-      var avgW = wts.reduce(function (a, b) { return a + b; }, 0) / panels.length || 1;
-      wts = wts.map(function (v) { return v > 0 ? v : avgW * 0.35; });
-      var sumW = wts.reduce(function (a, b) { return a + b; }, 0), span = audio.dur + 0.3;
-      var dF = wts.map(function (v) { return span * v / sumW; }), sF = [], tF = 0;
-      dF.forEach(function (d) { sF.push(tF); tF += d; });
-      return { durs: dF, starts: sF, total: span };
     }
     if (S.capOn && S.capTiming) {
       // every panel stays up long enough to read its caption at the chosen pace
@@ -999,13 +924,6 @@
       });
     }, Promise.resolve(null));
   }
-  // OpusHead: 'OpusHead', version 1, 2 channels, pre-skip, 48 kHz, gain 0, mapping 0
-  function opusHead(preSkip) {
-    var b = new Uint8Array(19), dv = new DataView(b.buffer);
-    'OpusHead'.split('').forEach(function (ch, i) { b[i] = ch.charCodeAt(0); });
-    b[8] = 1; b[9] = 2; dv.setUint16(10, preSkip, true); dv.setUint32(12, 48000, true); dv.setInt16(16, 0, true); b[18] = 0;
-    return b.buffer;
-  }
   function decodeVoice() {
     if (!audio.blob) return Promise.resolve(null);
     var AC = window.AudioContext || window.webkitAudioContext, ac = new AC();
@@ -1036,28 +954,15 @@
     Promise.all([pickVideoCodec(W, H), pickAudioCodec(), decodeVoice()]).then(function (r) {
       var vc = r[0], acodec = r[1], voice = r[2];
       if (!vc) throw new Error('no-video-codec');
-      if (voice && !acodec) throw new Error('no-audio-encoder');   // never make a silent video: the recorder keeps the voice
       var target = new Mp4Muxer.ArrayBufferTarget();
-      var muxer = new Mp4Muxer.Muxer({ target: target, fastStart: 'in-memory', firstTimestampBehavior: 'cross-track-offset',
+      var muxer = new Mp4Muxer.Muxer({ target: target, fastStart: 'in-memory', firstTimestampBehavior: 'offset',
         video: { codec: vc.mux, width: W, height: H, frameRate: FPS },
         audio: voice && acodec ? { codec: acodec.mux, numberOfChannels: 2, sampleRate: 48000 } : undefined });
       vEnc = new VideoEncoder({ output: function (c, m) { muxer.addVideoChunk(c, m); }, error: fail });
       vEnc.configure(vc.cfg);
       var audioDone = Promise.resolve();
       if (voice && acodec) {
-        // The MP4 needs the encoder's real start-up padding (Opus "pre-skip"). If the browser doesn't hand over its
-        // header, the muxer assumes 80 ms and players cut that much real sound — the voice would run 73 ms early.
-        var gotHead = false;
-        aEnc = new AudioEncoder({ output: function (c, m) {
-          if (acodec.mux === 'opus') {
-            if (!gotHead) {
-              var dcfg = m && m.decoderConfig, desc = dcfg && dcfg.description;
-              if (!desc || desc.byteLength < 18) m = { decoderConfig: { codec: 'opus', sampleRate: 48000, numberOfChannels: 2, description: opusHead(312) } };
-              gotHead = true;
-            } else m = undefined;   // later chunks carry an empty header that would wipe the real one
-          }
-          muxer.addAudioChunk(c, m);
-        }, error: fail });
+        aEnc = new AudioEncoder({ output: function (c, m) { muxer.addAudioChunk(c, m); }, error: fail });
         aEnc.configure(acodec.cfg);
         var L = voice.getChannelData(0), R = voice.numberOfChannels > 1 ? voice.getChannelData(1) : L, step = 4800;
         for (var o = 0; o < voice.length; o += step) {
@@ -1097,7 +1002,8 @@
       });
     }).then(function (blob) {
       fastOk = true; cleanup();
-      return fixOpusDelay(blob).then(function (b) { showResult(b, 'video/mp4', total, W, H); if (done) done(true); });
+      showResult(blob, 'video/mp4', total, W, H);
+      if (done) done(true);
     }, function (e) {
       cleanup();
       if (e && e.message === 'cancelled') { YB.toast('Video cancelled'); if (done) done(false); return; }
@@ -1155,13 +1061,13 @@
         $('exportProg').hidden = true; $('playBtn').disabled = false; renderFacts();
         if (cancelled) { YB.toast('Video cancelled'); if (done) done(false); return; }
         var type = (mr.mimeType || mime).split(';')[0], blob = new Blob(chunks, { type: type });
-        fixOpusDelay(blob).then(function (b) { showResult(b, type, total, W, H); if (done) done(true); });
+        showResult(blob, type, total, W, H);
+        if (done) done(true);
       };
-      var t0 = 0, stopped = false, aStart = 0;
+      var t0 = 0, stopped = false;
       function frame() {
         if (stopped) return;
-        // with a voice, the picture follows the audio clock itself, so the two can never drift apart
-        var t = src && ac ? Math.max(0, ac.currentTime - aStart) : (performance.now() - t0) / 1000;
+        var t = (performance.now() - t0) / 1000;
         if (rec.cancelled) { stopped = true; try { src && src.stop(); } catch (e) {} mr.stop(); return; }
         drawFrame(ctx, W, H, Math.min(t, total));
         $('exportBar').style.width = Math.min(100, t / total * 100).toFixed(1) + '%';
@@ -1174,29 +1080,11 @@
       var go = function () {
         mr.start(1000);
         t0 = performance.now();
-        if (src) { aStart = ac.currentTime + 0.05; src.start(aStart); }
+        if (src) src.start(ac.currentTime);
         requestAnimationFrame(frame);
       };
       if (ac && ac.state === 'suspended') ac.resume().then(go, go); else go();
     });
-  }
-
-  // MP4s with Opus sound record how much start-up padding to skip ("pre-skip"). Some browsers write 80 ms
-  // (3840) where the encoder really adds 6.5 ms (312), so players cut 73 ms of real sound and the voice
-  // runs ahead of the pictures. Correct that number in the finished file.
-  function fixOpusDelay(blob) {
-    if (!/mp4/.test(blob.type)) return Promise.resolve(blob);
-    return blob.arrayBuffer().then(function (buf) {
-      var u = new Uint8Array(buf), fixed = false;
-      for (var i = 4; i < u.length - 12; i++) {
-        if (u[i] === 0x64 && u[i + 1] === 0x4F && u[i + 2] === 0x70 && u[i + 3] === 0x73) {   // 'dOps'
-          var pre = (u[i + 6] << 8) | u[i + 7];
-          if (pre === 3840) { u[i + 6] = 312 >> 8; u[i + 7] = 312 & 255; fixed = true; }
-          break;
-        }
-      }
-      return fixed ? new Blob([u], { type: blob.type }) : blob;
-    }, function () { return blob; });
   }
 
   function showResult(blob, type, total, W, H) {
@@ -1277,19 +1165,6 @@
       return chs.map(function (c, n) {
         var a0 = acc / all; acc += c.words.join(' ').length + 1;
         return { words: c.words, start: at + a0 * clip.dur, end: n === chs.length - 1 ? tl.starts[i] + tl.durs[i] - 0.05 : at + acc / all * clip.dur, spoken: clip.dur * (acc / all - a0) };
-      });
-    }
-    if (tl.sync && tl.sync.synced && window.YBAudioSync) {
-      // in time with the voice track: each caption frame appears as its first word is spoken and stays until the next one
-      var spans = tl.sync.speech[i] || [], p0 = tl.starts[i], p1 = tl.starts[i] + tl.durs[i];
-      var ck = chunksFor(text, lang), allc = ck.reduce(function (a, c) { return a + c.words.join(' ').length + 1; }, 0), run = 0;
-      var marks = ck.map(function (c) { var a0 = run / allc; run += c.words.join(' ').length + 1; return [a0, run / allc]; });
-      var at0 = spans.length ? spans[0][0] : p0 + 0.1;
-      return ck.map(function (c, n) {
-        var st = n ? window.YBAudioSync.timeAt(spans, marks[n][0], at0, p1) : Math.max(p0 + 0.02, at0 - 0.08);
-        var said = window.YBAudioSync.timeAt(spans, marks[n][1], at0, p1);
-        var en = n === ck.length - 1 ? p1 - 0.05 : window.YBAudioSync.timeAt(spans, marks[n + 1][0], at0, p1);
-        return { words: c.words, start: st, end: Math.max(st + 0.2, en), spoken: Math.max(0.2, said - st) };
       });
     }
     var s0 = tl.starts[i] + 0.1, avail = Math.max(0.3, tl.durs[i] - 0.22), pace = S.capPace || 15;
@@ -1435,113 +1310,29 @@
     return (st.blocks || []).filter(function (b) { return b.type === 'line' && b.text && b.text.trim(); })
       .filter(function (b) { return b.text.replace(/\[[^\]]*\]/g, ' ').trim(); }).map(function (b) { return b.speaker || 'narrator'; });
   }
-  // Read the words in every panel's speech bubbles (js/comic-ocr.js); saved per panel so each is read once.
-  var ocrMem = {};
-  function ocrKey(q) { return 'ocr:' + q.pageId + ':' + [q.x, q.y, q.w, q.h].map(Math.round).join(','); }
-  function panelTexts(onProgress) {
-    if (!window.YBComicOCR) return Promise.reject(new Error('no-ocr'));
-    var keys = panels.map(ocrKey);
-    return Promise.all(keys.map(function (k) {
-      if (ocrMem[k] != null) return ocrMem[k];
-      return kv('youtube-blue-comic', 'readonly', function (st, out) { var r = st.get(k); r.onsuccess = function () { out.v = r.result; }; });
-    })).then(function (saved) {
-      var todo = [];
-      panels.forEach(function (q, i) { if (saved[i] == null) todo.push(i); else ocrMem[keys[i]] = saved[i]; });
-      if (!todo.length) return keys.map(function (k) { return ocrMem[k]; });
-      var canv = todo.map(function (i) {
-        var q = panels[i], p = pageOf(q); if (!p) return null;
-        var sc = Math.max(1, Math.min(3, 1100 / Math.max(q.w, q.h)));   // small panels are enlarged so the letters are big enough
-        var c = document.createElement('canvas'); c.width = Math.round(q.w * sc); c.height = Math.round(q.h * sc);
-        var x = c.getContext('2d'); x.imageSmoothingQuality = 'high'; x.drawImage(p.img, q.x, q.y, q.w, q.h, 0, 0, c.width, c.height);
-        return c;
-      });
-      return window.YBComicOCR.read(canv, function (n, of) { if (onProgress) onProgress(n, of); }).then(function (texts) {
-        todo.forEach(function (i, n) { ocrMem[keys[i]] = texts[n] || ''; });
-        kv('youtube-blue-comic', 'readwrite', function (st) { todo.forEach(function (i) { st.put(ocrMem[keys[i]], keys[i]); }); });
-        return keys.map(function (k) { return ocrMem[k]; });
-      });
-    });
-  }
-
-  // Story lines → panels. Each line goes on the panel that shows it (matched by the words in its
-  // speech bubbles), keeping the story order; if the panels can't be read, lines are spread evenly.
-  function renderMatchNote() {
-    var el = $('capMatchNote'); if (!el) return;
-    var fromStory = panels.some(function (q) { return q.storyId; });
-    if (!S_match || !fromStory) { el.hidden = true; return; }
-    el.hidden = false;
-    el.className = 'small cx-match' + (S_match.how === 'ocr' ? ' ok' : ' warn');
-    el.textContent = S_match.how === 'ocr'
-      ? '🔎 Lines placed by reading the speech bubbles (' + S_match.read + ' of ' + S_match.panels + ' panels had readable words). Each line plays over the panel that shows it.'
-      : S_match.why === 'no-ocr'
-        ? '⚠️ The panels couldn\'t be read on this device (no connection to the text reader), so lines were spread in order. They\'ll be re-matched automatically next time it can connect — or move a line with ◀ ▶.'
-        : '⚠️ These panels have little readable text, so lines were spread in order. Move a line to the right panel with ◀ ▶.';
-  }
-  // Captions filled from a story but never matched to the bubbles (an older fill, or the reader couldn't
-  // load): match them now, by themselves. Captions you typed are never changed.
-  var autoMatchTried = false;
-  function autoMatch() {
-    if (autoMatchTried || filling || !panels.length || !window.YBComicOCR) return;
-    var sid = (panels.find(function (q) { return q.storyId; }) || {}).storyId;
-    if (!sid || panels.some(function (q) { return q.capEdited; })) return;
-    if (panels.every(function (q) { return q.capMatch === 'ocr' || !q.storyId; })) return;
-    var st = (YB.store.get('stories', []) || []).find(function (x) { return x.id === sid; }); if (!st) return;
-    autoMatchTried = true;
-    $('capStory').value = sid;
-    fillFromStory({ auto: true });
-  }
-  // ◀ ▶ on a panel: move its first line to the panel before, or its last line to the panel after.
-  function moveLine(i, dir) {
-    var q = panels[i], to = panels[i + dir]; if (!q || !to || !q.lines || !q.lines.length) return;
-    var st = (YB.store.get('stories', []) || []).find(function (x) { return x.id === q.storyId; }); if (!st) return;
-    var lines = storyLines(st);
-    to.lines = to.lines || [];
-    if (dir < 0) to.lines.push(q.lines.shift()); else to.lines.unshift(q.lines.pop());
-    [q, to].forEach(function (p) {
-      p.cap = {}; p.storyId = st.id; p.capEdited = false;
-      if (p.lines.length) p.cap[S.srcLang] = p.lines.map(function (k) { return lines[k]; }).join(' ');
-    });
-    chunkCache = {}; syncCache = {};
-    changed();
-  }
-
-  var filling = false;
-  function fillFromStory(opts) {
-    opts = opts && opts.auto ? opts : {};
-    if (filling) return Promise.resolve(false);
+  function fillFromStory() {
     var st = (YB.store.get('stories', []) || []).find(function (x) { return x.id === $('capStory').value; });
-    if (!st) { if (!opts.auto) YB.toast('Write a story in Story Studio first'); return Promise.resolve(false); }
-    var lines = storyLines(st), whos = storyWho(st), n = panels.length; if (!lines.length || !n) { if (!opts.auto) YB.toast('That story has no spoken lines yet'); return Promise.resolve(false); }
-    if (!opts.auto && captionedCount() && !confirm('Replace the captions on every panel with lines from "' + st.title + '"?')) return Promise.resolve(false);
-    filling = true;
-    var btn = $('capFillBtn'), label = btn.textContent; btn.disabled = true;
-    btn.textContent = '🔎 Reading the panels…';
-    return panelTexts(function (k, of) { btn.textContent = '🔎 Reading the panels… ' + Math.min(k + 1, of) + '/' + of; })
-      .then(function (texts) { return window.YBComicOCR.match(lines, texts); }, function (e) { console.warn('[Comic] panel reading unavailable', e); return null; })
-      .then(function (res) {
-        var groups;
-        if (res) groups = res.groups;
-        else {
-          groups = panels.map(function () { return []; });
-          lines.forEach(function (l, k) { groups[lines.length >= n ? Math.min(n - 1, Math.floor(k * n / lines.length)) : Math.round(k * (n - 1) / Math.max(1, lines.length - 1))].push(k); });
-        }
-        panels.forEach(function (q, i) {
-          q.cap = {}; q.storyId = st.id; q.who = ''; q.capAuto = true; q.capEdited = false;
-          q.lines = groups[i].slice(); q.capMatch = res && !res.fallback ? 'ocr' : 'even';
-          if (!groups[i].length) return;
-          q.cap[S.srcLang] = groups[i].map(function (k) { return lines[k]; }).join(' ');
-          // the character who says most in this panel voices it
-          var tally = {}; groups[i].forEach(function (k) { tally[whos[k]] = (tally[whos[k]] || 0) + lines[k].length; });
-          q.who = Object.keys(tally).sort(function (a, b) { return tally[b] - tally[a]; })[0] || '';
-        });
-        S_match = { how: res && !res.fallback ? 'ocr' : 'even', read: res ? res.readable : 0, panels: panels.length, lines: lines.length, why: res ? (res.fallback ? 'little-text' : '') : 'no-ocr' };
-        S.showLang = S.srcLang; chunkCache = {}; syncCache = {}; saveSettings();
-        changed(); renderSubs(); renderMatchNote();
-        var how = res && !res.fallback ? ' — each line is on the panel whose speech bubble shows it' : res ? ' — the panels have little readable text, so lines are spread in order' : ' — couldn\'t read the panels (offline?), so lines are spread in order';
-        YB.toast('Captions filled from "' + st.title + '"' + how);
-        return true;
-      }).then(function (r) { filling = false; btn.textContent = label; btn.disabled = false; return r; },
-        function (e) { filling = false; btn.textContent = label; btn.disabled = false; console.error(e); return false; });
+    if (!st) { YB.toast('Write a story in Story Studio first'); return; }
+    var lines = storyLines(st), whos = storyWho(st), n = panels.length; if (!lines.length || !n) { YB.toast('That story has no spoken lines yet'); return; }
+    if (captionedCount() && !confirm('Replace the captions on every panel with lines from "' + st.title + '"?')) return;
+    var groups = panels.map(function () { return []; });
+    if (lines.length >= n) {
+      // every panel gets at least one line; extra lines go where the text is shortest so the timing stays even
+      lines.forEach(function (l, k) { groups[Math.min(n - 1, Math.floor(k * n / lines.length))].push(k); });
+    } else {
+      lines.forEach(function (l, k) { groups[Math.round(k * (n - 1) / Math.max(1, lines.length - 1))].push(k); });
+    }
+    panels.forEach(function (q, i) {
+      q.cap = {}; q.storyId = st.id; q.who = '';
+      if (!groups[i].length) return;
+      q.cap[S.srcLang] = groups[i].map(function (k) { return lines[k]; }).join(' ');
+      // the character who says most in this panel voices it
+      var tally = {}; groups[i].forEach(function (k) { tally[whos[k]] = (tally[whos[k]] || 0) + lines[k].length; });
+      q.who = Object.keys(tally).sort(function (a, b) { return tally[b] - tally[a]; })[0] || '';
+    });
+    S.showLang = S.srcLang; chunkCache = {}; saveSettings();
+    changed(); renderSubs();
+    YB.toast('Captions filled from "' + st.title + '" — check them under Order & timing');
   }
 
   /* ---------- Translation (MyMemory, free) ---------- */
@@ -2054,7 +1845,7 @@
     $('capCaps').checked = !!S.capCaps; $('capCaps').addEventListener('change', function () { S.capCaps = this.checked; saveSettings(); drawPreview(); });
     $('capTiming').checked = !!S.capTiming; $('capTiming').addEventListener('change', function () { S.capTiming = this.checked; saveSettings(); renderAll(); });
     $('capPace').value = String(S.capPace || 15); $('capPace').addEventListener('change', function () { S.capPace = +this.value; saveSettings(); renderAll(); });
-    $('capFillBtn').addEventListener('click', function () { fillFromStory(); });
+    $('capFillBtn').addEventListener('click', fillFromStory);
     $('capClearBtn').addEventListener('click', function () {
       if (!captionedCount() || !confirm('Remove every caption (all languages)?')) return;
       panels.forEach(function (q) { q.cap = {}; }); chunkCache = {}; changed(); renderSubs();
@@ -2113,7 +1904,6 @@
       }, Promise.resolve()).then(function () {
         var ids = pages.map(function (p) { return p.id; });
         panels = (data.panels || []).filter(function (q) { return ids.indexOf(q.pageId) !== -1; });
-        S_match = data.match || null;
         view.pageId = pages[0] ? pages[0].id : '';
       });
     });
@@ -2128,8 +1918,7 @@
   Promise.all([loadCustom('customBg'), loadCustom('customOv')]).then(function (c) { custom.bg = c[0]; custom.ov = c[1]; looks = {}; lruStore = {}; lruOrder = []; renderLooks(); drawPreview(); });
   renderLooks();
   restore().then(function () {
-    renderAll(); renderSubs(); renderMatchNote();
+    renderAll(); renderSubs();
     setAudioMode(S.audioMode === 'file' ? 'none' : S.audioMode);   // a picked file can't be reopened after a reload
-    autoMatch();
   });
 })();
