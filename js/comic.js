@@ -203,11 +203,11 @@
   function renderList() {
     var t = timeline();
     $('panelList').innerHTML = panels.map(function (q, i) {
-      var eff = t.durs[i], fitted = Math.abs(eff - q.dur) > 0.05;
+      var eff = t.durs[i], fitted = Math.abs(eff - q.dur) > 0.05, synced = !!t.sync;
       return '<li class="cx-panel' + (q.id === view.sel ? ' on' : '') + '" data-id="' + q.id + '">' +
         '<span class="cx-pnum">' + (i + 1) + '</span><canvas class="cx-thumb" width="120" height="120" data-thumb="' + q.id + '"></canvas>' +
-        '<div class="cx-pmeta"><span class="muted small">Page ' + pageNo(q.pageId) + (fitted ? ' · plays ' + eff.toFixed(1) + ' s' : '') + '</span>' +
-        '<span class="cx-pctl"><input type="number" min="0.5" max="20" step="0.5" value="' + q.dur + '" data-dur aria-label="Seconds for panel ' + (i + 1) + '"><span class="muted small">s</span>' +
+        '<div class="cx-pmeta"><span class="muted small">Page ' + pageNo(q.pageId) + (synced ? ' · <b class="cx-synced">🎯 ' + eff.toFixed(1) + ' s, timed to the voice</b>' : fitted ? ' · plays ' + eff.toFixed(1) + ' s' : '') + '</span>' +
+        '<span class="cx-pctl"><input type="number" min="0.5" max="20" step="0.5" value="' + (synced ? eff.toFixed(1) : q.dur) + '" data-dur aria-label="Seconds for panel ' + (i + 1) + '"' + (synced ? ' disabled title="Timed to the voice automatically"' : '') + '><span class="muted small">s</span>' +
         '<select data-motion aria-label="Motion for panel ' + (i + 1) + '">' + MOTIONS.map(function (m) { return '<option value="' + m[0] + '"' + ((q.motion || '') === m[0] ? ' selected' : '') + '>' + m[1] + '</option>'; }).join('') + '</select></span></div>' +
         '<div class="cx-pbtns"><button type="button" class="btn btn-ghost btn-icon btn-sm" data-up aria-label="Move earlier"' + (i === 0 ? ' disabled' : '') + '>↑</button>' +
         '<button type="button" class="btn btn-ghost btn-icon btn-sm" data-down aria-label="Move later"' + (i === panels.length - 1 ? ' disabled' : '') + '>↓</button>' +
@@ -237,6 +237,7 @@
 
   function renderAll() {
     renderPages(); renderStage(); renderList(); renderSteps(); renderFacts(); sizePreview(); drawPreview();
+    if (typeof syncNoteText === "function" && audio.sync) syncNoteText();
   }
 
   /* ---------- Editing ---------- */
@@ -422,18 +423,59 @@
   function clearAudio() {
     stopPreview();
     if (audio.url) URL.revokeObjectURL(audio.url);
-    audio = { blob: null, url: '', dur: 0, name: '' };
-    $('audioRow').hidden = true; $('audioCheck').removeAttribute('src');
+    audio = { blob: null, url: '', dur: 0, name: '', sync: null };
+    $('audioRow').hidden = true; $('syncNote').hidden = true; $('syncNote').textContent = ''; $('audioCheck').removeAttribute('src');
     renderAll();
   }
   function useAudio(blob, name) {
     stopPreview();
     if (audio.url) URL.revokeObjectURL(audio.url);
-    audio = { blob: blob, url: URL.createObjectURL(blob), dur: 0, name: name || 'Voice track' };
+    audio = { blob: blob, url: URL.createObjectURL(blob), dur: 0, name: name || 'Voice track', sync: null };
     var a = $('audioCheck'); a.src = audio.url; $('audioRow').hidden = false;
     a.onloadedmetadata = function () { audio.dur = isFinite(a.duration) ? a.duration : 0; renderAll(); };
+    analyzeVoice(blob);
     a.onerror = function () { YB.toast('That audio file couldn\'t be opened'); };
   }
+  /* ---------- Auto-sync: panels and captions follow the voice (js/comic-sync.js) ---------- */
+  // Runs by itself whenever audio is added: finds the speech and the pauses, then the timeline
+  // places each panel on the words that belong to it and times every caption to its words.
+  function analyzeVoice(blob) {
+    var mine = audio, note = $('syncNote');
+    if (!window.YBAudioSync) return;
+    note.hidden = false; note.textContent = '🎯 Lining the pictures and captions up with the voice…';
+    blob.arrayBuffer().then(function (buf) {
+      var Ctx = window.OfflineAudioContext || window.webkitOfflineAudioContext, ctx = new Ctx(1, 1, 16000);
+      return new Promise(function (res, rej) { var p = ctx.decodeAudioData(buf, res, rej); if (p && p.then) p.then(res, rej); });
+    }).then(function (ab) {
+      if (audio !== mine) return;
+      var n = ab.length, mono = new Float32Array(n);
+      for (var c = 0; c < ab.numberOfChannels; c++) { var d = ab.getChannelData(c); for (var i = 0; i < n; i++) mono[i] += d[i] / ab.numberOfChannels; }
+      audio.sync = window.YBAudioSync.analyze(mono, ab.sampleRate);
+      if (!audio.dur) audio.dur = ab.duration;
+      syncCache = {};
+      renderAll(); syncNoteText();
+    }).catch(function () { if (audio === mine) { note.textContent = 'Couldn\'t read this audio to sync it — panels keep their own times.'; } });
+  }
+  var syncCache = {};
+  function syncOn() { return !!(audio.sync && (S.audioMode === 'voice' || S.audioMode === 'file') && panels.length); }
+  function syncWeights() {
+    return panels.map(function (q) { return window.YBAudioSync.weight(capOf(q, S.srcLang) || capOf(q, S.showLang)); });
+  }
+  function syncPlan() {
+    if (!syncOn()) return null;
+    var w = syncWeights(), key = audio.url + '|' + panels.map(function (q, i) { return q.id + ':' + w[i]; }).join(',');
+    if (!syncCache[key]) syncCache = {}, syncCache[key] = window.YBAudioSync.plan(audio.sync, w);
+    return syncCache[key];
+  }
+  function syncNoteText() {
+    var note = $('syncNote'); if (!note || !audio.sync) return;
+    note.hidden = false;
+    var pl = syncPlan();
+    if (!panels.length) note.textContent = '🎯 Voice ready — panels will follow it automatically as soon as you add them.';
+    else if (!audio.sync.segs.length) note.textContent = 'No speech found in this audio, so the panels share it evenly.';
+    else note.textContent = '🎯 Synced automatically: ' + panels.length + ' panel' + (panels.length === 1 ? '' : 's') + ' change in the pauses' + (hasCaptions() ? ', and captions appear as their words are spoken' : '') + (pl && !pl.synced ? '' : '') + '.';
+  }
+
   function mmss(s) { s = Math.max(0, Math.round(s || 0)); return Math.floor(s / 60) + ':' + String(s % 60).padStart(2, '0'); }
   function fillVoiceTakes() {
     var takes = (YB.store.get('voiceTakes', []) || []).filter(function (t) { return t.kind !== 'line'; });
@@ -471,6 +513,12 @@
       var tlN = panels.map(function (q, i) { var c = clipFor(q); return c ? Math.max(1.2, NARR_LEAD + c.dur + NARR_GAP) : durs[i]; });
       var startsN = [], tN = 0; tlN.forEach(function (d) { startsN.push(tN); tN += d; });
       return { durs: tlN, starts: startsN, total: tN };
+    }
+    var sp = typeof syncPlan === 'function' ? syncPlan() : null;
+    if (sp) {
+      // synced to the voice track: panel times come from the speech, not the number boxes
+      var dS = sp.ends.map(function (e, i) { return e - sp.starts[i]; });
+      return { durs: dS, starts: sp.starts.slice(), total: Math.max(sp.ends[sp.ends.length - 1], (audio.dur || 0) + 0.35), sync: sp };
     }
     if (S.capOn && S.capTiming) {
       // every panel stays up long enough to read its caption at the chosen pace
@@ -1158,6 +1206,19 @@
       return chs.map(function (c, n) {
         var a0 = acc / all; acc += c.words.join(' ').length + 1;
         return { words: c.words, start: at + a0 * clip.dur, end: n === chs.length - 1 ? tl.starts[i] + tl.durs[i] - 0.05 : at + acc / all * clip.dur, spoken: clip.dur * (acc / all - a0) };
+      });
+    }
+    if (tl.sync && tl.sync.synced && window.YBAudioSync) {
+      // in time with the voice track: each caption frame appears as its first word is spoken and stays until the next one
+      var spans = tl.sync.speech[i] || [], p0 = tl.starts[i], p1 = tl.starts[i] + tl.durs[i];
+      var ck = chunksFor(text, lang), allc = ck.reduce(function (a, c) { return a + c.words.join(' ').length + 1; }, 0), run = 0;
+      var marks = ck.map(function (c) { var a0 = run / allc; run += c.words.join(' ').length + 1; return [a0, run / allc]; });
+      var at0 = spans.length ? spans[0][0] : p0 + 0.1;
+      return ck.map(function (c, n) {
+        var st = n ? window.YBAudioSync.timeAt(spans, marks[n][0], at0, p1) : Math.max(p0 + 0.02, at0 - 0.08);
+        var said = window.YBAudioSync.timeAt(spans, marks[n][1], at0, p1);
+        var en = n === ck.length - 1 ? p1 - 0.05 : window.YBAudioSync.timeAt(spans, marks[n + 1][0], at0, p1);
+        return { words: c.words, start: st, end: Math.max(st + 0.2, en), spoken: Math.max(0.2, said - st) };
       });
     }
     var s0 = tl.starts[i] + 0.1, avail = Math.max(0.3, tl.durs[i] - 0.22), pace = S.capPace || 15;

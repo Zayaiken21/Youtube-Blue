@@ -15,13 +15,14 @@
   <meta name="mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
   <meta name="apple-mobile-web-app-title" content="YT Blue">
-  <link rel="stylesheet" href="css/style.css?v=27">
+  <link rel="stylesheet" href="css/style.css?v=28">
   <script src="js/core.js" defer></script>
   <script src="js/voice-grammar.js?v=2" defer></script>
   <script src="js/comic-panels.js?v=2" defer></script>
   <script src="js/vendor/mp4-muxer.min.js" defer></script>
+  <script src="js/comic-sync.js?v=1" defer></script>
   <script src="js/comic-voice.js?v=1" defer></script>
-  <script src="js/comic.js?v=11" defer></script>
+  <script src="js/comic.js?v=12" defer></script>
 </head>
 <body data-page="comic">
   <header class="topbar">
@@ -170,6 +171,7 @@
             </div>
             <div class="cx-audio-row" id="audioRow" hidden>
               <audio id="audioCheck" controls preload="metadata"></audio>
+              <p class="small cx-sync" id="syncNote" hidden></p>
             </div>
           </div>
 

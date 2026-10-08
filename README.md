@@ -56,6 +56,8 @@ Two voice engines:
 
 Clips are saved on the device per language, so only changed panels are made again. *Make one video per language* gives each language its own dubbed voice.
 
+**Auto-sync to the voice (no button).** As soon as a voice track is added — from Voice Studio or an audio file — the page listens to it, finds where the speech and the pauses are (`js/comic-sync.js`), and times everything to it: each panel gets the part of the talking that matches how much its caption says (counted in syllables), every cut lands in a real pause just before the next words, and panels with no caption get a short moment in the pause. Captions appear as their words are spoken and wait through pauses. It re-syncs by itself when you add, remove, reorder or re-caption panels; the panel list shows *🎯 timed to the voice* and the seconds boxes are locked while a voice is on. With *No sound*, panels go back to their own times. *Narrate & dub* was already timed clip by clip and works as before.
+
 **Subtitles (on by default).** Every panel has its own caption, so a subtitle never runs across two panels. *Fill captions* shares a Story Studio story's spoken lines across the panels in order (grammar tidied, `[tags]` and scene headings left out), and any caption can be edited under *Order & timing*.
 - **Styles:** Bold pop, Karaoke, Clean box, Minimal, Highlight bar, Comic bubble, Neon and Typewriter. You can change the size, text and highlight colours, words per caption (2–8) and ALL CAPS.
 - **Smart position:** for 9:16 the panel moves up a little and the caption sits just under it, above the area YouTube covers with the title and buttons. 1:1 and 16:9 get the same treatment. Top, middle and bottom are there too.

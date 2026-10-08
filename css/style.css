@@ -1077,3 +1077,5 @@ input[type="range"] { min-height: 32px; }            /* finger-friendly */
 .imp-more { color: var(--muted); justify-content: center; }
 #impErr { color: #fecaca; margin: 10px 0 0; }
 .imp-opts [hidden] { display: none; }
+.cx-sync { margin: 8px 0 0; color: #a7f3d0; }
+.cx-synced { color: #a7f3d0; font-weight: 700; }
