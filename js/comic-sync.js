@@ -70,12 +70,14 @@
   // weights: one number per panel (how much it says). Returns { starts, ends, speech: [[ [s,e], ... ] per panel] }
   // Panels that say nothing (a picture with no caption) don't take any of the talking: they get a short
   // moment in the pause before the next words (or after the voice ends).
-  function plan(an, weights) {
+  function plan(an, weights, caps) {
     var N = weights.length;
     if (!N) return null;
     var idx = []; weights.forEach(function (w, i) { if (w > 0) idx.push(i); });
-    if (!idx.length || idx.length === N) return core(an, idx.length ? weights : weights.map(function () { return 1; }));
-    var c = core(an, idx.map(function (i) { return weights[i]; }));
+    // A Voice Studio story track knows exactly where every line is: match each caption to its lines.
+    var exact = an.marks && caps ? exactCore(an, idx.length ? idx.map(function (i) { return caps[i]; }) : null) : null;
+    if (!idx.length || idx.length === N) return exact || core(an, idx.length ? weights : weights.map(function () { return 1; }));
+    var c = exact || core(an, idx.map(function (i) { return weights[i]; }));
     var starts = new Array(N), ends = new Array(N), k, i;
     function speechStart(m) { var sp = c.speech[m]; return sp.length ? sp[0][0] : c.starts[m] + 0.1; }
     function speechEnd(m) { var sp = c.speech[m]; return sp.length ? sp[sp.length - 1][1] : c.ends[m]; }
@@ -92,9 +94,10 @@
       }
       var cut = c.starts[k], from = k ? speechEnd(k - 1) + 0.15 : 0, room = cut - from;
       // fit in the pause when there's room (at least ~0.35 s each); otherwise right after the last words
-      var fits = room >= 0.35 * m, d = fits ? Math.min(1.5, room / m) : 0.45;
-      var begin = fits ? cut - d * m : Math.max(k ? c.starts[k - 1] + 0.3 : 0, from - 0.13);
-      if (!fits) { cut = begin + d * m; starts[idx[k]] = cut; }
+      // Speaking panels always start on time. A picture-only panel uses the pause when there's room;
+      // otherwise it takes a short moment from the end of the panel before it (never delaying the next words).
+      var fits = room >= 0.35 * m, d = fits ? Math.min(1.5, room / m) : 0.35;
+      var begin = Math.max(k ? c.starts[k - 1] + 0.3 : 0, cut - d * m);
       if (k) ends[idx[k - 1]] = begin;
       for (i = 0; i < m; i++) { starts[lo + i] = begin + i * (cut - begin) / m; ends[lo + i] = begin + (i + 1) * (cut - begin) / m; }
       if (!k) starts[lo] = 0;
@@ -102,7 +105,59 @@
     var speech = starts.map(function (s0, j) {
       return an.segs.filter(function (sg) { return sg[1] > s0 && sg[0] < ends[j]; }).map(function (sg) { return [Math.max(sg[0], s0), Math.min(sg[1], ends[j])]; });
     });
-    return { starts: starts, ends: ends, speech: speech, synced: c.synced };
+    return { starts: starts, ends: ends, speech: speech, synced: c.synced, exact: !!c.exact };
+  }
+
+  /* ---------- Exact mode: line times saved with a Voice Studio story track ----------
+     marks: [{ s, e, t }] — where each spoken line starts/ends in the track and its words.
+     The panels' captions (in order) are matched letter by letter to those words, so each
+     panel starts right before its first line and each caption follows its own line. */
+  function norm(t) { return String(t || '').toLowerCase().replace(/\[[^\]]*\]/g, ' ').replace(/[^\p{L}\p{N}]+/gu, ''); }
+  function exactCore(an, caps) {
+    if (!caps || !caps.length) return null;
+    var M = '', mb = [], C = '', cb = [];
+    an.marks.forEach(function (m) { var n = norm(m.t); mb.push({ a: M.length, b: M.length + n.length, s: m.s, e: m.e }); M += n; });
+    caps.forEach(function (c) { var n = norm(c); cb.push({ a: C.length, b: C.length + n.length }); C += n; });
+    if (!M.length || !C.length) return null;
+    // align caption letters to track letters (tiny differences like tidied punctuation or a changed word are skipped)
+    var map = new Int32Array(C.length + 1).fill(-1), i = 0, j = 0, matched = 0;
+    while (i < C.length && j < M.length) {
+      if (C[i] === M[j]) { map[i] = j; i++; j++; matched++; continue; }
+      var w = C.substr(i, 8), k = M.indexOf(w, j), w2 = M.substr(j, 8), k2 = C.indexOf(w2, i);
+      if (k !== -1 && k - j < 400 && (k2 === -1 || k - j <= k2 - i)) j = k;
+      else if (k2 !== -1 && k2 - i < 400) { while (i < k2) map[i++] = j; }
+      else { map[i] = j; i++; j++; }
+    }
+    while (i <= C.length) map[i++] = Math.min(j, M.length);
+    if (matched < 0.7 * Math.min(C.length, M.length)) return null;   // captions don't match this track: use the pauses instead
+    for (i = 0; i <= C.length; i++) if (map[i] < 0) map[i] = i ? map[i - 1] : 0;
+    function at(x) {   // letter position in the track text → { time, line, atLineStart }
+      for (var q = 0; q < mb.length; q++) {
+        var m = mb[q];
+        if (x < m.b || q === mb.length - 1) {
+          if (x <= m.a + 1) return { t: m.s, k: q, start: true };
+          return { t: m.s + Math.min(1, (x - m.a) / Math.max(1, m.b - m.a)) * (m.e - m.s), k: q, start: false };
+        }
+      }
+      return { t: 0, k: 0, start: true };
+    }
+    var N = caps.length, starts = [], ends = [], q;
+    for (q = 0; q < N; q++) {
+      if (!q) { starts.push(0); continue; }
+      var p = at(map[cb[q].a]), prevEnd = p.k ? mb[p.k - 1].e : 0, cut;
+      if (p.start) cut = Math.max(prevEnd + 0.04, p.t - 0.15);            // just before this panel's first line
+      else {                                                               // a caption that starts mid-line: nearest real pause
+        var best = null;
+        (an.pauses || []).forEach(function (pa) { if (Math.abs(pa.e - p.t) < 0.6 && (!best || Math.abs(pa.e - p.t) < Math.abs(best.e - p.t))) best = pa; });
+        cut = best ? Math.max(best.s + 0.02, best.e - 0.1) : p.t - 0.05;
+      }
+      starts.push(Math.max(cut, starts[q - 1] + 0.3));
+    }
+    for (q = 0; q < N; q++) ends.push(q < N - 1 ? starts[q + 1] : Math.max(an.dur, mb[mb.length - 1].e) + 0.35);
+    var speech = starts.map(function (s0, x) {
+      return an.segs.filter(function (sg) { return sg[1] > s0 && sg[0] < ends[x]; }).map(function (sg) { return [Math.max(sg[0], s0), Math.min(sg[1], ends[x])]; });
+    });
+    return { starts: starts, ends: ends, speech: speech, synced: true, exact: true };
   }
 
   function core(an, weights) {

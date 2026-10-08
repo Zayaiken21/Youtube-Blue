@@ -940,7 +940,7 @@
         V.end();
         V.showAudio(wav, 'wav', fileBase() + '-so-far', made.length + ' of ' + lines.length + ' lines');
         if (takes()) takes().add({ id: st.runId + '-track', kind: 'story', group: st.runId, groupTitle: (story() && story().title) || 'Story', idx: -1,
-          title: 'Story so far · ' + made.length + ' of ' + lines.length + ' lines', text: 'Finished lines in script order', blob: wav, ext: 'wav' });
+          title: 'Story so far · ' + made.length + ' of ' + lines.length + ' lines', text: 'Finished lines in script order', blob: wav, ext: 'wav', marks: stitch.marks });
         runNote((run.stopping ? 'Stopped' : 'Run finished') + ' after ' + took + ' — ' + made.length + ' of ' + lines.length + ' lines made; the last one made is the end of the track so far. ' + next);
         YB.toast((run.stopping ? 'Stopped' : 'Done') + ' — ' + made.length + ' of ' + lines.length + ' lines ready');
         updateRetry(); V.updateControls();
@@ -958,7 +958,7 @@
       V.end();
       V.showAudio(wav, 'wav', fileBase(), V.levelOn() ? 'every line levelled' : '');
       if (takes()) takes().add({ id: st.runId + '-track', kind: 'story', group: st.runId, groupTitle: (story() && story().title) || 'Story', idx: -1,
-        title: 'Full story track', text: lines.length + ' lines in script order', blob: wav, ext: 'wav' });
+        title: 'Full story track', text: lines.length + ' lines in script order', blob: wav, ext: 'wav', marks: stitch.marks });
       runNote('Story track ready after ' + took + ' — ' + lines.length + ' lines in script order. Each line\'s clip can also be played or downloaded above.');
       YB.toast(run.resumed ? 'Your story finished in the background — audio ready' : 'Complete — story audio ready');
       updateRetry(); V.updateControls();
@@ -1039,7 +1039,8 @@
     var decodes = order.map(function (g) { return g.type === 'line' ? decode(g.blob) : Promise.resolve(null); });
     return Promise.all(decodes).then(function (buffers) {
       var parts = [], gap = Math.round(SAMPLE_RATE * Number(opts.pause) / 1000), sceneGap = Math.round(SAMPLE_RATE * Number(opts.scenePause) / 1000);
-      var pendingScene = false, first = true;
+      var pendingScene = false, first = true, pos = 0, marks = [];
+      function put(a) { parts.push(a); pos += a.length; }
       function prep(i) {
         var line = trim(mono(buffers[i]));
         if (V.levelOn()) { var gl = V.matchGain(line, SAMPLE_RATE); if (gl !== 1) { line = Float32Array.from(line); for (var k = 0; k < line.length; k++) line[k] *= gl; } }   // story track only
@@ -1048,16 +1049,20 @@
       for (var i = 0; i < order.length; i++) {
         var g = order[i];
         if (g.type === 'scene') { pendingScene = true; continue; }
-        if (!first) parts.push(new Float32Array(gap + (pendingScene ? sceneGap : 0)));
+        if (!first) put(new Float32Array(gap + (pendingScene ? sceneGap : 0)));
+        var at = pos, said = g.text;
         if (g.grp) {   // everyone in the group speaks at once
           var members = [];
           while (i < order.length && order[i].type === 'line' && order[i].grp === g.grp) { members.push(prep(i)); i++; }
           i--;
-          parts.push(layer(members));
-        } else parts.push(prep(i));
+          put(layer(members));
+        } else put(prep(i));
+        // exactly where each line is in the track — Comic to Video lines panels and captions up with these
+        marks.push({ s: +(at / SAMPLE_RATE).toFixed(3), e: +(pos / SAMPLE_RATE).toFixed(3), t: String(said || '').slice(0, 400) });
         first = false; pendingScene = false;
       }
-      parts.push(new Float32Array(Math.round(SAMPLE_RATE * 0.3)));
+      put(new Float32Array(Math.round(SAMPLE_RATE * 0.3)));
+      stitch.marks = marks;
       return encodeWav(parts, SAMPLE_RATE);
     });
   }

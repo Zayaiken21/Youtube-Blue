@@ -427,10 +427,10 @@
     $('audioRow').hidden = true; $('syncNote').hidden = true; $('syncNote').textContent = ''; $('audioCheck').removeAttribute('src');
     renderAll();
   }
-  function useAudio(blob, name) {
+  function useAudio(blob, name, marks) {
     stopPreview();
     if (audio.url) URL.revokeObjectURL(audio.url);
-    audio = { blob: blob, url: URL.createObjectURL(blob), dur: 0, name: name || 'Voice track', sync: null };
+    audio = { blob: blob, url: URL.createObjectURL(blob), dur: 0, name: name || 'Voice track', sync: null, marks: Array.isArray(marks) && marks.length ? marks : null };
     var a = $('audioCheck'); a.src = audio.url; $('audioRow').hidden = false;
     a.onloadedmetadata = function () { audio.dur = isFinite(a.duration) ? a.duration : 0; renderAll(); };
     analyzeVoice(blob);
@@ -444,13 +444,21 @@
     if (!window.YBAudioSync) return;
     note.hidden = false; note.textContent = '🎯 Lining the pictures and captions up with the voice…';
     blob.arrayBuffer().then(function (buf) {
-      var Ctx = window.OfflineAudioContext || window.webkitOfflineAudioContext, ctx = new Ctx(1, 1, 16000);
-      return new Promise(function (res, rej) { var p = ctx.decodeAudioData(buf, res, rej); if (p && p.then) p.then(res, rej); });
+      function dec(ctx, b) { return new Promise(function (res, rej) { var p = ctx.decodeAudioData(b, res, rej); if (p && p.then) p.then(res, rej); }); }
+      var Off = window.OfflineAudioContext || window.webkitOfflineAudioContext, copy = buf.slice(0);
+      var first;
+      try { first = dec(new Off(1, 22050, 22050), buf); } catch (e) { first = Promise.reject(e); }
+      return first.catch(function () {   // some browsers only decode in a normal audio context
+        var AC = window.AudioContext || window.webkitAudioContext, ac = new AC();
+        return dec(ac, copy).then(function (ab) { try { ac.close(); } catch (e) { /* ignore */ } return ab; });
+      });
     }).then(function (ab) {
       if (audio !== mine) return;
       var n = ab.length, mono = new Float32Array(n);
       for (var c = 0; c < ab.numberOfChannels; c++) { var d = ab.getChannelData(c); for (var i = 0; i < n; i++) mono[i] += d[i] / ab.numberOfChannels; }
       audio.sync = window.YBAudioSync.analyze(mono, ab.sampleRate);
+      // a Voice Studio story track carries the exact time of every line
+      if (audio.marks && audio.marks[audio.marks.length - 1].e <= ab.duration + 1) audio.sync.marks = audio.marks;
       if (!audio.dur) audio.dur = ab.duration;
       syncCache = {};
       renderAll(); syncNoteText();
@@ -463,8 +471,8 @@
   }
   function syncPlan() {
     if (!syncOn()) return null;
-    var w = syncWeights(), key = audio.url + '|' + panels.map(function (q, i) { return q.id + ':' + w[i]; }).join(',');
-    if (!syncCache[key]) syncCache = {}, syncCache[key] = window.YBAudioSync.plan(audio.sync, w);
+    var w = syncWeights(), key = audio.url + '|' + panels.map(function (q, i) { return q.id + ':' + w[i] + ':' + (capOf(q, S.srcLang) || capOf(q, S.showLang)).length; }).join(',');
+    if (!syncCache[key]) syncCache = {}, syncCache[key] = window.YBAudioSync.plan(audio.sync, w, panels.map(function (q) { return capOf(q, S.srcLang) || capOf(q, S.showLang); }));
     return syncCache[key];
   }
   function syncNoteText() {
@@ -473,7 +481,7 @@
     var pl = syncPlan();
     if (!panels.length) note.textContent = '🎯 Voice ready — panels will follow it automatically as soon as you add them.';
     else if (!audio.sync.segs.length) note.textContent = 'No speech found in this audio, so the panels share it evenly.';
-    else note.textContent = '🎯 Synced automatically: ' + panels.length + ' panel' + (panels.length === 1 ? '' : 's') + ' change in the pauses' + (hasCaptions() ? ', and captions appear as their words are spoken' : '') + (pl && !pl.synced ? '' : '') + '.';
+    else note.textContent = '🎯 Synced automatically' + (pl && pl.exact ? ' to every line of the story track' : '') + ': ' + panels.length + ' panel' + (panels.length === 1 ? '' : 's') + (pl && pl.exact ? ' start right before their lines' : ' change in the pauses') + (hasCaptions() ? ', and captions appear as their words are spoken' : '') + '.';
   }
 
   function mmss(s) { s = Math.max(0, Math.round(s || 0)); return Math.floor(s / 60) + ':' + String(s % 60).padStart(2, '0'); }
@@ -499,7 +507,8 @@
         clearAudio(); return;
       }
       $('voiceTakeNote').textContent = 'Using this audio from Voice Studio.';
-      useAudio(blob, $('voiceTake').selectedOptions[0] ? $('voiceTake').selectedOptions[0].textContent : 'Voice Studio audio');
+      var meta = key.indexOf('take:') === 0 ? (YB.store.get('voiceTakes', []) || []).find(function (x) { return 'take:' + x.id === key; }) : null;
+      useAudio(blob, $('voiceTake').selectedOptions[0] ? $('voiceTake').selectedOptions[0].textContent : 'Voice Studio audio', meta && meta.marks);
     });
   }
 
@@ -965,6 +974,13 @@
       });
     }, Promise.resolve(null));
   }
+  // OpusHead: 'OpusHead', version 1, 2 channels, pre-skip, 48 kHz, gain 0, mapping 0
+  function opusHead(preSkip) {
+    var b = new Uint8Array(19), dv = new DataView(b.buffer);
+    'OpusHead'.split('').forEach(function (ch, i) { b[i] = ch.charCodeAt(0); });
+    b[8] = 1; b[9] = 2; dv.setUint16(10, preSkip, true); dv.setUint32(12, 48000, true); dv.setInt16(16, 0, true); b[18] = 0;
+    return b.buffer;
+  }
   function decodeVoice() {
     if (!audio.blob) return Promise.resolve(null);
     var AC = window.AudioContext || window.webkitAudioContext, ac = new AC();
@@ -995,15 +1011,28 @@
     Promise.all([pickVideoCodec(W, H), pickAudioCodec(), decodeVoice()]).then(function (r) {
       var vc = r[0], acodec = r[1], voice = r[2];
       if (!vc) throw new Error('no-video-codec');
+      if (voice && !acodec) throw new Error('no-audio-encoder');   // never make a silent video: the recorder keeps the voice
       var target = new Mp4Muxer.ArrayBufferTarget();
-      var muxer = new Mp4Muxer.Muxer({ target: target, fastStart: 'in-memory', firstTimestampBehavior: 'offset',
+      var muxer = new Mp4Muxer.Muxer({ target: target, fastStart: 'in-memory', firstTimestampBehavior: 'cross-track-offset',
         video: { codec: vc.mux, width: W, height: H, frameRate: FPS },
         audio: voice && acodec ? { codec: acodec.mux, numberOfChannels: 2, sampleRate: 48000 } : undefined });
       vEnc = new VideoEncoder({ output: function (c, m) { muxer.addVideoChunk(c, m); }, error: fail });
       vEnc.configure(vc.cfg);
       var audioDone = Promise.resolve();
       if (voice && acodec) {
-        aEnc = new AudioEncoder({ output: function (c, m) { muxer.addAudioChunk(c, m); }, error: fail });
+        // The MP4 needs the encoder's real start-up padding (Opus "pre-skip"). If the browser doesn't hand over its
+        // header, the muxer assumes 80 ms and players cut that much real sound — the voice would run 73 ms early.
+        var gotHead = false;
+        aEnc = new AudioEncoder({ output: function (c, m) {
+          if (acodec.mux === 'opus') {
+            if (!gotHead) {
+              var dcfg = m && m.decoderConfig, desc = dcfg && dcfg.description;
+              if (!desc || desc.byteLength < 18) m = { decoderConfig: { codec: 'opus', sampleRate: 48000, numberOfChannels: 2, description: opusHead(312) } };
+              gotHead = true;
+            } else m = undefined;   // later chunks carry an empty header that would wipe the real one
+          }
+          muxer.addAudioChunk(c, m);
+        }, error: fail });
         aEnc.configure(acodec.cfg);
         var L = voice.getChannelData(0), R = voice.numberOfChannels > 1 ? voice.getChannelData(1) : L, step = 4800;
         for (var o = 0; o < voice.length; o += step) {
@@ -1043,8 +1072,7 @@
       });
     }).then(function (blob) {
       fastOk = true; cleanup();
-      showResult(blob, 'video/mp4', total, W, H);
-      if (done) done(true);
+      return fixOpusDelay(blob).then(function (b) { showResult(b, 'video/mp4', total, W, H); if (done) done(true); });
     }, function (e) {
       cleanup();
       if (e && e.message === 'cancelled') { YB.toast('Video cancelled'); if (done) done(false); return; }
@@ -1102,13 +1130,13 @@
         $('exportProg').hidden = true; $('playBtn').disabled = false; renderFacts();
         if (cancelled) { YB.toast('Video cancelled'); if (done) done(false); return; }
         var type = (mr.mimeType || mime).split(';')[0], blob = new Blob(chunks, { type: type });
-        showResult(blob, type, total, W, H);
-        if (done) done(true);
+        fixOpusDelay(blob).then(function (b) { showResult(b, type, total, W, H); if (done) done(true); });
       };
-      var t0 = 0, stopped = false;
+      var t0 = 0, stopped = false, aStart = 0;
       function frame() {
         if (stopped) return;
-        var t = (performance.now() - t0) / 1000;
+        // with a voice, the picture follows the audio clock itself, so the two can never drift apart
+        var t = src && ac ? Math.max(0, ac.currentTime - aStart) : (performance.now() - t0) / 1000;
         if (rec.cancelled) { stopped = true; try { src && src.stop(); } catch (e) {} mr.stop(); return; }
         drawFrame(ctx, W, H, Math.min(t, total));
         $('exportBar').style.width = Math.min(100, t / total * 100).toFixed(1) + '%';
@@ -1121,11 +1149,29 @@
       var go = function () {
         mr.start(1000);
         t0 = performance.now();
-        if (src) src.start(ac.currentTime);
+        if (src) { aStart = ac.currentTime + 0.05; src.start(aStart); }
         requestAnimationFrame(frame);
       };
       if (ac && ac.state === 'suspended') ac.resume().then(go, go); else go();
     });
+  }
+
+  // MP4s with Opus sound record how much start-up padding to skip ("pre-skip"). Some browsers write 80 ms
+  // (3840) where the encoder really adds 6.5 ms (312), so players cut 73 ms of real sound and the voice
+  // runs ahead of the pictures. Correct that number in the finished file.
+  function fixOpusDelay(blob) {
+    if (!/mp4/.test(blob.type)) return Promise.resolve(blob);
+    return blob.arrayBuffer().then(function (buf) {
+      var u = new Uint8Array(buf), fixed = false;
+      for (var i = 4; i < u.length - 12; i++) {
+        if (u[i] === 0x64 && u[i + 1] === 0x4F && u[i + 2] === 0x70 && u[i + 3] === 0x73) {   // 'dOps'
+          var pre = (u[i + 6] << 8) | u[i + 7];
+          if (pre === 3840) { u[i + 6] = 312 >> 8; u[i + 7] = 312 & 255; fixed = true; }
+          break;
+        }
+      }
+      return fixed ? new Blob([u], { type: blob.type }) : blob;
+    }, function () { return blob; });
   }
 
   function showResult(blob, type, total, W, H) {

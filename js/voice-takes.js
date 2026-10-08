@@ -130,7 +130,8 @@
         release('take:' + id);
         takes = takes.filter(function (x) { return x.id !== id; });
         takes.unshift({ id: id, kind: t.kind || 'single', title: String(t.title || 'Speech'), text: String(t.text || '').slice(0, 160), ext: t.ext || 'wav',
-          size: t.blob.size, dur: dur || 0, at: Date.now(), group: t.group || '', groupTitle: t.groupTitle || '', idx: t.idx == null ? -1 : t.idx, note: t.note || '' });
+          size: t.blob.size, dur: dur || 0, at: Date.now(), group: t.group || '', groupTitle: t.groupTitle || '', idx: t.idx == null ? -1 : t.idx, note: t.note || '',
+          marks: Array.isArray(t.marks) ? t.marks : undefined });   // story tracks: where each line starts/ends (Comic to Video sync)
         save(); render();
         return id;
       });
