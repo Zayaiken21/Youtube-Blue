@@ -6,6 +6,16 @@
       "size": 33436
     },
     {
+      "file": "voice_preview_cinematic female narrator.mp3",
+      "name": "voice preview cinematic female narrator",
+      "size": 494699
+    },
+    {
+      "file": "voice_preview_cinematic male narrator.mp3",
+      "name": "voice preview cinematic male narrator",
+      "size": 379343
+    },
+    {
       "file": "voice_preview_daniel - steady broadcaster.mp3",
       "name": "voice preview daniel steady broadcaster",
       "size": 45975
@@ -19,6 +29,11 @@
       "file": "voice_preview_george - warm, captivating storyteller.mp3",
       "name": "voice preview george warm, captivating storyteller",
       "size": 27603
+    },
+    {
+      "file": "voice_preview_grandma .mp3",
+      "name": "voice preview grandma",
+      "size": 815065
     },
     {
       "file": "voice_preview_joselyn - female character 25yr.mp3",
