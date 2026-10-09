@@ -11,6 +11,7 @@ A blue creator toolkit for designing a YouTube channel, tracking analytics, and 
 | Analytics — video log, KPIs, goals, charts, insights, CSV import/export | `analytics.html` | `js/analytics.js` |
 | Story Studio — templates, characters (+), one-voice / multi-voice, teleprompter | `stories.html` | `js/stories.js` |
 | Prompts — ready-made AI prompts (copy / PDF) that answer in the YouTube Blue format | `prompts.html` | `js/prompts.js`, `prompts/` |
+| Video Formatter — import videos, format for Shorts / long form, frames, editable overlays, MP4 export | `formatter.html` | `js/formatter.js` |
 | Voice Studio — Chatterbox text-to-speech, predefined voices, voice cloning, download | `voice.html` | `js/voice.js` |
 | Voice Studio · Story mode — multi-voice story narration in script order | `voice.html` | `js/voice-story.js` |
 
@@ -66,6 +67,17 @@ Clips are saved on the device per language, so only changed panels are made agai
 - **Languages:** pick up to 10 of 16 popular languages and press *Translate captions*. In Chrome or Edge on a computer, translation runs on the device with the browser's built-in translator: instant, private and unlimited. If it isn't ready within a few seconds, or on phones and other browsers, the free MyMemory service is used: about 5,000 characters a day per device, or about 50,000 with an email under *Translation limit*. Translations are saved and can be edited. Choose the subtitle language for the video, or press *Make one video per language*. After exporting, download an `.srt` file per language to upload in YouTube Studio → Subtitles.
 
 Pages, panels, captions and settings are saved on the device (IndexedDB `youtube-blue-comic`).
+
+## Video Formatter
+
+Turn any videos you have into a YouTube-ready video (`formatter.html`).
+
+1. **Add videos** — MP4, MOV, WebM and anything else the browser plays (MKV, HEVC "High Efficiency" and AVI often don't: you'll get a note to save them as MP4 / H.264). Trim each clip with Start / End or with *Start here* / *End here* at the playhead, *Split clip here*, reorder with ↑ ↓, set each clip's volume or mute it.
+2. **Format & frame** — Short 9:16 (1080×1920), Long form 16:9 (1920×1080), Square 1:1 or Portrait 4:5. *Fit* shows the whole picture, *Fill* crops to fill; zoom and move the picture per clip (or turn on *Move video* and drag it on the preview). Backgrounds: blurred video, black, white, your colour, gradients or your own image. Frames: rounded, border, photo card, neon, film strip, TV. Straight cuts or fades between clips, space around the video, and optional background music with its own volume.
+3. **Overlays** — title, text, name tag, emoji, logo / picture, subscribe button and progress bar. Tap one on the preview to select it, drag to move, drag the corner ◢ to resize; edit text, font, style, colours, size, width, when it shows and its animation (fade, pop, slide up, type out). The paused preview always shows overlays fully so you can edit them; animations play in the preview and the video.
+4. **Make the video** — each clip plays through once while every frame is captured with its own time and encoded on the device (WebCodecs + MP4); the sound (clips + music) is mixed separately and packed alongside, so picture and sound stay in sync. Browsers without WebCodecs use the real-time recorder instead. Shorts over 3 minutes get a warning.
+
+Clips, overlays, music and settings are saved on the device (IndexedDB `youtube-blue-formatter`).
 
 ## Put it on GitHub Pages
 
