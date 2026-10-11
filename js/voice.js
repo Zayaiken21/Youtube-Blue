@@ -54,8 +54,9 @@
   };
   // How the reaction-tag chips are grouped (any extra tags from the server go in "More").
   var TAG_GROUPS = [['Laughter', ['laugh', 'chuckle']], ['Reaction', ['sigh', 'gasp', 'groan']], ['Vocal sounds', ['cough', 'clear throat', 'sniff', 'shush']]];
-  // Speed is a time-stretch: outside this band it audibly distorts the voice.
-  var SPEED_MIN = 0.97, SPEED_MAX = 1.05;
+  // Speed is always Chatterbox's own natural pace (1.00). Any other value is a time-stretch done after the
+  // voice is made, which smears the voice and makes it sound rushed (faster) or echoey (slower).
+  var SPEED_MIN = 1, SPEED_MAX = 1;
   var REF_SHORT_SEC = 5, REF_LONG_SEC = 30;     // reference clip guidance (server rejects > 30 s)
   var LIST_STALE_MS = 15000;                    // re-fetch voice/reference lists when older than this
   var HEALTH_INTERVAL_MS = 60000;               // gentle background check while idle

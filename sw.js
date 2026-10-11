@@ -1,7 +1,7 @@
 /* Youtube Blue — service worker
    Network first (so your edits show up right away), cache as offline backup.
    Bump CACHE when you want installed copies to drop old files. */
-const CACHE = 'yt-blue-v30';
+const CACHE = 'yt-blue-v31';
 const ASSETS = [
   './', 'index.html', 'design.html', 'analytics.html', 'scheduler.html', 'stories.html', 'voice.html', 'comic.html', 'prompts.html', 'formatter.html',
   'css/style.css',

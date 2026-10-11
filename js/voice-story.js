@@ -240,7 +240,6 @@
       group('Presets <span class="cs-model">· for ' + YB.esc(V.modelName()) + '</span>', '<div class="chips cs-chips">' + chips + '</div>') +
       group('Delivery',
         slider(id, 'temperature', 'Temperature', a, 'Lower is steadier. Higher adds more variation.') +
-        slider(id, 'speed', 'Speed', a, 'Keep 1.00 for the clearest sound — any other speed is stretched afterwards and can sound echoey.') +
         '<label class="field cs-field"><span>Seed (0 = random)</span><input type="number" min="0" step="1" inputmode="numeric" value="' + a.seed + '" data-cs="seed" data-cs-char="' + cid + '"><small class="muted">Reuse a fixed seed for repeatable results.</small></label>') +
       group('Expression', expression) +
       lang +
