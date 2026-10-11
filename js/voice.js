@@ -17,10 +17,10 @@
 
   /* ---------- Constants ---------- */
   var DEFAULT_TAGS = ['laugh', 'chuckle', 'sigh', 'gasp', 'cough', 'clear throat', 'sniff', 'groan', 'shush'];
-  var SETTINGS_VERSION = 8;
+  var SETTINGS_VERSION = 9;
   var DEFAULTS = {
     voiceKey: '',          // 'builtin:<file>' | 'preset:<file>' | 'shared:<file>' | 'mine:<id>' (js/voice-library.js)
-    format: 'wav', chunk: 400, temperature: 0.8, speed: 1, seed: 42, split: true, level: false,   // Chatterbox's own defaults; fixed seed = same voice in every chunk
+    format: 'wav', chunk: 400, temperature: 0.8, speed: 1, seed: 42, split: true,   // Chatterbox's own defaults; fixed seed = same voice in every chunk
     exaggeration: 0.5, cfg: 0.5, language: 'en', preferredModel: ''
   };
   var CHUNK_MIN = 200, CHUNK_MAX = 500;         // user-facing range (server accepts 50–500)
@@ -135,6 +135,8 @@
     if (v < 7) { if (saved.temperature === 0.75) saved.temperature = 0.8; if (!saved.seed) saved.seed = 42; }
     // v8: clips are always kept exactly as Chatterbox made them; volume matching is off unless chosen again (story track only).
     if (v < 8) saved.level = false;
+    // v9: no volume matching at all any more — Chatterbox's sound is never changed.
+    delete saved.level;
     // v5: one voice picker. A built-in voice carries over; old server references don't.
     if (!saved.voiceKey && saved.voiceId && saved.mode !== 'clone') saved.voiceKey = 'builtin:' + saved.voiceId;
     delete saved.mode; delete saved.voiceId; delete saved.reference;
@@ -980,7 +982,6 @@
     $('speedFactor').value = settings.speed;
     $('generationSeed').value = settings.seed;
     $('splitText').checked = !!settings.split;
-    $('levelLoudness').checked = settings.level !== false;
     $('exaggeration').value = settings.exaggeration;
     $('cfgWeight').value = settings.cfg;
     $('tempVal').textContent = tempLabel(settings.temperature);
@@ -1557,21 +1558,10 @@
     return checkHealth(opts);
   }
 
-  /* ---------- Loudness levelling (WAV) ----------
-     GENTLE MODE (current): one volume change per clip, ±6 dB at most, never above the
-     clip's own peak — no limiter, no compression. The notes below describe the earlier,
-     stronger version; limit() is kept but no longer used.
-     Brings every clip to one speaking level so it sounds right on YouTube and
-     every voice/character matches. Volume only: one gain for the whole clip,
-     plus a gentle look-ahead limiter on the rare loudest peaks (at most 3 dB,
-     never above -1 dBFS). Tuned on real output: tone stays within ~0.15 dB in
-     every band. If reaching the target would need more limiting, the clip is
-     raised less instead. Within 1 dB of the target → returned untouched.
-     Anything unexpected → original kept as is. */
-  var LEVEL_TARGET_DB = -16.5;      // speech level of the good reference story
-  var LEVEL_CEIL = Math.pow(10, -1 / 20), LEVEL_MAX_LIMIT_DB = 3, LEVEL_MIN_DB = -6, LEVEL_MAX_DB = 6, LEVEL_DEADBAND_DB = 1.5;
-  var LEVEL_NOISE_CEIL_DB = -55;    // background level of the good reference story
-
+  /* ---------- WAV helpers ----------
+     Only used to give back the original sound of clips saved by older versions that had
+     "Match volume" on. Nothing here ever changes new audio: every clip, line and story
+     track is exactly what Chatterbox made. */
   function parseWav(buf) {
     var dv = new DataView(buf);
     if (buf.byteLength < 44 || dv.getUint32(0, false) !== 0x52494646 || dv.getUint32(8, false) !== 0x57415645) return null;
@@ -1622,101 +1612,6 @@
     return new Blob([buf], { type: 'audio/wav' });
   }
 
-  // Speech level: power mean of 20 ms frames that carry speech (ignores pauses).
-  function speechLevelDb(chans, rate) {
-    var n = chans[0].length, fl = Math.max(1, Math.round(rate * 0.02)), frames = [], loud = 0;
-    for (var s = 0; s + fl <= n; s += fl) {
-      var p = 0;
-      for (var i = s; i < s + fl; i++) { var m = 0; for (var c = 0; c < chans.length; c++) m += chans[c][i]; m /= chans.length; p += m * m; }
-      p /= fl; frames.push(p); if (p > loud) loud = p;
-    }
-    var gate = Math.max(Math.pow(10, -50 / 10), loud * Math.pow(10, -30 / 10)), sum = 0, k = 0;
-    frames.forEach(function (p) { if (p >= gate) { sum += p; k++; } });
-    if (k * fl < rate * 0.3) return null;           // under 0.3 s of speech: leave it alone
-    var sorted = frames.slice().sort(function (a, b) { return a - b; });
-    var floor = sorted[Math.floor(sorted.length * 0.1)] || 0;   // quietest 10 %: room / background noise
-    return { db: 10 * Math.log10(sum / k), floorDb: floor > 0 ? 10 * Math.log10(floor) : -120 };
-  }
-
-  // Look-ahead limiter: gain envelope reaches the needed reduction before each peak, recovers smoothly.
-  function limit(chans, rate) {
-    var n = chans[0].length, L = Math.max(1, Math.round(rate * 0.002)), rel = 1 - Math.exp(-1 / (rate * 0.03));
-    var need = new Float32Array(n), any = false, i, c;
-    for (i = 0; i < n; i++) {
-      var pk = 0; for (c = 0; c < chans.length; c++) { var a = Math.abs(chans[c][i]); if (a > pk) pk = a; }
-      need[i] = pk > LEVEL_CEIL ? LEVEL_CEIL / pk : 1; if (need[i] < 1) any = true;
-    }
-    if (!any) return 0;
-    // sliding minimum over [i-L, i+L]
-    var mn = new Float32Array(n), dq = new Int32Array(n), h = 0, t = 0, j = 0;
-    for (i = 0; i < n; i++) {
-      for (; j < n && j <= i + L; j++) { while (t > h && need[dq[t - 1]] >= need[j]) t--; dq[t++] = j; }
-      while (dq[h] < i - L) h++;
-      mn[i] = need[dq[h]];
-    }
-    // Box average of that minimum over [i-L, i+L] (outside the clip counts as 1).
-    // Every value in a peak's window is ≤ the gain that peak needs, so the average
-    // is too: the ceiling always holds, and the gain glides in over ~2 ms.
-    var P = new Float64Array(n + 1), w = 2 * L + 1;
-    for (i = 0; i < n; i++) P[i + 1] = P[i] + mn[i];
-    var env = new Float32Array(n), prev = 1, deepest = 1;
-    for (i = 0; i < n; i++) {
-      var lo = i - L, hi = i + L, inside = P[Math.min(n, hi + 1)] - P[Math.max(0, lo)];
-      var outside = Math.max(0, -lo) + Math.max(0, hi - (n - 1));
-      var e = Math.min((inside + outside) / w, prev + (1 - prev) * rel);   // smooth ~30 ms recovery
-      env[i] = e; prev = e; if (e < deepest) deepest = e;
-    }
-    for (c = 0; c < chans.length; c++) for (i = 0; i < n; i++) {
-      var v = chans[c][i] * env[i];
-      chans[c][i] = v > LEVEL_CEIL ? LEVEL_CEIL : v < -LEVEL_CEIL ? -LEVEL_CEIL : v;   // rounding guard only
-    }
-    return -20 * Math.log10(deepest);
-  }
-
-  // In-place on float channels. Returns { gainDb, limitDb } or null when nothing was changed.
-  function levelChannels(chans, rate) {
-    var m = speechLevelDb(chans, rate);
-    if (!m || !isFinite(m.db)) return null;
-    var lvl = m.db;
-    if (Math.abs(LEVEL_TARGET_DB - lvl) < LEVEL_DEADBAND_DB) return null;   // already right: leave every sample as is
-    var gainDb = Math.max(LEVEL_MIN_DB, Math.min(LEVEL_MAX_DB, LEVEL_TARGET_DB - lvl));
-    // Never pull background hiss / room sound up past a clean recording's floor:
-    // a noisy clip is raised less (or not at all) so it stays clear, not loud-and-distant.
-    if (gainDb > 0) gainDb = Math.min(gainDb, Math.max(0, LEVEL_NOISE_CEIL_DB - m.floorDb));
-    var peak = 0, c, i;
-    for (c = 0; c < chans.length; c++) for (i = 0; i < chans[c].length; i++) { var a = Math.abs(chans[c][i]); if (a > peak) peak = a; }
-    if (!peak) return null;
-    // Gentle: Chatterbox's own sound is kept. Only one volume change for the whole clip,
-    // never past the loudest peak (no limiter, no compression), at most ±6 dB.
-    var headroom = 20 * Math.log10(LEVEL_CEIL) - 20 * Math.log10(peak);
-    if (gainDb > headroom) gainDb = Math.max(0, headroom);
-    if (Math.abs(gainDb) < 0.5) return null;
-    var g = Math.pow(10, gainDb / 20);
-    for (c = 0; c < chans.length; c++) for (i = 0; i < chans[c].length; i++) chans[c][i] *= g;
-    return { gainDb: gainDb, limitDb: 0 };
-  }
-
-  // Blob → Promise<{ blob, gainDb }>. Only WAV is processed; when off, not WAV,
-  // or anything goes wrong, the original blob comes back untouched.
-  function levelBlob(blob, ext) {
-    if (!settings.level || String(ext || '').toLowerCase() !== 'wav') return Promise.resolve({ blob: blob, gainDb: null });
-    return blob.arrayBuffer().then(function (buf) {
-      var w = parseWav(buf);
-      if (!w || !w.chans[0].length) return { blob: blob, gainDb: null };
-      var r = levelChannels(w.chans, w.rate);
-      if (!r) return { blob: blob, gainDb: 0 };
-      return { blob: encodeWavPcm(w.chans, w.rate, w.bits, w.float), gainDb: r.gainDb, limitDb: r.limitDb };
-    }).catch(function (err) {
-      console.warn('[Voice Studio] loudness levelling skipped', err);
-      return { blob: blob, gainDb: null };
-    });
-  }
-  // Gain (linear) that would bring one line to the common speaking level — used only
-  // while stitching the full story track; the saved line clips are never changed.
-  function matchGain(samples, rate) {
-    var chans = [Float32Array.from(samples)], r = levelChannels(chans, rate);
-    return r ? Math.pow(10, r.gainDb / 20) : 1;
-  }
   // Undo an earlier volume change (pure gain) so a clip sounds exactly as generated again.
   function unlevelBlob(blob, gainDb) {
     return blob.arrayBuffer().then(function (buf) {
@@ -1893,7 +1788,7 @@
     progress: function (pill, title, detail) { setState('generating', pill); $('genStatusText').textContent = title; $('genDetail').textContent = detail; },
     end: function () { stopGenerating(); },
     showAudio: function (blob, ext, prefix, note) { showAudio(blob, ext, prefix, null, note); },
-    levelBlob: levelBlob, gainNote: gainNote, levelOn: function () { return !!settings.level; }, unlevelBlob: unlevelBlob, matchGain: matchGain,
+    gainNote: gainNote, levelOn: function () { return false; }, unlevelBlob: unlevelBlob, matchGain: function () { return 1; },
     db: idb, normalizeUrl: function (u) { return normalizeUrl(u); },
     // Per-character voice settings (Story mode): defaults, ranges, model caps, labels.
     caps: function () { return caps(); },
@@ -1987,7 +1882,6 @@
 
     // settings
     $('outputFormat').addEventListener('change', function () { settings.format = this.value; saveSettings(); renderSummary(); });
-    $('levelLoudness').addEventListener('change', function () { settings.level = this.checked; saveSettingsNow(); });
     $('chunkSize').addEventListener('input', function () { settings.chunk = clampChunk(this.value); $('chunkVal').textContent = chunkLabel(settings.chunk); saveSettings(); updateScriptMeta(); renderPresets(); });
     $('temperature').addEventListener('input', function () { settings.temperature = clampTo(this.value, TEMP_MIN, TEMP_MAX, 0.05); $('tempVal').textContent = tempLabel(settings.temperature); saveSettings(); renderPresets(); });
     $('exaggeration').addEventListener('input', function () { settings.exaggeration = clampTo(this.value, EXAG_MIN, EXAG_MAX, 0.05); $('exagVal').textContent = exagLabel(settings.exaggeration); saveSettings(); renderPresets(); });

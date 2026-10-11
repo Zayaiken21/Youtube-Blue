@@ -956,7 +956,7 @@
       st.run = null; setTimeout(renderSegments, 0);
       saveRun('finished');
       V.end();
-      V.showAudio(wav, 'wav', fileBase(), V.levelOn() ? 'every line levelled' : '');
+      V.showAudio(wav, 'wav', fileBase(), '');
       if (takes()) takes().add({ id: st.runId + '-track', kind: 'story', group: st.runId, groupTitle: (story() && story().title) || 'Story', idx: -1,
         title: 'Full story track', text: lines.length + ' lines in script order', blob: wav, ext: 'wav', marks: stitch.marks });
       runNote('Story track ready after ' + took + ' — ' + lines.length + ' lines in script order. Each line\'s clip can also be played or downloaded above.');
@@ -1025,14 +1025,6 @@
     return out;
   }
 
-  // Trims near-silent edges so the chosen pauses are what you hear.
-  function trim(data) {
-    var th = 0.004, s = 0, e = data.length - 1, pad = Math.round(SAMPLE_RATE * 0.03);
-    while (s < e && Math.abs(data[s]) < th) s++;
-    while (e > s && Math.abs(data[e]) < th) e--;
-    return data.subarray(Math.max(0, s - pad), Math.min(data.length, e + pad + 1));
-  }
-
   function stitch(partial) {
     var order = [];
     st.segs.forEach(function (g) { if (!partial || g.type !== 'line' || (g.status === 'done' && g.blob)) order.push(g); });
@@ -1041,11 +1033,8 @@
       var parts = [], gap = Math.round(SAMPLE_RATE * Number(opts.pause) / 1000), sceneGap = Math.round(SAMPLE_RATE * Number(opts.scenePause) / 1000);
       var pendingScene = false, first = true, pos = 0, marks = [];
       function put(a) { parts.push(a); pos += a.length; }
-      function prep(i) {
-        var line = trim(mono(buffers[i]));
-        if (V.levelOn()) { var gl = V.matchGain(line, SAMPLE_RATE); if (gl !== 1) { line = Float32Array.from(line); for (var k = 0; k < line.length; k++) line[k] *= gl; } }   // story track only
-        return line;
-      }
+      // Each line goes in exactly as Chatterbox made it: nothing trimmed, no volume change.
+      function prep(i) { return mono(buffers[i]); }
       for (var i = 0; i < order.length; i++) {
         var g = order[i];
         if (g.type === 'scene') { pendingScene = true; continue; }

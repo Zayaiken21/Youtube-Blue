@@ -161,9 +161,9 @@ Every take is saved quietly on the device: each single-voice generation and ever
 
 Every clip has a round ▶ button right next to its name that turns into ❚❚ while playing, with a progress ring. Tap to pause, tap again to resume. Only one clip plays at a time. In Story mode, finished lines can be played while the rest are still generating. The ⬇ icon downloads a clip only when tapped.
 
-**Match volume (story track only, off by default)**
+**Chatterbox's sound is never changed**
 
-Every clip and story line is saved exactly as Chatterbox made it. When *Match volume in the full story track* is on, only the stitched story track gets a light per-line volume step (±6 dB at most, never past a line's own peak). Clips saved earlier while the old setting was on are put back to their original sound automatically.
+Every clip, story line and full story track is exactly what Chatterbox made: no volume matching, no trimming, no re-processing. The story track only places the lines one after another with the pauses you choose (lines several characters say together are lined up word by word so they don't echo). Clips saved by older versions with the old "Match volume" setting on are put back to their original sound automatically.
 
 **Model engine**
 
