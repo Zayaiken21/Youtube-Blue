@@ -22,7 +22,8 @@
     p34: { w: 1080, h: 1440, name: 'Portrait', sub: '3:4 · photo apps', ar: 'p34' },
     wide: { w: 1920, h: 1080, name: 'Wide', sub: '16:9 · YouTube, Facebook', ar: 'long' }
   };
-  var LABELS = ['', 'Front', 'Side', 'Left side', 'Right side', 'Back', 'Top', 'Line-up', 'Beard', 'Detail', 'Before', 'After'];
+  var LABELS = ['', 'Front', 'Side', 'Left side', 'Right side', 'Back', 'Top', 'Line-up', 'Beard', 'Detail'];
+  var STAGES = [['before', 'Before'], ['after', 'After']];
   var ADJ = [  // key, name, min, max (shown ×100)
     ['exposure', 'Brightness', -1, 1], ['contrast', 'Contrast', -0.6, 0.8], ['saturation', 'Colour', -1, 1],
     ['warmth', 'Warmth', -1, 1], ['shine', 'Shine control', 0, 1], ['fade', 'Matte', 0, 1], ['sharpen', 'Sharpness', 0, 1.5],
@@ -39,7 +40,7 @@
     ['moody', 'Moody', { exposure: -0.12, contrast: 0.32, saturation: -0.18, warmth: 0.05, sharpen: 0.6, vignette: 0.5, focus: 0.5, shine: 0.5 }],
     ['bw', 'Black & white', { bw: 1, contrast: 0.32, sharpen: 0.7, vignette: 0.3, shine: 0.3 }]
   ];
-  var LAYOUTS = [['hero', 'Big + small'], ['row', 'Side by side'], ['stack', 'Stacked'], ['grid', 'Grid'], ['split', 'Before / after']];
+  var LAYOUTS = [['split', 'Before | After'], ['hero', 'Big + small'], ['row', 'Side by side'], ['stack', 'Stacked'], ['grid', 'Grid']];
   var TRANS = [['mix', 'Barber mix (varies)'], ['blade', 'Razor wipe'], ['flash', 'Camera flash'], ['slide', 'Slide'], ['zoom', 'Zoom'], ['fade', 'Fade'], ['wipe', 'Wipe'], ['blur', 'Blur'], ['cut', 'Straight cut']];
   var MIX = ['blade', 'slide', 'flash', 'zoom'];
   var FPS = 30, TR = 0.55, INTRO = 2.4, OUTRO = 3;
@@ -59,6 +60,10 @@
   function setById(id) { return sets.find(function (s) { return s.id === id; }); }
   function setOf(pid) { return sets.find(function (s) { return s.ids.indexOf(pid) !== -1; }); }
   function photoNo(p) { return photos.indexOf(p) + 1; }
+  function stageName(p) { return p.stage === 'before' ? 'Before' : p.stage === 'after' ? 'After' : ''; }
+  // What a photo says on itself: "BEFORE · SIDE", "AFTER", "FRONT"…
+  function chipText(p, withAngle) { return [stageName(p), withAngle === false ? '' : p.label].filter(Boolean).join(' · '); }
+  function photoTitle(p) { return 'Photo ' + photoNo(p) + (chipText(p) ? ' · ' + chipText(p) : ''); }
 
   /* ---------- Storage ---------- */
   var DB = 'youtube-blue-showcase';
@@ -281,6 +286,7 @@
     var a = lookOf(p);
     grade(x, W, H, a, p.auto ? p._lv : null, opts.fast);
     finish(x, W, H, a);
+    if (opts.chip && S.showStage !== false && chipText(p)) labelChip(x, W, H, p, chipText(p));
     if (opts.brand) drawBrand(x, W, H);
     return c;
   }
@@ -330,7 +336,6 @@
         out.push({ x: g + cc * (cw + g), y: g + r * (ch + g), w: cw, h: ch });
       }
     }
-    if (layout === 'split') { n = Math.min(n, 2); grid(n, 1); return out; }
     if (layout === 'row') { grid(n, 1); return out; }
     if (layout === 'stack') { for (i = 0; i < n; i++) { var hh = (H - g * (n + 1)) / n; out.push({ x: g, y: g + i * (hh + g), w: W - 2 * g, h: hh }); } return out; }
     if (layout === 'grid') { var cols = n <= 4 ? 2 : 3; grid(Math.min(cols, n), Math.ceil(n / cols)); return out; }
@@ -347,26 +352,39 @@
     }
     return out;
   }
-  function setPhotos(s) { return s.ids.map(photoById).filter(Boolean); }
+  function setPhotos(s) {
+    var ps = s.ids.map(photoById).filter(Boolean);
+    if (s.layout === 'split') ps = ps.filter(function (p) { return p.stage !== 'after'; }).concat(ps.filter(function (p) { return p.stage === 'after'; }));
+    return ps;
+  }
+  function splitCells(s, W, H) {   // BEFORE column | AFTER column (top / bottom when the size is wide)
+    var ps = setPhotos(s), nb = ps.filter(function (p) { return p.stage !== 'after'; }).length, na = ps.length - nb, g = Math.round(Math.min(W, H) * 0.012), out = [];
+    if (!na) { na = Math.floor(ps.length / 2); nb = ps.length - na; }
+    if (!nb) { nb = Math.floor(ps.length / 2); na = ps.length - nb; }
+    var cols = W < H * 1.4;
+    [nb, na].forEach(function (n, side) {
+      for (var i = 0; i < n; i++) {
+        if (cols) { var cw = (W - 3 * g) / 2, ch = (H - g * (n + 1)) / n; out.push({ x: g + side * (cw + g), y: g + i * (ch + g), w: cw, h: ch }); }
+        else { var rh = (H - 3 * g) / 2, rw = (W - g * (n + 1)) / n; out.push({ x: g + i * (rw + g), y: g + side * (rh + g), w: rw, h: rh }); }
+      }
+    });
+    return out;
+  }
   function renderSet(s, W, H, opts) {
     opts = opts || {};
     var c = document.createElement('canvas'); c.width = W; c.height = H;
     var x = c.getContext('2d'), ps = setPhotos(s), base = Math.min(W, H);
     x.fillStyle = '#0a0a0d'; x.fillRect(0, 0, W, H);
-    var cs = cells(s.layout, ps.length, W, H);
+    var cs = s.layout === 'split' ? splitCells(s, W, H) : cells(s.layout, ps.length, W, H);
     cs.forEach(function (r, i) {
       var p = ps[i], w = Math.round(r.w), h = Math.round(r.h);
       if (!p || w < 4 || h < 4) return;
       x.drawImage(renderPhoto(p, w, h, { fast: opts.fast }), Math.round(r.x), Math.round(r.y));
-      var lab = s.layout === 'split' ? (i === 0 ? 'Before' : 'After') : p.label;
-      if (s.labels && lab) {
-        var fs = Math.round(base * (cs.length > 3 ? 0.024 : 0.03)), pd = fs * 0.55;
-        x.save(); x.font = '900 ' + fs + 'px ' + FONT; var tw = x.measureText(lab.toUpperCase()).width + fs * 1.1;
-        var lx = r.x + pd, ly = r.y + pd + (s.title && r.y < base * 0.12 ? base * 0.1 : 0);
-        x.fillStyle = 'rgba(8,8,12,0.75)'; rr(x, lx, ly, tw, fs * 1.7, fs * 0.4); x.fill();
-        x.fillStyle = S.color; x.fillRect(lx, ly, Math.max(3, fs * 0.18), fs * 1.7);
-        x.fillStyle = '#fff'; x.textBaseline = 'middle'; x.fillText(lab.toUpperCase(), lx + fs * 0.6, ly + fs * 0.88);
-        x.restore();
+      // BEFORE / AFTER always shows (unless turned off in Your brand); angles only when the set says so
+      var lab = [S.showStage !== false ? stageName(p) : '', s.labels !== false ? p.label : ''].filter(Boolean).join(' · ');
+      if (lab) {
+        var fs = Math.round(base * (cs.length > 3 ? 0.026 : 0.032)), pd = fs * 0.55;
+        tag(x, r.x + pd, r.y + pd + (s.title && r.y < base * 0.12 ? base * 0.1 : 0), fs, p, lab);
       }
     });
     if (s.title) {
@@ -415,7 +433,7 @@
       if (sl.kind === 'photo') { var p = photoById(sl.ref); if (p) segs.push({ key: 'p:' + p.id, dur: dur, photo: p, trans: sl.trans }); }
       else {
         var s = setById(sl.ref); if (!s || !s.ids.length) return;
-        if (s.show === 'each') setPhotos(s).forEach(function (p, i) { segs.push({ key: 's:' + s.id + ':' + p.id, dur: Math.max(1.2, dur * 0.75), photo: p, setLabel: s.labels ? p.label : '', trans: i ? 'slide' : sl.trans }); });
+        if (s.show === 'each') setPhotos(s).forEach(function (p, i) { segs.push({ key: 's:' + s.id + ':' + p.id, dur: Math.max(1.2, dur * 0.75), photo: p, angle: s.labels !== false, trans: i ? 'slide' : sl.trans }); });
         else segs.push({ key: 's:' + s.id, dur: dur + 0.8, set: s, trans: sl.trans });
       }
     });
@@ -428,16 +446,23 @@
     var k = g.key + '|' + W + 'x' + H + '|' + (g.photo ? verOf(g.photo) : g.set ? verOfSet(g.set) : brandVer());
     if (stills[k]) return stills[k];
     var c = g.card ? renderCard(g.card, W, H) : g.set ? renderSet(g.set, W, H) : renderPhoto(g.photo, W, H);
-    if (g.setLabel) labelChip(c.getContext('2d'), W, H, g.setLabel);
+    var lab = g.photo ? chipText(g.photo, g.angle === true) : '';
+    if (lab && S.showStage !== false) labelChip(c.getContext('2d'), W, H, g.photo, lab);
     stills[k] = c; return c;
   }
-  function labelChip(x, W, H, lab) {
-    var base = Math.min(W, H), fs = Math.round(base * 0.04);
-    x.save(); x.font = '900 ' + fs + 'px ' + FONT; var tw = x.measureText(lab.toUpperCase()).width + fs * 1.3, lx = base * 0.04, ly = base * 0.04;
-    x.fillStyle = 'rgba(8,8,12,0.75)'; rr(x, lx, ly, tw, fs * 1.8, fs * 0.45); x.fill(); x.fillStyle = S.color; x.fillRect(lx, ly, Math.max(3, fs * 0.2), fs * 1.8);
-    x.fillStyle = '#fff'; x.textBaseline = 'middle'; x.fillText(lab.toUpperCase(), lx + fs * 0.7, ly + fs * 0.93); x.restore();
+  // BEFORE is a dark tag, AFTER is a tag in your brand colour — easy to tell apart at a glance.
+  function tag(x, lx, ly, fs, p, lab) {
+    lab = lab.toUpperCase();
+    x.save(); x.font = '900 ' + fs + 'px ' + FONT;
+    var tw = x.measureText(lab).width + fs * 1.3, h = fs * 1.8, after = p && p.stage === 'after';
+    x.shadowColor = 'rgba(0,0,0,.35)'; x.shadowBlur = fs * 0.5;
+    x.fillStyle = after ? S.color : 'rgba(8,8,12,0.78)'; rr(x, lx, ly, tw, h, fs * 0.45); x.fill(); x.shadowBlur = 0;
+    if (!after) { x.fillStyle = S.color; x.fillRect(lx, ly, Math.max(3, fs * 0.2), h); }
+    x.fillStyle = '#fff'; x.textBaseline = 'middle'; x.fillText(lab, lx + fs * 0.65, ly + fs * 0.93);
+    x.restore();
   }
-  function verOf(p) { return JSON.stringify([p.f, p.look, p.adj, p.auto]); }
+  function labelChip(x, W, H, p, lab) { var base = Math.min(W, H); tag(x, base * 0.04, base * 0.04, Math.round(base * 0.045), p, lab); }
+  function verOf(p) { return JSON.stringify([p.f, p.look, p.adj, p.auto, p.stage, p.label, S.showStage, S.color]); }
   function verOfSet(s) { return JSON.stringify([s.layout, s.labels, s.title, s.ids.map(function (id) { var p = photoById(id); return p ? verOf(p) + p.label : ''; }), S.color]); }
   function brandVer() { return JSON.stringify([S.shop, S.handle, S.book, S.color, logo && logo.blobId]); }
   function trimStills() { var ks = Object.keys(stills); if (ks.length > 60) ks.slice(0, ks.length - 40).forEach(function (k) { delete stills[k]; }); }
@@ -538,7 +563,7 @@
         return normalise(f).then(function (n) {
           var id = YB.uid(), blobId = 'p' + id;
           blobs[blobId] = n.blob;
-          var p = { id: id, blobId: blobId, name: f.name, w: n.w, h: n.h, f: defaultFrame(), look: 'clean', adj: {}, auto: true, label: '' };
+          var p = { id: id, blobId: blobId, name: f.name, w: n.w, h: n.h, f: defaultFrame(), look: 'clean', adj: {}, auto: true, label: '', stage: '' };
           photos.push(p); slides.push({ id: YB.uid(), kind: 'photo', ref: id });
           added++;
           return putBlob(blobId, n.blob).then(function () { return ensureImg(p); });
@@ -588,8 +613,10 @@
         '<button type="button" class="sc-thumb" data-open aria-label="Edit photo ' + (i + 1) + '" style="aspect-ratio:' + thumbW() + '/' + thumbH() + '">' +
         (p._thumb ? '<img data-thumb="' + p.id + '" src="' + p._thumb + '" alt="">' : '<img data-thumb="' + p.id + '" alt="">') +
         '<span class="sc-n">' + (i + 1) + '</span>' + (pk !== -1 ? '<span class="sc-pick">' + (pk + 1) + '</span>' : '') +
-        (s ? '<span class="sc-inset">📎 ' + YB.esc(s.title || 'Set ' + (sets.indexOf(s) + 1)) + '</span>' : '') + '</button>' +
-        '<div class="sc-ph-ctl"><select data-label aria-label="Shot ' + (i + 1) + '">' + LABELS.map(function (l) { return '<option value="' + l + '"' + (l === p.label ? ' selected' : '') + '>' + (l || 'Shot…') + '</option>'; }).join('') + '</select>' +
+        (p.stage ? '<span class="sc-stage-badge ' + p.stage + '">' + stageName(p).toUpperCase() + '</span>' : '') +
+        (s ? '<span class="sc-inset">👤 ' + YB.esc(s.title || 'Client ' + (sets.indexOf(s) + 1)) + '</span>' : '') + '</button>' +
+        '<div class="sc-ba" role="group" aria-label="Before or after, photo ' + (i + 1) + '">' + STAGES.map(function (st) { return '<button type="button" data-stage="' + st[0] + '" class="' + st[0] + (p.stage === st[0] ? ' on' : '') + '" aria-pressed="' + (p.stage === st[0]) + '">' + st[1] + '</button>'; }).join('') + '</div>' +
+        '<div class="sc-ph-ctl"><select data-label aria-label="Shot ' + (i + 1) + '">' + LABELS.map(function (l) { return '<option value="' + l + '"' + (l === p.label ? ' selected' : '') + '>' + (l || 'Angle…') + '</option>'; }).join('') + '</select>' +
         '<span class="sc-ph-btns"><button type="button" class="btn btn-ghost btn-icon btn-sm" data-left aria-label="Move earlier"' + (i ? '' : ' disabled') + '>‹</button>' +
         '<button type="button" class="btn btn-ghost btn-icon btn-sm" data-right aria-label="Move later"' + (i < photos.length - 1 ? '' : ' disabled') + '>›</button>' +
         '<button type="button" class="btn btn-danger btn-icon btn-sm" data-del aria-label="Remove photo ' + (i + 1) + '">✕</button></span></div></li>';
@@ -598,7 +625,18 @@
     $('selBar').hidden = !selecting;
     $('selectModeBtn').setAttribute('aria-pressed', selecting); $('selectModeBtn').classList.toggle('on', selecting);
     $('makeSetBtn').disabled = picked.length < 2;
-    $('selText').textContent = picked.length ? picked.length + ' picked — ' + (picked.length < 3 ? 'pick 3 or more for front / side / back (2 is fine for before / after)' : 'ready') : 'Tap photos to pick them, in order (front, side, back…)';
+    $('selText').textContent = picked.length ? picked.length + ' picked — ' + (picked.length < 2 ? 'pick the before and after shots of this client' : 'ready') : 'Tap the photos of one client — before and after shots, in order';
+  }
+
+  function setStage(p, st) {
+    p.stage = p.stage === st ? '' : st;
+    var s = setOf(p.id); if (s) s._thumb = null;
+    saveProject(); renderGrid(); if (p.id === cur) { renderStage(); drawEditor(); }
+    queueThumb(p); renderSets(); refreshShowSoon();
+  }
+  function renderStage() {
+    var p = photoById(cur); if (!p) return;
+    document.querySelectorAll('#stageSeg [data-estage]').forEach(function (b) { var on = b.getAttribute('data-estage') === p.stage; b.classList.toggle('on', on); b.setAttribute('aria-pressed', on); });
   }
 
   /* ---------- Editor ---------- */
@@ -618,7 +656,7 @@
       edRaf = 0; var f = edFast; edFast = false;
       var p = photoById(cur), c = $('edCanvas'); if (!p || !c) return;
       ensureImg(p).then(function () {
-        var r = renderPhoto(p, c.width, c.height, { fast: f, brand: S.wmPos !== 'off' });
+        var r = renderPhoto(p, c.width, c.height, { fast: f, brand: S.wmPos !== 'off', chip: true });
         var x = c.getContext('2d'); x.drawImage(r, 0, 0);
         // rule-of-thirds guide while cropping
         if (drag) { x.save(); x.strokeStyle = 'rgba(255,255,255,0.45)'; x.lineWidth = 1; for (var k = 1; k < 3; k++) { x.beginPath(); x.moveTo(c.width * k / 3, 0); x.lineTo(c.width * k / 3, c.height); x.moveTo(0, c.height * k / 3); x.lineTo(c.width, c.height * k / 3); x.stroke(); } x.restore(); }
@@ -636,7 +674,7 @@
     $('zoom').value = Math.round(p.f.zoom * 100); $('zoomVal').textContent = Math.round(p.f.zoom * 100) + '%';
     $('tilt').value = p.f.tilt; $('tiltVal').textContent = (p.f.tilt > 0 ? '+' : '') + p.f.tilt + '°';
     $('labelSel').innerHTML = LABELS.map(function (l) { return '<option value="' + l + '"' + (l === p.label ? ' selected' : '') + '>' + (l || 'Not set') + '</option>'; }).join('');
-    $('autoFix').checked = !!p.auto;
+    $('autoFix').checked = !!p.auto; renderStage();
     $('lookList').innerHTML = LOOKS.map(function (l) {
       return '<button type="button" role="radio" class="sc-look' + (l[0] === p.look ? ' on' : '') + '" data-look="' + l[0] + '" aria-checked="' + (l[0] === p.look) + '"><canvas data-lookprev="' + l[0] + '" width="72" height="72"></canvas><span>' + l[1] + '</span></button>';
     }).join('');
@@ -722,12 +760,12 @@
       var ps = setPhotos(s);
       return '<li class="sc-set" data-set="' + s.id + '">' +
         '<div class="sc-set-top"><img class="sc-set-prev" data-setprev="' + s.id + '" alt="Set ' + (si + 1) + ' preview" style="aspect-ratio:' + d.W + '/' + d.H + '"' + (s._thumb ? ' src="' + s._thumb + '"' : '') + '>' +
-        '<div class="sc-set-meta"><label class="field"><span>Name of the cut (shown on top — optional)</span><input type="text" data-sf="title" maxlength="40" value="' + YB.esc(s.title || '') + '" placeholder="e.g. Skin fade + beard"></label>' +
-        '<div class="sc-set-photos">' + ps.map(function (p, i) { return '<span class="sc-chip"><img data-sthumb="' + p.id + '" src="' + (p._thumb || '') + '" alt=""><b>' + (i + 1) + '</b> ' + YB.esc(p.label || 'Photo ' + photoNo(p)) +
+        '<div class="sc-set-meta"><label class="field"><span>Client or cut (shown on top — optional)</span><input type="text" data-sf="title" maxlength="40" value="' + YB.esc(s.title || '') + '" placeholder="e.g. Marcus · skin fade + beard"></label>' +
+        '<div class="sc-set-photos">' + ps.map(function (p, i) { return '<span class="sc-chip"><img data-sthumb="' + p.id + '" src="' + (p._thumb || '') + '" alt=""><b>' + (i + 1) + '</b> ' + (p.stage ? '<em class="sc-stage-badge ' + p.stage + '">' + stageName(p) + '</em> ' : '') + YB.esc(p.label || (p.stage ? '' : 'Photo ' + photoNo(p))) +
           '<button type="button" class="sc-x" data-sp-left="' + p.id + '" aria-label="Earlier"' + (i ? '' : ' disabled') + '>‹</button><button type="button" class="sc-x" data-sp-del="' + p.id + '" aria-label="Take out of the set">✕</button></span>'; }).join('') + '</div></div></div>' +
         '<div class="label" style="margin-top:10px">Layout</div><div class="seg sc-seg" role="radiogroup">' + LAYOUTS.map(function (l) { return '<button type="button" role="radio" data-layout="' + l[0] + '" class="' + (s.layout === l[0] ? 'on' : '') + '" aria-checked="' + (s.layout === l[0]) + '">' + l[1] + '</button>'; }).join('') + '</div>' +
         '<div class="row" style="gap:14px;margin-top:10px;flex-wrap:wrap">' +
-        '<label class="cx-switch"><input type="checkbox" data-sf="labels"' + (s.labels ? ' checked' : '') + '> Show FRONT / SIDE / BACK labels</label>' +
+        '<label class="cx-switch"><input type="checkbox" data-sf="labels"' + (s.labels ? ' checked' : '') + '> Show angles too (FRONT / SIDE / BACK)</label>' +
         '<label class="field" style="min-width:180px"><span>In the slideshow</span><select data-sf="show"><option value="collage"' + (s.show !== 'each' ? ' selected' : '') + '>As one collage</option><option value="each"' + (s.show === 'each' ? ' selected' : '') + '>One shot after another</option></select></label></div>' +
         '<div class="row" style="gap:6px;margin-top:10px"><button type="button" class="btn btn-sm" data-set-dl>⬇ Download collage</button><button type="button" class="btn btn-ghost btn-sm" data-set-share hidden>📤 Share</button><button type="button" class="btn btn-ghost btn-sm" data-set-ungroup>Ungroup</button></div></li>';
     }).join('');
@@ -749,10 +787,13 @@
     sets.forEach(function (s) { s.ids = s.ids.filter(function (id) { return picked.indexOf(id) === -1; }); });
     sets = sets.filter(function (s) { if (s.ids.length < 2) { slides = slides.filter(function (sl) { return sl.ref !== s.id; }); s.ids.forEach(function (id) { if (!slides.some(function (sl) { return sl.ref === id; })) slides.push({ id: YB.uid(), kind: 'photo', ref: id }); }); return false; } return true; });
     var s = { id: YB.uid(), title: '', ids: picked.slice(), layout: defaultLayout(), labels: true, show: 'collage' };
-    // label the shots front / side / back when they aren't labelled yet
-    var auto = picked.length === 2 ? ['Before', 'After'] : picked.length === 3 ? ['Front', 'Side', 'Back'] : ['Front', 'Left side', 'Right side', 'Back', 'Top', 'Detail'];
-    if (picked.length === 2) s.layout = 'split';
-    picked.forEach(function (id, i) { var p = photoById(id); if (p && !p.label && auto[i]) p.label = auto[i]; });
+    var ps = picked.map(photoById).filter(Boolean), anyStage = ps.some(function (p) { return p.stage; });
+    if (ps.length === 2 && !anyStage) { ps[0].stage = 'before'; ps[1].stage = 'after'; anyStage = true; }
+    if (anyStage) s.layout = 'split';
+    else {   // no before / after chosen: label the angles front / side / back
+      var auto = ps.length === 3 ? ['Front', 'Side', 'Back'] : ['Front', 'Left side', 'Right side', 'Back', 'Top', 'Detail'];
+      ps.forEach(function (p, i) { if (!p.label && auto[i]) p.label = auto[i]; });
+    }
     sets.push(s);
     // the set takes the place of its photos in the slideshow
     var at = slides.findIndex(function (sl) { return sl.kind === 'photo' && picked.indexOf(sl.ref) !== -1; });
@@ -760,7 +801,7 @@
     slides.splice(at < 0 ? slides.length : Math.min(at, slides.length), 0, { id: YB.uid(), kind: 'set', ref: s.id });
     picked = []; selecting = false;
     saveProject(); renderAll(); thumbsSoon();
-    YB.toast('Set made — it\'s one collage and one part of the slideshow');
+    YB.toast(s.layout === 'split' ? 'Before & after set made for this client' : 'Set made — it\'s one collage and one part of the slideshow');
     setTimeout(function () { var el = document.querySelector('[data-set="' + s.id + '"]'); if (el && el.scrollIntoView) el.scrollIntoView({ behavior: 'smooth', block: 'center' }); }, 100);
   }
   function ungroup(s) {
@@ -773,8 +814,8 @@
 
   /* ---------- Slideshow UI ---------- */
   function slideName(sl) {
-    if (sl.kind === 'photo') { var p = photoById(sl.ref); return p ? 'Photo ' + photoNo(p) + (p.label ? ' · ' + p.label : '') : ''; }
-    var s = setById(sl.ref); return s ? '📎 ' + (s.title || 'Set ' + (sets.indexOf(s) + 1)) + ' · ' + s.ids.length + ' shots' : '';
+    if (sl.kind === 'photo') { var p = photoById(sl.ref); return p ? photoTitle(p) : ''; }
+    var s = setById(sl.ref); return s ? '👤 ' + (s.title || 'Client ' + (sets.indexOf(s) + 1)) + ' · ' + s.ids.length + ' shots' : '';
   }
   function slideThumb(sl) {
     if (sl.kind === 'photo') { var p = photoById(sl.ref); return p && p._thumb ? p._thumb : ''; }
@@ -786,8 +827,8 @@
     $('slideCount').textContent = '· ' + slides.length + ' part' + (slides.length === 1 ? '' : 's');
     var opts = '<option value="">Default</option>' + TRANS.map(function (t) { return '<option value="' + t[0] + '">' + t[1] + '</option>'; }).join('');
     var durs = '<option value="">Default</option>' + [1.5, 2, 2.5, 3, 4, 5, 6].map(function (v) { return '<option value="' + v + '">' + v + ' s</option>'; }).join('');
-    var missing = photos.filter(function (p) { return !setOf(p.id) && !slides.some(function (sl) { return sl.ref === p.id; }); }).map(function (p) { return ['photo', p.id, 'Photo ' + photoNo(p) + (p.label ? ' · ' + p.label : '')]; })
-      .concat(sets.filter(function (s) { return !slides.some(function (sl) { return sl.ref === s.id; }); }).map(function (s) { return ['set', s.id, '📎 ' + (s.title || 'Set ' + (sets.indexOf(s) + 1))]; }));
+    var missing = photos.filter(function (p) { return !setOf(p.id) && !slides.some(function (sl) { return sl.ref === p.id; }); }).map(function (p) { return ['photo', p.id, photoTitle(p)]; })
+      .concat(sets.filter(function (s) { return !slides.some(function (sl) { return sl.ref === s.id; }); }).map(function (s) { return ['set', s.id, '👤 ' + (s.title || 'Client ' + (sets.indexOf(s) + 1))]; }));
     $('slideList').innerHTML = slides.map(function (sl, i) {
       var th = slideThumb(sl);
       return '<li class="sc-slide" data-slide="' + sl.id + '"><span class="cx-pnum">' + (i + 1) + '</span>' + (th ? '<img src="' + th + '" alt="">' : '<span class="sc-sl-ph"></span>') +
@@ -815,7 +856,7 @@
   }
   function renderBrand() {
     $('bShop').value = S.shop; $('bHandle').value = S.handle; $('bBook').value = S.book; $('bColor').value = S.color;
-    $('wmPos').value = S.wmPos; $('wmStyle').value = S.wmStyle;
+    $('wmPos').value = S.wmPos; $('wmStyle').value = S.wmStyle; $('showStage').checked = S.showStage !== false;
     $('logoPrev').hidden = $('logoDel').hidden = !logo;
     if (logo && logo._img) $('logoPrev').src = logo._img.src;
   }
@@ -824,9 +865,9 @@
   /* ---------- Downloads ---------- */
   function slug(s) { return String(s || '').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '').slice(0, 40); }
   function toBlob(c) { return new Promise(function (res) { c.toBlob(res, 'image/jpeg', 0.93); }); }
-  function photoFile(p) { var d = dims(); return ensureImg(p).then(function () { return toBlob(renderPhoto(p, d.W, d.H, { brand: true })); }); }
+  function photoFile(p) { var d = dims(); return ensureImg(p).then(function () { return toBlob(renderPhoto(p, d.W, d.H, { brand: true, chip: true })); }); }
   function setFile(s) { var d = dims(); return Promise.all(setPhotos(s).map(ensureImg)).then(function () { return toBlob(renderSet(s, d.W, d.H, { brand: true })); }); }
-  function photoName(p) { return String(photoNo(p)).padStart(2, '0') + (p.label ? '-' + slug(p.label) : '') + '-' + S.format + '.jpg'; }
+  function photoName(p) { return String(photoNo(p)).padStart(2, '0') + (chipText(p) ? '-' + slug(chipText(p)) : '') + '-' + S.format + '.jpg'; }
   function setName(s) { return 'set-' + (sets.indexOf(s) + 1) + (s.title ? '-' + slug(s.title) : '') + '-' + S.format + '.jpg'; }
   function save(blob, name) { var url = URL.createObjectURL(blob), a = document.createElement('a'); a.href = url; a.download = name; document.body.appendChild(a); a.click(); a.remove(); setTimeout(function () { URL.revokeObjectURL(url); }, 4000); }
   function share(blob, name) {
@@ -1061,6 +1102,8 @@
     $('photoGrid').addEventListener('click', function (e) {
       var li = e.target.closest('[data-id]'); if (!li) return;
       var id = li.getAttribute('data-id'), i = photos.findIndex(function (p) { return p.id === id; }); if (i < 0) return;
+      var sb = e.target.closest('[data-stage]');
+      if (sb) { setStage(photos[i], sb.getAttribute('data-stage')); return; }
       if (e.target.closest('[data-del]')) {
         if (!confirm('Remove photo ' + (i + 1) + '?')) return;
         var p = photos.splice(i, 1)[0]; delBlob(p.blobId); delete blobs[p.blobId]; delete imgs[p.blobId];
@@ -1084,7 +1127,7 @@
       p.label = e.target.value; saveProject(); if (p.id === cur) $('labelSel').value = p.label;
       sets.forEach(function (s) { if (s.ids.indexOf(p.id) !== -1) s._thumb = null; }); renderSets(); refreshShowSoon();
     });
-    $('selectModeBtn').addEventListener('click', function () { selecting = !selecting; picked = []; renderGrid(); if (selecting) YB.toast('Tap the shots in order: front, side, back…'); });
+    $('selectModeBtn').addEventListener('click', function () { selecting = !selecting; picked = []; renderGrid(); if (selecting) YB.toast('Tap the before and after shots of one client'); });
     $('cancelSelBtn').addEventListener('click', function () { selecting = false; picked = []; renderGrid(); });
     $('makeSetBtn').addEventListener('click', makeSet);
     $('autoAllBtn').addEventListener('click', function () { photos.forEach(function (p) { p.auto = true; p._thumb = null; }); stills = {}; saveProject(); renderAll(); thumbsSoon(); YB.toast('Auto-fix is on for every photo'); });
@@ -1105,6 +1148,8 @@
     $('rotBtn').addEventListener('click', function () { var p = photoById(cur); if (!p) return; p.f.rot = (p.f.rot + 1) % 4; p.f.cx = 0.5; p.f.cy = 0.5; photoChanged(p); });
     $('flipBtn').addEventListener('click', function () { var p = photoById(cur); if (!p) return; p.f.flip = !p.f.flip; photoChanged(p); });
     $('resetCropBtn').addEventListener('click', function () { var p = photoById(cur); if (!p) return; p.f = defaultFrame(); renderEditor(); photoChanged(p); });
+    $('stageSeg').addEventListener('click', function (e) { var b = e.target.closest('[data-estage]'), p = photoById(cur); if (b && p) setStage(p, b.getAttribute('data-estage')); });
+    $('showStage').addEventListener('change', function () { S.showStage = this.checked; saveSettings(); stills = {}; photos.forEach(function (p) { p._thumb = null; }); sets.forEach(function (s) { s._thumb = null; }); drawEditor(); thumbsSoon(); drawPreview(); });
     $('labelSel').addEventListener('change', function () { var p = photoById(cur); if (!p) return; p.label = this.value; saveProject(); renderGrid(); sets.forEach(function (s) { if (s.ids.indexOf(p.id) !== -1) s._thumb = null; }); renderSets(); refreshShowSoon(); });
     $('lookList').addEventListener('click', function (e) {
       var b = e.target.closest('[data-look]'), p = photoById(cur); if (!b || !p) return;
@@ -1216,7 +1261,7 @@
       if (data.logo) ids.push(data.logo.blobId);
       return Promise.all(ids.map(function (id) { return getBlob(id).then(function (b) { if (b) blobs[id] = b; }); })).then(function () {
         photos = (data.photos || []).filter(function (p) { return blobs[p.blobId]; });
-        photos.forEach(function (p) { p.f = Object.assign(defaultFrame(), p.f); p.adj = p.adj || {}; });
+        photos.forEach(function (p) { p.f = Object.assign(defaultFrame(), p.f); p.adj = p.adj || {}; if (p.label === 'Before' || p.label === 'After') { p.stage = p.label.toLowerCase(); p.label = ''; } p.stage = p.stage || ''; });
         sets = (data.sets || []).map(function (s) { s.ids = s.ids.filter(photoById); return s; }).filter(function (s) { return s.ids.length >= 2; });
         slides = data.slides || [];
         music = data.music && blobs[data.music.blobId] ? data.music : null;
@@ -1230,7 +1275,7 @@
     state: function () { return { S: S, photos: photos.map(clean), sets: sets.map(clean), slides: slides.map(clean), cur: cur, total: segments().total }; },
     segments: function () { return segments().segs.map(function (g) { return { key: g.key, start: g.start, dur: g.dur, trans: transFor(g) }; }); },
     frame: function (t) { var c = $('preview'); stop(); pv.t = t; drawPreview(); return c.toDataURL('image/jpeg', 0.8); },
-    photoData: function (i, w, h) { var p = photos[i]; return ensureImg(p).then(function () { return renderPhoto(p, w, h, { brand: true }).toDataURL('image/jpeg', 0.9); }); },
+    photoData: function (i, w, h) { var p = photos[i]; return ensureImg(p).then(function () { return renderPhoto(p, w, h, { brand: true, chip: true }).toDataURL('image/jpeg', 0.9); }); },
     setData: function (i, w, h) { var s = sets[i]; return Promise.all(setPhotos(s).map(ensureImg)).then(function () { return renderSet(s, w, h, { brand: true }).toDataURL('image/jpeg', 0.9); }); }
   };
   wire();

@@ -1216,3 +1216,12 @@ input[type="range"] { min-height: 32px; }            /* finger-friendly */
 .sc-slide .cx-pbtns .btn { width: 30px; height: 30px; min-height: 30px; }
 @media (max-width: 420px) { .sc-slide { grid-template-columns: auto auto minmax(0, 1fr); } .sc-slide .cx-pbtns { grid-column: 1 / -1; justify-content: flex-end; } }
 .sc-addback select { width: 100%; }
+.sc-ba { display: flex; gap: 4px; }
+.sc-ba button { flex: 1; min-height: 34px; padding: 4px 6px; border-radius: 9px; border: 1px solid var(--line); background: #081732; color: var(--muted); font: 800 .78rem/1 var(--font); cursor: pointer; text-transform: uppercase; letter-spacing: .03em; }
+.sc-ba button.before.on { background: #e8f1ff; color: #0b1530; border-color: #e8f1ff; }
+.sc-ba button.after.on { background: var(--ok); color: #04241a; border-color: var(--ok); }
+.sc-ba-lg button { min-height: 44px; font-size: .9rem; }
+.sc-stage-badge { position: absolute; right: 5px; top: 5px; padding: 3px 7px; border-radius: 7px; font: 900 .68rem/1.2 var(--font); letter-spacing: .04em; font-style: normal; background: #e8f1ff; color: #0b1530; }
+.sc-stage-badge.after { background: var(--ok); color: #04241a; }
+.sc-chip .sc-stage-badge { position: static; padding: 2px 5px; font-size: .62rem; }
+.sc-ph.picked .sc-stage-badge { top: 38px; }
