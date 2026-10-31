@@ -1270,3 +1270,40 @@ input[type="range"] { min-height: 32px; }            /* finger-friendly */
 .sc-tile-btns { position: absolute; inset: auto 2px 2px 2px; display: flex; justify-content: space-between; gap: 2px; }
 .sc-tile .sc-x { width: 26px; height: 26px; background: rgba(6, 16, 31, .82); color: #fff; font-size: .78rem; }
 .sc-col-add { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
+
+/* ----- Photo Showcase · effects ----- */
+.sc-bigbtn { margin-top: 10px; }
+.sc-fxsteps { margin: 0 0 12px; padding-left: 1.3em; display: grid; gap: 4px; font-size: .95rem; }
+.sc-fxtargets { display: flex; gap: 8px; overflow-x: auto; padding: 2px 2px 8px; scroll-snap-type: x proximity; }
+.sc-fxt { flex: none; width: 84px; display: flex; flex-direction: column; align-items: center; gap: 4px; padding: 5px; border-radius: 12px; border: 2px solid var(--line); background: #081732; color: var(--text); cursor: pointer; font: inherit; scroll-snap-align: start; }
+.sc-fxt img, .sc-fxt-all { width: 70px; height: 70px; border-radius: 8px; object-fit: cover; display: grid; place-items: center; background: linear-gradient(135deg, var(--primary), var(--accent)); font-size: 1.8rem; color: #fff; }
+.sc-fxt b { font-size: .8rem; white-space: nowrap; }
+.sc-fxt.on { border-color: var(--warn); box-shadow: 0 0 0 3px rgba(251, 191, 36, .35); }
+.sc-fxtop { display: grid; gap: 14px; margin-top: 8px; grid-template-columns: minmax(0, 1fr); }
+@media (min-width: 640px) { .sc-fxtop { grid-template-columns: 220px minmax(0, 1fr); } }
+.sc-fxprevwrap canvas { display: block; width: 100%; max-width: 260px; height: auto; border-radius: 12px; background: #000; box-shadow: 0 8px 22px rgba(0,0,0,.45); margin: 0 auto; }
+.sc-fxonlist { list-style: none; padding: 0; margin: 6px 0 0; display: grid; gap: 8px; }
+.sc-fxon { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; padding: 8px 10px; border-radius: 12px; background: var(--surface); border: 1px solid var(--line); }
+.sc-fxon b { flex: 1 1 140px; font-size: 1rem; }
+.sc-fxs { display: inline-flex; gap: 3px; padding: 3px; border-radius: 10px; background: #081732; border: 1px solid var(--line); }
+.sc-fxs button { min-height: 38px; padding: 4px 10px; border: 0; border-radius: 8px; background: transparent; color: var(--muted); font: 700 .85rem/1 var(--font); cursor: pointer; }
+.sc-fxs button.on { background: var(--primary); color: #fff; }
+.sc-fxcats { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 6px; }
+.sc-fxcats button { min-height: 44px; padding: 6px 12px; border-radius: 999px; border: 1px solid var(--line); background: #081732; color: var(--text); font: 700 .92rem/1.1 var(--font); cursor: pointer; }
+.sc-fxcats button span { color: var(--muted); font-weight: 600; font-size: .8rem; }
+.sc-fxcats button.on { background: var(--primary); border-color: var(--primary-2); box-shadow: var(--glow); }
+.sc-fxtiles { display: grid; gap: 10px; margin-top: 12px; grid-template-columns: repeat(auto-fill, minmax(112px, 1fr)); }
+.sc-fxtile { position: relative; display: flex; flex-direction: column; align-items: center; gap: 6px; padding: 6px 6px 8px; border-radius: 14px; border: 2px solid var(--line); background: #081732; color: var(--text); cursor: pointer; font: 700 .85rem/1.2 var(--font); text-align: center; }
+.sc-fxtile canvas { width: 100%; height: auto; aspect-ratio: 1; border-radius: 10px; background: #111; display: block; }
+.sc-fxtile.on { border-color: var(--ok); box-shadow: 0 0 0 3px rgba(52, 211, 153, .35); }
+.sc-fxtile i { position: absolute; top: 10px; left: 10px; padding: 3px 7px; border-radius: 8px; font: 900 .72rem/1.2 var(--font); font-style: normal; background: var(--ok); color: #04241a; }
+.sc-fxcount { font-size: .75rem; color: var(--warn); }
+/* bigger text & buttons */
+.sc-big main { font-size: 1.15rem; }
+.sc-big main .btn { min-height: 52px; font-size: 1.05rem; }
+.sc-big main .btn-sm { min-height: 46px; font-size: 1rem; padding: 8px 14px; }
+.sc-big main .field > span, .sc-big main .label { font-size: 1rem; }
+.sc-big main select, .sc-big main input[type="text"], .sc-big main input[type="number"] { font-size: 1.1rem; min-height: 50px; }
+.sc-big .sc-fxtiles { grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); }
+.sc-big .sc-fxtile { font-size: 1rem; }
+.sc-big .sc-ba button { min-height: 48px; font-size: 1rem; }

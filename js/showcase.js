@@ -47,9 +47,11 @@
   var FPS = 30, TR = 0.55, INTRO = 2.4, OUTRO = 3;
 
   var S = Object.assign({ format: 'ig45', trans: 'mix', dur: 2.5, kenBurns: true, intro: true, outro: true, plain: false, showStage: true, showAngle: true, showBrand: true, showTitle: true, showText: true,
-    fx: 'pop', beatSync: true, musicVol: 85, musicStart: null, capStyle: 'box', capPos: 'bottom', capAnim: 'pop', capSize: 1, introTitle: '', introSub: '', outroTitle: '', outroSub: '',
+    fxAll: [], big: false, beatSync: true, musicVol: 85, musicStart: null, capStyle: 'box', capPos: 'bottom', capAnim: 'pop', capSize: 1, introTitle: '', introSub: '', outroTitle: '', outroSub: '',
     shop: '', handle: '', book: '', color: '#e11d48', wmPos: 'br', wmStyle: 'tag' }, YB.store.get('scSettings', {}));
   if (!FORMATS[S.format]) S.format = 'ig45';
+  if (S.fx) { delete S.fx; }
+  if (!Array.isArray(S.fxAll)) S.fxAll = [];
   var photos = [], sets = [], slides = [], blobs = {}, imgs = {}, music = null, logo = null;
   var cur = '', selecting = false, picked = [], rec = null, lastVideo = null;
   var brush = 'before', target = '';   // while picking: what a tap marks the photo as, and which client it goes to
@@ -559,7 +561,7 @@
     x.fillStyle = '#000'; x.fillRect(0, 0, W, H);
     if (!tl.segs.length) return;
     var i = 0; while (i < tl.segs.length - 1 && t >= tl.segs[i + 1].start) i++;
-    var g = tl.segs[i], u = t - g.start, prev = tl.segs[i - 1], ty = transFor(g);
+    var g = tl.segs[i], u = t - g.start, prev = opts && opts.noTrans ? null : tl.segs[i - 1], ty = transFor(g);
     if (!prev || u >= TR || ty === 'cut') { drawSeg(x, g, W, H, u); }
     else {
       var p = ease(clamp(u / TR, 0, 1)), pu = prev.dur + u;
@@ -586,7 +588,7 @@
         }
       }
     }
-    applyFx(x, W, H, t, g, u, prev);
+    applyFx(x, W, H, t, g, u, tl);
     if (!g.card) drawBrand(x, W, H);   // your name stays put on every photo (not on the intro / outro cards)
     capBox = null;
     if (show('showText')) {
@@ -600,54 +602,23 @@
     }
   }
   var capBox = null;
-  var FX = [['pop', 'Pop — pulses with the beat'], ['hype', 'Hype — beat pulse, flash & shake'], ['cine', 'Cinematic — bars, film grain, light'], ['glow', 'Glow — soft bloom & light'], ['none', 'None']];
-  var fxC = null, grain = null;
-  function grainTile() {
-    if (grain) return grain;
-    grain = document.createElement('canvas'); grain.width = grain.height = 192;
-    var g = grain.getContext('2d'), id = g.createImageData(192, 192), d = id.data, seed = 7;
-    for (var i = 0; i < d.length; i += 4) { seed = (seed * 16807) % 2147483647; var v = 128 + ((seed % 120) - 60); d[i] = d[i + 1] = d[i + 2] = v; d[i + 3] = 255; }
-    g.putImageData(id, 0, 0); return grain;
-  }
   // how strongly the picture "hits" at time t (1 right on a beat, fading over ~0.18 s)
   function hit(t, g) {
     var bi = beatInfo();
     if (bi) { var since = ((t - bi.phase) % bi.len + bi.len) % bi.len, n = Math.round((t - bi.phase - since) / bi.len); return { k: Math.exp(-since / 0.16), down: ((n % 4) + 4) % 4 === 0, since: since }; }
     var u = t - g.start; return { k: Math.exp(-u / 0.2), down: true, since: u };   // no music: a hit on every cut
   }
-  function applyFx(x, W, H, t, g, u, prev) {
-    var fx = S.fx || 'none'; if (fx === 'none') return;
-    var base = Math.min(W, H), cut = prev && u < 0.25 ? 1 - u / 0.25 : 0;
-    if (fx === 'pop' || fx === 'hype') {
-      var h = hit(t, g), amp = fx === 'hype' ? 0.045 : 0.022, sc = 1 + amp * h.k * (h.down ? 1.4 : 1);
-      var sx = 0, sy = 0;
-      if (fx === 'hype' && cut > 0) { sx = Math.sin(t * 97) * base * 0.018 * cut; sy = Math.cos(t * 83) * base * 0.014 * cut; }
-      if (sc > 1.001 || sx || sy) {
-        fxC = fxC || document.createElement('canvas'); if (fxC.width !== W || fxC.height !== H) { fxC.width = W; fxC.height = H; }
-        var c2 = fxC.getContext('2d'); c2.drawImage(x.canvas, 0, 0);
-        x.save(); x.imageSmoothingEnabled = true; x.drawImage(fxC, (W - W * sc) / 2 + sx, (H - H * sc) / 2 + sy, W * sc, H * sc); x.restore();
-      }
-      if (fx === 'hype' && h.down && h.since < 0.12 && !g.card) { x.fillStyle = 'rgba(255,255,255,' + (0.22 * (1 - h.since / 0.12)).toFixed(3) + ')'; x.fillRect(0, 0, W, H); }
-      if (fx === 'hype') {   // punchier contrast edge
-        var v = x.createRadialGradient(W / 2, H / 2, base * 0.35, W / 2, H / 2, Math.hypot(W, H) * 0.6); v.addColorStop(0, 'rgba(0,0,0,0)'); v.addColorStop(1, 'rgba(0,0,0,' + (0.25 + 0.15 * h.k).toFixed(3) + ')');
-        x.fillStyle = v; x.fillRect(0, 0, W, H);
-      }
-    }
-    if (fx === 'glow') {
-      x.save(); x.globalCompositeOperation = 'screen'; x.globalAlpha = 0.32 + 0.12 * hit(t, g).k; x.imageSmoothingEnabled = true;
-      x.drawImage(softBlur(x.canvas, W, H, 10), 0, 0, W, H); x.restore();
-    }
-    if (fx === 'cine' || fx === 'glow') {   // a warm light leak drifting across
-      var lx = W * (0.5 + 0.45 * Math.sin(t * 0.35)), ly = H * (0.2 + 0.15 * Math.cos(t * 0.27)), r = Math.max(W, H) * 0.55;
-      var lg = x.createRadialGradient(lx, ly, 0, lx, ly, r); lg.addColorStop(0, 'rgba(255,150,70,' + (fx === 'cine' ? 0.22 : 0.16) + ')'); lg.addColorStop(0.5, 'rgba(255,60,90,0.07)'); lg.addColorStop(1, 'rgba(0,0,0,0)');
-      x.save(); x.globalCompositeOperation = 'screen'; x.fillStyle = lg; x.fillRect(0, 0, W, H); x.restore();
-    }
-    if (fx === 'cine') {
-      var gt = grainTile(), ox = Math.floor((t * 977) % 192), oy = Math.floor((t * 613) % 192);
-      x.save(); x.globalCompositeOperation = 'overlay'; x.globalAlpha = 0.16;
-      var pat = x.createPattern(gt, 'repeat'), sc2 = Math.max(1, base / 700); x.translate(-ox * sc2, -oy * sc2); x.scale(sc2, sc2); x.fillStyle = pat; x.fillRect(0, 0, (W / sc2) + 400, (H / sc2) + 400); x.restore();
-      var bar = Math.round(H * (W >= H ? 0.1 : 0.06)); x.fillStyle = '#000'; x.fillRect(0, 0, W, bar); x.fillRect(0, H - bar, W, bar);
-    }
+  // Effects on this part: the photo's own effects plus the ones chosen for every photo.
+  function fxFor(g) {
+    var own = g.sl && g.sl.fx ? g.sl.fx : [], ids = {}, out = [];
+    own.concat(S.fxAll || []).forEach(function (it) { if (it && !ids[it.id]) { ids[it.id] = 1; out.push(it); } });
+    return out;
+  }
+  function applyFx(x, W, H, t, g, u, tl) {
+    if (!window.YBFX) return;
+    var items = fxFor(g); if (!items.length) return;
+    var parts = tl ? tl.segs.filter(function (q) { return !q.card; }) : [];
+    YBFX.apply(x, W, H, items, { t: t, u: u, dur: g.dur, beat: hit(t, g), color: S.color, idx: Math.max(0, parts.indexOf(g)), count: parts.length || 1 });
   }
   var CAP_STYLES = [['box', 'White on dark box'], ['bold', 'Bold with outline'], ['brand', 'On your brand colour'], ['neon', 'Neon glow'], ['clean', 'Clean with shadow']];
   var CAP_ANIMS = [['pop', 'Pop'], ['slide', 'Slide up'], ['type', 'Type out'], ['fade', 'Fade'], ['none', 'None']];
@@ -815,7 +786,7 @@
       var sm = document.querySelectorAll('[data-sthumb="' + p.id + '"]'); sm.forEach(function (e) { e.src = p._thumb; });
     }).catch(function () {}).then(function () {
       thumbBusy = false;
-      if (thumbQueue.length) setTimeout(runThumbs, 0); else { renderSets(); renderSlides(); }
+      if (thumbQueue.length) setTimeout(runThumbs, 0); else { renderSets(); renderSlides(); renderFx(); }
     });
   }
 
@@ -1098,7 +1069,7 @@
     $('slideList').innerHTML = slides.map(function (sl, i) {
       var th = slideThumb(sl);
       return '<li class="sc-slide" data-slide="' + sl.id + '"><span class="cx-pnum">' + (i + 1) + '</span>' + (th ? '<img src="' + th + '" alt="">' : '<span class="sc-sl-ph"></span>') +
-        '<div class="sc-sl-meta"><b>' + YB.esc(slideName(sl)) + '</b><span class="sc-sl-sel">' +
+        '<div class="sc-sl-meta"><b>' + YB.esc(slideName(sl)) + ((sl.fx || []).length ? ' <span class="sc-fxcount">✨ ' + sl.fx.length + '</span>' : '') + '</b><span class="sc-sl-sel">' +
         '<select data-sl="trans" aria-label="Transition into this part">' + opts.replace('value="' + (sl.trans || '') + '"', 'value="' + (sl.trans || '') + '" selected') + '</select>' +
         '<select data-sl="dur" aria-label="How long">' + durs.replace('value="' + (sl.dur || '') + '"', 'value="' + (sl.dur || '') + '" selected') + '</select></span>' +
         '<span class="sc-sl-text"><input type="text" data-sl-text maxlength="90" value="' + YB.esc(sl.text || '') + '" placeholder="✍️ Text on screen (optional)" aria-label="Text on screen for part ' + (i + 1) + '">' +
@@ -1109,7 +1080,7 @@
     $('kenBurns').checked = !!S.kenBurns; $('introOn').checked = !!S.intro; $('outroOn').checked = !!S.outro;
     $('capStyle').value = S.capStyle; $('capPos').value = S.capPos; $('capAnim').value = S.capAnim; $('capSize').value = Math.round((S.capSize || 1) * 100); $('capSizeVal').textContent = Math.round((S.capSize || 1) * 100) + '%';
     ['introTitle', 'introSub', 'outroTitle', 'outroSub'].forEach(function (k) { if (document.activeElement !== $(k)) $(k).value = S[k] || ''; });
-    $('musicName').textContent = music ? '🎵 ' + music.name : 'No music'; $('musicDel').hidden = !music; renderMusic(); $('fxSel').value = S.fx || 'none';
+    $('musicName').textContent = music ? '🎵 ' + music.name : 'No music'; $('musicDel').hidden = !music; renderMusic();
   }
   function renderMusic() {
     var box = $('musicOpts'); if (!box) return;
@@ -1142,7 +1113,115 @@
     $('logoPrev').hidden = $('logoDel').hidden = !logo;
     if (logo && logo._img) $('logoPrev').src = logo._img.src;
   }
-  function renderAll() { renderFormats(); renderGrid(); renderEditor(); renderSets(); renderSlides(); renderBrand(); renderSteps(); renderFacts(); sizePreview(); if (!pv.playing) drawPreview(); }
+  function renderAll() { renderFx(); renderFormats(); renderGrid(); renderEditor(); renderSets(); renderSlides(); renderBrand(); renderSteps(); renderFacts(); sizePreview(); if (!pv.playing) drawPreview(); }
+
+  /* ---------- Effects card (big, simple, for anyone) ---------- */
+  var fxTarget = 'all', fxCat = 'popular', fxLoop = { raf: 0, on: false, t0: 0, last: 0 }, tileBase = null, tileBaseKey = '';
+  var STRENGTH = [[0.6, 'Light'], [1, 'Medium'], [1.5, 'Strong']];
+  function fxSlide() { return fxTarget === 'all' ? null : slides.find(function (sl) { return sl.id === fxTarget; }); }
+  function fxListNow() { var sl = fxSlide(); return sl ? (sl.fx = sl.fx || []) : (S.fxAll = S.fxAll || []); }
+  function fxSave() { saveProject(); saveSettings(); }
+  function fxSeg(tl) {   // the part of the slideshow the effects card shows
+    var sl = fxSlide(); tl = tl || segments();
+    return (sl ? tl.segs.find(function (g) { return g.sl === sl; }) : tl.segs.find(function (g) { return !g.card; })) || tl.segs[0];
+  }
+  function renderFx() {
+    var card = $('fxCard'); if (!card || !window.YBFX) return;
+    card.hidden = !photos.length; if (!photos.length) return;
+    if (fxTarget !== 'all' && !fxSlide()) fxTarget = 'all';
+    // which photo
+    $('fxTargets').innerHTML = '<button type="button" class="sc-fxt' + (fxTarget === 'all' ? ' on' : '') + '" data-fxt="all" aria-pressed="' + (fxTarget === 'all') + '"><span class="sc-fxt-all">★</span><b>Every photo</b></button>' +
+      slides.map(function (sl, i) { var th = slideThumb(sl), n = (sl.fx || []).length; return '<button type="button" class="sc-fxt' + (fxTarget === sl.id ? ' on' : '') + '" data-fxt="' + sl.id + '" aria-pressed="' + (fxTarget === sl.id) + '">' + (th ? '<img src="' + th + '" alt="">' : '<span class="sc-fxt-all">' + (i + 1) + '</span>') + '<b>' + (i + 1) + (n ? ' · ' + n + ' ✨' : '') + '</b></button>'; }).join('');
+    // what's on it
+    var list = fxListNow(), nm = fxTarget === 'all' ? 'every photo' : 'photo ' + (slides.indexOf(fxSlide()) + 1);
+    $('fxOnTitle').textContent = list.length ? 'On ' + nm + ' (' + list.length + ')' : 'Nothing on ' + nm + ' yet — tap an effect below to add it';
+    $('fxOn').innerHTML = list.map(function (it, i) {
+      var e = YBFX.byId[it.id]; if (!e) return '';
+      return '<li class="sc-fxon" data-fxi="' + i + '"><b>' + YB.esc(e.name) + '</b><span class="sc-fxs" role="group" aria-label="How strong">' + STRENGTH.map(function (st) { return '<button type="button" data-fxs="' + st[0] + '" class="' + (Math.abs((it.s || 1) - st[0]) < 0.01 ? 'on' : '') + '">' + st[1] + '</button>'; }).join('') + '</span><button type="button" class="btn btn-danger btn-sm" data-fxdel aria-label="Remove ' + YB.esc(e.name) + '">✕ Remove</button></li>';
+    }).join('');
+    $('fxClear').hidden = !list.length; $('fxCopyAll').hidden = !list.length || fxTarget === 'all';
+    // categories + tiles
+    $('fxCats').innerHTML = YBFX.cats.map(function (c) { var n = c[0] === 'popular' ? YBFX.list.filter(function (e) { return e.pop; }).length : YBFX.list.filter(function (e) { return e.cat === c[0]; }).length; return '<button type="button" class="' + (fxCat === c[0] ? 'on' : '') + '" data-fxc="' + c[0] + '" aria-pressed="' + (fxCat === c[0]) + '">' + c[1] + ' <span>' + n + '</span></button>'; }).join('');
+    var on = {}; list.forEach(function (it) { on[it.id] = 1; });
+    var items = YBFX.list.filter(function (e) { return fxCat === 'popular' ? e.pop : e.cat === fxCat; });
+    $('fxTiles').innerHTML = items.map(function (e) { return '<button type="button" class="sc-fxtile' + (on[e.id] ? ' on' : '') + '" data-fx="' + e.id + '" aria-pressed="' + !!on[e.id] + '"><canvas width="120" height="120" data-fxprev="' + e.id + '"></canvas><span>' + YB.esc(e.name) + '</span>' + (on[e.id] ? '<i>✓ Added</i>' : '') + '</button>'; }).join('');
+    $('fxTotal').textContent = YBFX.list.length + ' effects';
+    tileBaseKey = ''; startFxLoop();
+    drawTilesOnce();
+  }
+  function tileImage() {   // a small square of the chosen photo, used under every effect tile
+    var g = fxSeg(), key = g ? g.key + '|' + (g.photo ? verOf(g.photo) : g.set ? verOfSet(g.set) : '') : 'none';
+    if (tileBase && tileBaseKey === key) return tileBase;
+    tileBaseKey = key; tileBase = document.createElement('canvas'); tileBase.width = tileBase.height = 120;
+    var x = tileBase.getContext('2d'); x.fillStyle = '#111'; x.fillRect(0, 0, 120, 120);
+    if (g) { var d = dims(), st = stillFor(g, d.W > d.H ? Math.round(240 * d.W / d.H) : 240, d.W > d.H ? 240 : Math.round(240 * d.H / d.W)), k = Math.max(120 / st.width, 120 / st.height); x.drawImage(st, (120 - st.width * k) / 2, (120 - st.height * k) / 2, st.width * k, st.height * k); }
+    return tileBase;
+  }
+  // the little previews move, so you can see what each effect does before adding it
+  function startFxLoop() {
+    if (fxLoop.on) return; fxLoop.on = true; fxLoop.t0 = performance.now();
+    var step = function (now) {
+      if (!fxLoop.on) return;
+      if (now - fxLoop.last > 80 && !rec && !document.hidden && fxVisible()) {
+        fxLoop.last = now; var t = (now - fxLoop.t0) / 1000;
+        drawFxPreview(t);
+        var base = tileImage();
+        document.querySelectorAll('[data-fxprev]').forEach(function (cv) {
+          var r = cv.getBoundingClientRect(); if (r.bottom < 0 || r.top > window.innerHeight) return;
+          var x = cv.getContext('2d'); x.drawImage(base, 0, 0);
+          YBFX.apply(x, 120, 120, [{ id: cv.getAttribute('data-fxprev'), s: 1.2 }], { t: t, u: t % 2.5, dur: 2.5, beat: { k: Math.exp(-((t % 0.6)) / 0.16), down: Math.floor(t / 0.6) % 4 === 0 }, color: S.color, idx: 1, count: 4 });
+        });
+      }
+      fxLoop.raf = requestAnimationFrame(step);
+    };
+    fxLoop.raf = requestAnimationFrame(step);
+  }
+  var drawTilesOnce = YB.debounce(function () {   // every tile gets a picture straight away, even off screen
+    var base = tileImage();
+    document.querySelectorAll('[data-fxprev]').forEach(function (cv) {
+      var x = cv.getContext('2d'); x.drawImage(base, 0, 0);
+      YBFX.apply(x, 120, 120, [{ id: cv.getAttribute('data-fxprev'), s: 1.2 }], { t: 1.3, u: 0.9, dur: 2.5, beat: { k: 0.5, down: true }, color: S.color, idx: 1, count: 4 });
+    });
+  }, 60);
+  function fxVisible() { var c = $('fxCard'); if (!c || c.hidden) return false; var r = c.getBoundingClientRect(); return r.bottom > 0 && r.top < window.innerHeight; }
+  function drawFxPreview(t) {   // the chosen photo playing with its effects, over and over
+    var c = $('fxPreview'); if (!c) return;
+    var d = dims(), w = c.clientWidth || 240, dpr = Math.min(2, window.devicePixelRatio || 1), W = Math.round(w * dpr), H = Math.round(W * d.H / d.W);
+    if (c.width !== W || c.height !== H) { c.width = W; c.height = H; }
+    var tl = segments(), g = fxSeg(tl); if (!g) return;
+    var u = (t % Math.max(1, g.dur));
+    renderFrame(c.getContext('2d'), W, H, g.start + u, tl, { still: false, noTrans: true });
+  }
+  function fxChanged() { fxSave(); renderFx(); renderSlides(); renderFacts(); if (!pv.playing) drawPreview(); }
+  function wireFx() {
+    $('fxTargets').addEventListener('click', function (e) { var b = e.target.closest('[data-fxt]'); if (!b) return; fxTarget = b.getAttribute('data-fxt'); renderFx(); });
+    $('fxCats').addEventListener('click', function (e) { var b = e.target.closest('[data-fxc]'); if (!b) return; fxCat = b.getAttribute('data-fxc'); renderFx(); });
+    $('fxTiles').addEventListener('click', function (e) {
+      var b = e.target.closest('[data-fx]'); if (!b) return;
+      var id = b.getAttribute('data-fx'), list = fxListNow(), i = list.findIndex(function (it) { return it.id === id; });
+      if (i === -1) { list.push({ id: id, s: 1 }); YB.toast('Added "' + YBFX.byId[id].name + '"'); } else { list.splice(i, 1); YB.toast('Removed "' + YBFX.byId[id].name + '"'); }
+      fxChanged();
+    });
+    $('fxOn').addEventListener('click', function (e) {
+      var li = e.target.closest('[data-fxi]'); if (!li) return;
+      var list = fxListNow(), i = +li.getAttribute('data-fxi'), sb = e.target.closest('[data-fxs]');
+      if (sb) list[i].s = +sb.getAttribute('data-fxs'); else if (e.target.closest('[data-fxdel]')) list.splice(i, 1); else return;
+      fxChanged();
+    });
+    $('fxClear').addEventListener('click', function () { var list = fxListNow(); if (list.length && confirm('Take every effect off this?')) { list.length = 0; fxChanged(); } });
+    $('fxCopyAll').addEventListener('click', function () {
+      var src = fxListNow().map(function (it) { return { id: it.id, s: it.s }; });
+      slides.forEach(function (sl) { sl.fx = src.map(function (it) { return { id: it.id, s: it.s }; }); });
+      fxChanged(); YB.toast('These effects are now on every photo');
+    });
+    $('fxSurprise').addEventListener('click', function () {   // a good mix: one colour, one light or sparkle, one movement
+      var pick = function (cats) { var l = YBFX.list.filter(function (e) { return cats.indexOf(e.cat) !== -1 && e.kind !== 'sticker'; }); return l[Math.floor(Math.random() * l.length)]; };
+      var list = fxListNow(); list.length = 0;
+      [pick(['color']), pick(['light', 'particles', 'barber']), pick(['motion'])].forEach(function (e) { if (e) list.push({ id: e.id, s: 1 }); });
+      fxChanged(); YB.toast('Try this mix — tap ✕ Remove on anything you don\'t like');
+    });
+    $('fxWatch').addEventListener('click', function () { var g = fxSeg(); stop(); pv.t = g ? Math.max(0, g.start - 0.3) : 0; openFull(); });
+  }
 
   /* ---------- Downloads ---------- */
   function slug(s) { return String(s || '').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '').slice(0, 40); }
@@ -1587,8 +1666,11 @@
     });
     $('musicDel').addEventListener('click', function () { if (!music) return; delBlob(music.blobId); music = null; if (pv.music) { pv.music.pause(); pv.music.dataset.id = ''; } saveProject(); renderSlides(); renderFacts(); drawPreview(); });
     $('exportBtn').addEventListener('click', exportVideo);
-    $('fxSel').innerHTML = FX.map(function (f) { return '<option value="' + f[0] + '">' + f[1] + '</option>'; }).join('');
-    $('fxSel').addEventListener('change', function () { S.fx = this.value; saveSettings(); stop(); var tl = segments(), g = tl.segs[1] || tl.segs[0]; if (g) { pv.t = Math.max(0, g.start - 0.2); play(); setTimeout(function () { if (pv.playing) stop(); }, 2600); } });
+    wireFx();
+    var bigBtn = $('bigBtn');
+    function applyBig() { document.documentElement.classList.toggle('sc-big', !!S.big); bigBtn.setAttribute('aria-pressed', !!S.big); bigBtn.textContent = S.big ? '🔍 Normal size' : '🔍 Bigger text & buttons'; }
+    bigBtn.addEventListener('click', function () { S.big = !S.big; saveSettings(); applyBig(); setTimeout(function () { sizeEditor(); drawEditor(); sizePreview(); drawPreview(); }, 50); });
+    applyBig();
     $('musicVol').addEventListener('input', function () { S.musicVol = +this.value; $('musicVolVal').textContent = this.value + '%'; if (pv.music) pv.music.volume = S.musicVol / 100; saveSettings(); });
     $('musicStart').addEventListener('input', function () { S.musicStart = +this.value; $('musicStartVal').textContent = mmss(S.musicStart); saveSettings(); });
     $('musicStart').addEventListener('change', function () { renderFacts(); if (pv.playing) { stop(); play(); } else drawPreview(); });

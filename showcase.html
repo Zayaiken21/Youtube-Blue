@@ -15,11 +15,12 @@
   <meta name="mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
   <meta name="apple-mobile-web-app-title" content="YT Blue">
-  <link rel="stylesheet" href="css/style.css?v=37">
+  <link rel="stylesheet" href="css/style.css?v=38">
   <script src="js/core.js" defer></script>
   <script src="js/vendor/mp4-muxer.min.js" defer></script>
   <script src="js/fullscreen.js?v=1" defer></script>
-  <script src="js/showcase.js?v=7" defer></script>
+  <script src="js/showcase-fx.js?v=2" defer></script>
+  <script src="js/showcase.js?v=9" defer></script>
 </head>
 <body data-page="showcase">
   <header class="topbar">
@@ -48,6 +49,7 @@
     <div class="page-head">
       <div class="eyebrow">📸 Photo Showcase</div>
       <h1>Pro photos and slideshows from your cuts</h1>
+      <button class="btn btn-ghost sc-bigbtn" type="button" id="bigBtn" aria-pressed="false">🔍 Bigger text &amp; buttons</button>
       <p>Add your shop photos, crop each one by hand, and give them a clean, professional look for Instagram, theCut, TikTok or any portfolio. Mark every shot <b>Before</b> or <b>After</b> and put each client's shots together, then play everything as a slideshow with smooth barber-style transitions and download the photos, collages and video.</p>
     </div>
 
@@ -147,6 +149,34 @@
           <ul class="sc-sets" id="setList"></ul>
         </section>
 
+        <!-- ===== Effects ===== -->
+        <section class="card" aria-labelledby="fxTitle" id="fxCard" hidden>
+          <h2 id="fxTitle"><span class="cx-num">✨</span>Effects for the video <span class="muted small" id="fxTotal"></span></h2>
+          <ol class="sc-fxsteps">
+            <li><b>Pick a photo</b> — or <b>Every photo</b>.</li>
+            <li><b>Tap an effect</b> to add it. Tap it again to take it off. You can add as many as you like.</li>
+            <li>Choose <b>Light</b>, <b>Medium</b> or <b>Strong</b> for each one.</li>
+          </ol>
+          <div class="label">1 · Which photo?</div>
+          <div class="sc-fxtargets" id="fxTargets" role="group" aria-label="Which photo"></div>
+          <div class="sc-fxtop">
+            <div class="sc-fxprevwrap"><canvas id="fxPreview" width="240" height="300" aria-label="This photo with its effects"></canvas>
+              <button class="btn btn-sm" type="button" id="fxWatch" style="width:100%;margin-top:8px">⛶ Watch full screen</button></div>
+            <div class="sc-fxonwrap">
+              <div class="label" id="fxOnTitle"></div>
+              <ul class="sc-fxonlist" id="fxOn"></ul>
+              <div class="row" style="gap:8px;margin-top:8px;flex-wrap:wrap">
+                <button class="btn btn-ghost" type="button" id="fxSurprise">🎲 Surprise me</button>
+                <button class="btn btn-ghost" type="button" id="fxCopyAll" hidden>📋 Use these on every photo</button>
+                <button class="btn btn-ghost" type="button" id="fxClear" hidden>🗑 Remove all</button>
+              </div>
+            </div>
+          </div>
+          <div class="label" style="margin-top:14px">2 · Tap an effect</div>
+          <div class="sc-fxcats" id="fxCats" role="group" aria-label="Kinds of effects"></div>
+          <div class="sc-fxtiles" id="fxTiles"></div>
+        </section>
+
         <!-- ===== Brand ===== -->
         <section class="card" aria-labelledby="brandTitle" id="brandCard" hidden>
           <h2 id="brandTitle"><span class="cx-num">★</span>Your brand &amp; what's on the pictures</h2>
@@ -197,7 +227,6 @@
         <div class="fields sc-showopts">
           <label class="field"><span>Transition</span><select id="transSel"></select></label>
           <label class="field"><span>Each photo <b id="durVal"></b></span><input type="range" id="durRange" min="1" max="6" step="0.5"></label>
-          <label class="field" style="grid-column:1/-1"><span>✨ Effects</span><select id="fxSel"></select></label>
         </div>
         <div class="row sc-toggles">
           <label class="cx-switch"><input type="checkbox" id="kenBurns"> Slow zoom</label>
