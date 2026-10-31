@@ -572,11 +572,20 @@
   function apply(x, W, H, items, ctx) {
     if (!items || !items.length) return;
     var list = items.map(function (it) { return { e: BY[it.id], s: it.s || 1 }; }).filter(function (q) { return q.e; });
-    list.sort(function (a, b) { return ORDER[a.e.kind] - ORDER[b.e.kind]; });
+    list.forEach(function (q, i) { q.i = i; });
+    list.sort(function (a, b) { return ORDER[a.e.kind] - ORDER[b.e.kind] || a.i - b.i; });
     ctx = Object.assign({ t: 0, u: 0, dur: 3, beat: { k: 0, down: false }, color: '#e11d48', idx: 0, count: 1 }, ctx || {});
+    var acc = { l: 0, r: 0, t: 0, b: 0 };
     list.forEach(function (q) {
       x.save();
-      try { applyOne(x, W, H, q.e, ctx, q.s); } catch (err) { if (window.console) console.warn('[effects] ' + q.e.id, err); }
+      try {
+        if (q.e.kind === 'frame') {   // draw inside the frames already there, clipped to that space
+          var w = Math.max(10, W - acc.l - acc.r), h = Math.max(10, H - acc.t - acc.b);
+          x.translate(acc.l, acc.t); x.beginPath(); x.rect(0, 0, w, h); x.clip();
+          applyOne(x, w, h, q.e, ctx, q.s);
+          var o = insetOne(q.e, q.s, w, h); acc.l += o.l; acc.r += o.r; acc.t += o.t; acc.b += o.b;
+        } else applyOne(x, W, H, q.e, ctx, q.s);
+      } catch (err) { if (window.console) console.warn('[effects] ' + q.e.id, err); }
       x.restore();
     });
   }
@@ -587,17 +596,25 @@
     polaroid: { l: 0.045, r: 0.045, t: 0.045, b: 0.19 }, cinema: { tb: 1 }, story: { t: 0.04 }, rounded: { a: 0.02 }, torn: { a: 0.035 },
     dashed: { a: 0.045 }, viewfinder: { t: 0.1, l: 0.04, r: 0.04, b: 0.1 }, eightMM: { a: 0.035 }, circle: { a: 0.02 }
   };
-  function inset(items, W, H) {
-    var base = Math.min(W, H), o = { l: 0, r: 0, t: 0, b: 0 };
-    (items || []).forEach(function (it) {
-      var e = BY[it.id]; if (!e) return; var fn = e.p && e.p.fn, k = INSET[fn], s = it.s || 1; if (!k) return;
-      var sc = /border|goldFrame|pole/.test(fn) ? s : 1;
-      if (k.a) { o.l = Math.max(o.l, k.a * sc * base); o.r = Math.max(o.r, k.a * sc * base); o.t = Math.max(o.t, k.a * sc * base); o.b = Math.max(o.b, k.a * sc * base); }
-      if (k.l) o.l = Math.max(o.l, k.l * sc * base); if (k.r) o.r = Math.max(o.r, k.r * sc * base);
-      if (k.t) o.t = Math.max(o.t, k.t * base); if (k.b) o.b = Math.max(o.b, k.b * base);
-      if (k.tb) { var bar = H * (W >= H ? 0.1 : 0.07) * s; o.t = Math.max(o.t, bar); o.b = Math.max(o.b, bar); }
-    });
+  function insetOne(e, s, W, H) {   // the edges one frame covers, in pixels, for a picture of W×H
+    var base = Math.min(W, H), o = { l: 0, r: 0, t: 0, b: 0 }, fn = e.p && e.p.fn, k = INSET[fn];
+    if (e.kind !== 'frame' || !k) return o;
+    var sc = /border|goldFrame|pole/.test(fn) ? s : 1;
+    if (k.a) o.l = o.r = o.t = o.b = k.a * sc * base;
+    if (k.l) o.l = Math.max(o.l, k.l * sc * base); if (k.r) o.r = Math.max(o.r, k.r * sc * base);
+    if (k.t) o.t = Math.max(o.t, k.t * base); if (k.b) o.b = Math.max(o.b, k.b * base);
+    if (k.tb) { var bar = H * (W >= H ? 0.1 : 0.07) * s; o.t = Math.max(o.t, bar); o.b = Math.max(o.b, bar); }
     return o;
+  }
+  // Several frames nest like picture frames: each one sits just inside the one before it, so they never cover each other.
+  function inset(items, W, H) {
+    var acc = { l: 0, r: 0, t: 0, b: 0 };
+    (items || []).forEach(function (it) {
+      var e = BY[it.id]; if (!e || e.kind !== 'frame') return;
+      var o = insetOne(e, it.s || 1, Math.max(10, W - acc.l - acc.r), Math.max(10, H - acc.t - acc.b));
+      acc.l += o.l; acc.r += o.r; acc.t += o.t; acc.b += o.b;
+    });
+    return acc;
   }
   window.YBFX = { cats: CATS, list: L, byId: BY, apply: apply, inset: inset };
 })();

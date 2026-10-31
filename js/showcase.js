@@ -614,7 +614,7 @@
   // Effects on this part: the photo's own effects plus the ones chosen for every photo.
   function fxFor(g) {
     var own = g.sl && g.sl.fx ? g.sl.fx : [], ids = {}, out = [];
-    own.concat(S.fxAll || []).forEach(function (it) { if (it && !ids[it.id]) { ids[it.id] = 1; out.push(it); } });
+    (S.fxAll || []).concat(own).forEach(function (it) { if (it && !ids[it.id]) { ids[it.id] = 1; out.push(it); } });   // the shared frame is the outer one
     return out;
   }
   function applyFx(x, W, H, t, g, u, tl) {
