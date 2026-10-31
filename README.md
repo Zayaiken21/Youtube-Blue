@@ -12,6 +12,7 @@ A blue creator toolkit for designing a YouTube channel, tracking analytics, and 
 | Story Studio — templates, characters (+), one-voice / multi-voice, teleprompter | `stories.html` | `js/stories.js` |
 | Prompts — ready-made AI prompts (copy / PDF) that answer in the YouTube Blue format | `prompts.html` | `js/prompts.js`, `prompts/` |
 | Video Formatter — import videos, format for Shorts / long form, frames, editable overlays, MP4 export | `formatter.html` | `js/formatter.js` |
+| Photo Showcase — crop and style barbershop photos, front/side/back sets, slideshow video, ZIP | `showcase.html` | `js/showcase.js` |
 | Voice Studio — Chatterbox text-to-speech, predefined voices, voice cloning, download | `voice.html` | `js/voice.js` |
 | Voice Studio · Story mode — multi-voice story narration in script order | `voice.html` | `js/voice-story.js` |
 
@@ -78,6 +79,18 @@ Turn any videos you have into a YouTube-ready video (`formatter.html`).
 4. **Make the video** — each clip plays through once while every frame is captured with its own time and encoded on the device (WebCodecs + MP4); the sound (clips + music) is mixed separately and packed alongside, so picture and sound stay in sync. Browsers without WebCodecs use the real-time recorder instead. Shorts over 3 minutes get a warning.
 
 Clips, overlays, music and settings are saved on the device (IndexedDB `youtube-blue-formatter`).
+
+## Photo Showcase
+
+Pro photos and slideshows from your cuts (`showcase.html`) — made for barbers posting to Instagram, theCut, TikTok or a portfolio.
+
+1. **Photos** — add as many as you like (JPG, PNG, WebP; iPhone HEIC opens in Safari). Pick one size for everything: Instagram post 4:5, Square 1:1, Story / Reel 9:16, Portrait 3:4 or Wide 16:9. Reorder, label each shot (Front, Side, Back, Line-up, Beard, Detail, Before, After…), remove.
+2. **Crop & style** — drag the photo to place it, pinch / scroll / *Zoom* to crop, *Straighten*, *Rotate*, *Mirror*. Pro looks with live previews: Pro clean, Crisp fade, Studio, Cool steel, Vivid, Matte, Moody, Black & white. *Auto-fix* removes the yellow shop-light tint; *Fine-tune* has brightness, contrast, colour, warmth, shine control (tames glare on scalps and skin), matte, sharpness, background blur and vignette. *Use this look on every photo* and *Auto-fix every photo* do the whole shoot at once.
+3. **Front / side / back sets** — *Select photos for a set*, tap the shots in order, *Make a set*. Shots are labelled Front / Side / Back automatically (2 shots = Before / After). Layouts: Big + small, Side by side, Stacked, Grid, Before / after; optional title on top. A set is one collage photo and one part of the slideshow (as a collage, or one shot after another).
+4. **Your brand** — shop name, @handle, booking line, colour and logo. Your name goes on every photo as a tag, plain text or a bar.
+5. **Slideshow & download** — intro card, your photos and sets, and a "Book now" card, with transitions: Barber mix, Razor wipe, Camera flash, Slide, Zoom, Fade, Wipe, Blur or straight cuts, slow zoom, per-part length and transition, optional music. *Make the slideshow video* gives an MP4. *Download every photo & set (ZIP)* saves every finished photo, every collage and the video in one file. Phones get a *Share* button.
+
+Everything is processed on the device and saved there (IndexedDB `youtube-blue-showcase`).
 
 ## Put it on GitHub Pages
 
