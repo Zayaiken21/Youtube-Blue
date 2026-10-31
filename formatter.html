@@ -15,10 +15,11 @@
   <meta name="mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
   <meta name="apple-mobile-web-app-title" content="YT Blue">
-  <link rel="stylesheet" href="css/style.css?v=34">
+  <link rel="stylesheet" href="css/style.css?v=37">
   <script src="js/core.js" defer></script>
   <script src="js/vendor/mp4-muxer.min.js" defer></script>
-  <script src="js/formatter.js?v=1" defer></script>
+  <script src="js/fullscreen.js?v=1" defer></script>
+  <script src="js/formatter.js?v=2" defer></script>
 </head>
 <body data-page="formatter">
   <header class="topbar">
@@ -148,6 +149,7 @@
           <button type="button" class="play-btn" id="playBtn" aria-label="Play preview" aria-pressed="false"><svg class="pi-play" viewBox="0 0 24 24" aria-hidden="true"><path d="M8 5.5v13a1 1 0 0 0 1.5.86l10.2-6.5a1 1 0 0 0 0-1.72L9.5 4.64A1 1 0 0 0 8 5.5z"/></svg><svg class="pi-pause" viewBox="0 0 24 24" aria-hidden="true"><rect x="6.5" y="5" width="4" height="14" rx="1.2"/><rect x="13.5" y="5" width="4" height="14" rx="1.2"/></svg></button>
           <input type="range" id="scrub" min="0" max="1000" value="0" aria-label="Position">
           <span class="cx-time" id="timeLabel">0:00 / 0:00</span>
+          <button type="button" class="btn btn-ghost btn-icon btn-sm yb-fullbtn" id="fullBtn" aria-label="Watch full screen" title="Full screen">⛶</button>
         </div>
         <div class="row fm-stage-tools">
           <button class="btn btn-ghost btn-sm" type="button" id="moveVideoBtn" aria-pressed="false">🖐 Move video</button>
@@ -167,7 +169,7 @@
           <video id="resultVideo" controls playsinline></video>
           <div class="row between">
             <span class="muted small" id="resultInfo"></span>
-            <a class="btn btn-sm" id="downloadBtn" href="#" download>⬇ Download video</a>
+            <span class="row" style="gap:6px"><button class="btn btn-ghost btn-sm" type="button" id="fullVideoBtn">⛶ Full screen</button><a class="btn btn-sm" id="downloadBtn" href="#" download>⬇ Download video</a></span>
           </div>
         </div>
       </aside>

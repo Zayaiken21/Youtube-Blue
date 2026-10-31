@@ -47,11 +47,12 @@
   var FPS = 30, TR = 0.55, INTRO = 2.4, OUTRO = 3;
 
   var S = Object.assign({ format: 'ig45', trans: 'mix', dur: 2.5, kenBurns: true, intro: true, outro: true, plain: false, showStage: true, showAngle: true, showBrand: true, showTitle: true, showText: true,
-    capStyle: 'box', capPos: 'bottom', capAnim: 'pop', capSize: 1, introTitle: '', introSub: '', outroTitle: '', outroSub: '',
+    fx: 'pop', beatSync: true, musicVol: 85, musicStart: null, capStyle: 'box', capPos: 'bottom', capAnim: 'pop', capSize: 1, introTitle: '', introSub: '', outroTitle: '', outroSub: '',
     shop: '', handle: '', book: '', color: '#e11d48', wmPos: 'br', wmStyle: 'tag' }, YB.store.get('scSettings', {}));
   if (!FORMATS[S.format]) S.format = 'ig45';
   var photos = [], sets = [], slides = [], blobs = {}, imgs = {}, music = null, logo = null;
   var cur = '', selecting = false, picked = [], rec = null, lastVideo = null;
+  var brush = 'before', target = '';   // while picking: what a tap marks the photo as, and which client it goes to
 
   function $(id) { return document.getElementById(id); }
   function clamp(v, a, b) { return Math.max(a, Math.min(b, v)); }
@@ -429,6 +430,62 @@
   function fit(x, t, css, size, max) { var s = size; do { x.font = css.replace('{s}', Math.round(s)); s *= 0.92; } while (x.measureText(t).width > max && s > 8); }
   function hexA(h, a) { var n = parseInt(String(h).slice(1), 16); return 'rgba(' + (n >> 16 & 255) + ',' + (n >> 8 & 255) + ',' + (n & 255) + ',' + a + ')'; }
 
+  /* ---------- Music beats ---------- */
+  // Finds the song's tempo and where its beats fall (energy onsets + a comb search over 70–180 BPM),
+  // so cuts land on the beat and the picture can pulse with the music.
+  function findBeats(buf) {
+    var sr = buf.sampleRate, n = Math.min(buf.length, Math.floor(sr * 90)), hop = 512, ch = buf.numberOfChannels;
+    var a = buf.getChannelData(0), b2 = ch > 1 ? buf.getChannelData(1) : a, frames = Math.floor(n / hop), env = new Float32Array(frames), lp = 0, k = Math.exp(-2 * Math.PI * 160 / sr);
+    for (var f = 0; f < frames; f++) {
+      var e = 0, el = 0;
+      for (var i = f * hop, end = i + hop; i < end; i++) { var v = (a[i] + b2[i]) * 0.5; lp = lp * k + v * (1 - k); e += v * v; el += lp * lp; }
+      env[f] = Math.log(1 + 1000 * (e / hop)) + 1.5 * Math.log(1 + 1000 * (el / hop));   // kick drum counts extra
+    }
+    var on = new Float32Array(frames);
+    for (f = 1; f < frames; f++) on[f] = Math.max(0, env[f] - env[f - 1]);
+    var fps = sr / hop, best = { score: -1, bpm: 120, phase: 0 };
+    for (var bpm = 70; bpm <= 180; bpm += 0.5) {
+      var P = fps * 60 / bpm, w = Math.exp(-Math.pow(Math.log2(bpm / 115), 2) / 0.6);   // gently prefer common tempos
+      for (var ph = 0; ph < P; ph += 1) {
+        var sc = 0, cnt = 0;
+        for (var t = ph; t < frames; t += P) { sc += on[Math.round(t)] || 0; cnt++; }
+        sc = sc / Math.max(1, cnt) * w;
+        if (sc > best.score) best = { score: sc, bpm: bpm, phase: ph };
+      }
+    }
+    // the song's first real beat (skips a quiet intro), so the video starts right on it
+    var P2 = fps * 60 / best.bpm, grid = [], f2;
+    for (f2 = best.phase; f2 < frames; f2 += P2) grid.push(Math.max(on[Math.round(f2) - 1] || 0, on[Math.round(f2)] || 0, on[Math.round(f2) + 1] || 0));
+    var mean = grid.reduce(function (q, v) { return q + v; }, 0) / Math.max(1, grid.length), k2 = 0;
+    while (k2 < grid.length - 1 && grid[k2] < mean * 0.4) k2++;
+    return { bpm: best.bpm, first: (best.phase + k2 * P2) / fps };
+  }
+  function decodeMusic() {
+    if (!music || !blobs[music.blobId]) return Promise.resolve(null);
+    if (music._buf) return Promise.resolve(music._buf);
+    var AC = window.AudioContext || window.webkitAudioContext; if (!AC) return Promise.resolve(null);
+    var dec = new AC(), m = music;
+    return blobs[m.blobId].arrayBuffer().then(function (buf) {
+      return new Promise(function (res) { var pr = dec.decodeAudioData(buf, res, function () { res(null); }); if (pr && pr.then) pr.then(res, function () { res(null); }); });
+    }).then(function (b) { try { dec.close(); } catch (e) { /* closed */ } if (b && m === music) { m._buf = b; m.dur = b.duration; } return b; }).catch(function () { return null; });
+  }
+  function analyseMusic() {
+    var m = music; if (!m) return;
+    decodeMusic().then(function (b) {
+      if (!b || m !== music) return;
+      if (!m.bpm) { var r = findBeats(b); m.bpm = r.bpm; m.first = r.first; saveProject(); }
+      renderMusic(); renderFacts(); if (!pv.playing) drawPreview();
+    });
+  }
+  function songStart() { return music ? (S.musicStart != null ? S.musicStart : (music.first || 0)) : 0; }
+  // Beat times in the video: the song starts at songStart(), so the video's beats are offset by its phase.
+  function beatInfo() {
+    if (!music || !music.bpm) return null;
+    var len = 60 / music.bpm, phase = ((music.first || 0) - songStart()) % len; if (phase < 0) phase += len;
+    return { len: len, phase: phase };
+  }
+  function synced() { return !!(S.beatSync && beatInfo()); }
+
   /* ---------- Slideshow timeline ---------- */
   function segments() {
     var segs = [];
@@ -443,7 +500,17 @@
       }
     });
     if (S.outro) segs.push({ key: 'outro', dur: OUTRO, card: 'outro' });
-    var t = 0; segs.forEach(function (g, i) { g.start = t; t += g.dur; g.i = i; });
+    var t = 0, bi = synced() ? beatInfo() : null;
+    if (bi) {   // every cut lands on the beat: each part ends on the nearest 2-beat step (4 for fast songs)
+      var step = bi.len * (bi.len * 2 < 0.8 ? 4 : 2);
+      segs.forEach(function (g) {
+        var want = t + g.dur, n = Math.max(1, Math.round((want - bi.phase) / step)), end = bi.phase + n * step;
+        while (end - t < Math.max(1, g.dur * 0.55)) end += step;
+        g.dur = end - t; t = end;
+      });
+      t = 0;
+    }
+    segs.forEach(function (g, i) { g.start = t; t += g.dur; g.i = i; });
     return { segs: segs, total: t };
   }
   var stills = {};   // key|W|H|version → canvas
@@ -519,6 +586,7 @@
         }
       }
     }
+    applyFx(x, W, H, t, g, u, prev);
     if (!g.card) drawBrand(x, W, H);   // your name stays put on every photo (not on the intro / outro cards)
     capBox = null;
     if (show('showText')) {
@@ -532,6 +600,55 @@
     }
   }
   var capBox = null;
+  var FX = [['pop', 'Pop — pulses with the beat'], ['hype', 'Hype — beat pulse, flash & shake'], ['cine', 'Cinematic — bars, film grain, light'], ['glow', 'Glow — soft bloom & light'], ['none', 'None']];
+  var fxC = null, grain = null;
+  function grainTile() {
+    if (grain) return grain;
+    grain = document.createElement('canvas'); grain.width = grain.height = 192;
+    var g = grain.getContext('2d'), id = g.createImageData(192, 192), d = id.data, seed = 7;
+    for (var i = 0; i < d.length; i += 4) { seed = (seed * 16807) % 2147483647; var v = 128 + ((seed % 120) - 60); d[i] = d[i + 1] = d[i + 2] = v; d[i + 3] = 255; }
+    g.putImageData(id, 0, 0); return grain;
+  }
+  // how strongly the picture "hits" at time t (1 right on a beat, fading over ~0.18 s)
+  function hit(t, g) {
+    var bi = beatInfo();
+    if (bi) { var since = ((t - bi.phase) % bi.len + bi.len) % bi.len, n = Math.round((t - bi.phase - since) / bi.len); return { k: Math.exp(-since / 0.16), down: ((n % 4) + 4) % 4 === 0, since: since }; }
+    var u = t - g.start; return { k: Math.exp(-u / 0.2), down: true, since: u };   // no music: a hit on every cut
+  }
+  function applyFx(x, W, H, t, g, u, prev) {
+    var fx = S.fx || 'none'; if (fx === 'none') return;
+    var base = Math.min(W, H), cut = prev && u < 0.25 ? 1 - u / 0.25 : 0;
+    if (fx === 'pop' || fx === 'hype') {
+      var h = hit(t, g), amp = fx === 'hype' ? 0.045 : 0.022, sc = 1 + amp * h.k * (h.down ? 1.4 : 1);
+      var sx = 0, sy = 0;
+      if (fx === 'hype' && cut > 0) { sx = Math.sin(t * 97) * base * 0.018 * cut; sy = Math.cos(t * 83) * base * 0.014 * cut; }
+      if (sc > 1.001 || sx || sy) {
+        fxC = fxC || document.createElement('canvas'); if (fxC.width !== W || fxC.height !== H) { fxC.width = W; fxC.height = H; }
+        var c2 = fxC.getContext('2d'); c2.drawImage(x.canvas, 0, 0);
+        x.save(); x.imageSmoothingEnabled = true; x.drawImage(fxC, (W - W * sc) / 2 + sx, (H - H * sc) / 2 + sy, W * sc, H * sc); x.restore();
+      }
+      if (fx === 'hype' && h.down && h.since < 0.12 && !g.card) { x.fillStyle = 'rgba(255,255,255,' + (0.22 * (1 - h.since / 0.12)).toFixed(3) + ')'; x.fillRect(0, 0, W, H); }
+      if (fx === 'hype') {   // punchier contrast edge
+        var v = x.createRadialGradient(W / 2, H / 2, base * 0.35, W / 2, H / 2, Math.hypot(W, H) * 0.6); v.addColorStop(0, 'rgba(0,0,0,0)'); v.addColorStop(1, 'rgba(0,0,0,' + (0.25 + 0.15 * h.k).toFixed(3) + ')');
+        x.fillStyle = v; x.fillRect(0, 0, W, H);
+      }
+    }
+    if (fx === 'glow') {
+      x.save(); x.globalCompositeOperation = 'screen'; x.globalAlpha = 0.32 + 0.12 * hit(t, g).k; x.imageSmoothingEnabled = true;
+      x.drawImage(softBlur(x.canvas, W, H, 10), 0, 0, W, H); x.restore();
+    }
+    if (fx === 'cine' || fx === 'glow') {   // a warm light leak drifting across
+      var lx = W * (0.5 + 0.45 * Math.sin(t * 0.35)), ly = H * (0.2 + 0.15 * Math.cos(t * 0.27)), r = Math.max(W, H) * 0.55;
+      var lg = x.createRadialGradient(lx, ly, 0, lx, ly, r); lg.addColorStop(0, 'rgba(255,150,70,' + (fx === 'cine' ? 0.22 : 0.16) + ')'); lg.addColorStop(0.5, 'rgba(255,60,90,0.07)'); lg.addColorStop(1, 'rgba(0,0,0,0)');
+      x.save(); x.globalCompositeOperation = 'screen'; x.fillStyle = lg; x.fillRect(0, 0, W, H); x.restore();
+    }
+    if (fx === 'cine') {
+      var gt = grainTile(), ox = Math.floor((t * 977) % 192), oy = Math.floor((t * 613) % 192);
+      x.save(); x.globalCompositeOperation = 'overlay'; x.globalAlpha = 0.16;
+      var pat = x.createPattern(gt, 'repeat'), sc2 = Math.max(1, base / 700); x.translate(-ox * sc2, -oy * sc2); x.scale(sc2, sc2); x.fillStyle = pat; x.fillRect(0, 0, (W / sc2) + 400, (H / sc2) + 400); x.restore();
+      var bar = Math.round(H * (W >= H ? 0.1 : 0.06)); x.fillStyle = '#000'; x.fillRect(0, 0, W, bar); x.fillRect(0, H - bar, W, bar);
+    }
+  }
   var CAP_STYLES = [['box', 'White on dark box'], ['bold', 'Bold with outline'], ['brand', 'On your brand colour'], ['neon', 'Neon glow'], ['clean', 'Clean with shadow']];
   var CAP_ANIMS = [['pop', 'Pop'], ['slide', 'Slide up'], ['type', 'Type out'], ['fade', 'Fade'], ['none', 'None']];
   function capAnim(t, len) {
@@ -592,9 +709,19 @@
     var d = dims(), s = Math.min(360 / d.W, 520 / d.H);
     return { w: Math.round(d.W * s), h: Math.round(d.H * s) };
   }
+  var fullBox = null;   // set while the slideshow is full screen
   function sizePreview() {
-    var c = $('preview'), ps = previewSize(), dpr = Math.min(2, window.devicePixelRatio || 1);
-    c.width = Math.round(ps.w * dpr); c.height = Math.round(ps.h * dpr); c.style.width = ps.w + 'px'; c.style.aspectRatio = ps.w + ' / ' + ps.h;
+    var c = $('preview'), ps = previewSize(), dpr = Math.min(2, window.devicePixelRatio || 1), d = dims();
+    if (fullBox) { var k = Math.min(fullBox.w / d.W, fullBox.h / d.H); ps = { w: Math.floor(d.W * k), h: Math.floor(d.H * k) }; }
+    c.width = Math.min(d.W, Math.round(ps.w * dpr)); c.height = Math.round(c.width * d.H / d.W);
+    c.style.width = ps.w + 'px'; c.style.height = fullBox ? ps.h + 'px' : ''; c.style.aspectRatio = ps.w + ' / ' + ps.h;
+  }
+  function openFull() {
+    if (!window.YB.full) return;
+    YB.full.open({ stage: $('preview'), bar: document.querySelector('#showCard .cx-transport'),
+      fit: function (w, h) { fullBox = { w: w, h: h }; sizePreview(); if (!pv.playing) drawPreview(); },
+      onClose: function () { fullBox = null; sizePreview(); if (!pv.playing) drawPreview(); } });
+    if (!pv.playing) play();
   }
   function drawPreview() {
     var c = $('preview'); if (!c) return;
@@ -629,7 +756,7 @@
     var tl = segments(); if (!tl.segs.length || rec) return;
     if (pv.t >= tl.total - 0.05) pv.t = 0;
     pv.playing = true; setPlayBtn(true); pv.t0 = performance.now() - pv.t * 1000;
-    if (music) { pv.music = pv.music || new Audio(); if (pv.music.dataset.id !== music.blobId) { pv.music.src = URL.createObjectURL(blobs[music.blobId]); pv.music.dataset.id = music.blobId; } pv.music.loop = true; try { pv.music.currentTime = pv.t; } catch (e) { /* not ready */ } pv.music.play().catch(function () {}); }
+    if (music) { pv.music = pv.music || new Audio(); if (pv.music.dataset.id !== music.blobId) { pv.music.src = URL.createObjectURL(blobs[music.blobId]); pv.music.dataset.id = music.blobId; } pv.music.loop = true; pv.music.volume = clamp((S.musicVol == null ? 85 : S.musicVol) / 100, 0, 1); var mst = songStart() + pv.t; var setT = function () { try { pv.music.currentTime = pv.music.duration ? mst % pv.music.duration : mst; } catch (e) { /* not ready */ } }; if (pv.music.readyState >= 1) setT(); else pv.music.addEventListener('loadedmetadata', setT, { once: true }); pv.music.play().catch(function () {}); }
     var loop = function () {
       if (!pv.playing) return;
       pv.t = (performance.now() - pv.t0) / 1000;
@@ -642,7 +769,8 @@
   function setPlayBtn(on) { var b = $('playBtn'); b.classList.toggle('is-playing', on); b.classList.toggle('is-active', on); b.setAttribute('aria-pressed', on ? 'true' : 'false'); b.setAttribute('aria-label', on ? 'Pause slideshow' : 'Play slideshow'); }
 
   /* ---------- Import ---------- */
-  function addFiles(files) {
+  function addFiles(files, into) {   // into: { setId, stage } puts the new photos straight into a client as before / after
+    into = into || {};
     var list = Array.prototype.slice.call(files || []).filter(function (f) { return /^image\//.test(f.type) || /\.(jpe?g|png|webp|heic|heif|gif|bmp)$/i.test(f.name); });
     if (!list.length) { YB.toast('Choose photos'); return; }
     var bad = [], added = 0; $('importNote').hidden = true;
@@ -653,8 +781,11 @@
         return normalise(f).then(function (n) {
           var id = YB.uid(), blobId = 'p' + id;
           blobs[blobId] = n.blob;
-          var p = { id: id, blobId: blobId, name: f.name, w: n.w, h: n.h, f: defaultFrame(), look: 'clean', adj: {}, auto: true, label: '', stage: '' };
-          photos.push(p); slides.push({ id: YB.uid(), kind: 'photo', ref: id });
+          var p = { id: id, blobId: blobId, name: f.name, w: n.w, h: n.h, f: defaultFrame(), look: 'natural', adj: {}, auto: false, label: '', stage: into.stage || '' };   // photos come in untouched: looks and auto-fix only when you choose them
+          var cs = into.setId && setById(into.setId);
+          photos.push(p);
+          if (cs) { cs.ids.push(id); cs._thumb = null; if (p.stage) cs.layout = 'split'; ensureSetSlide(cs); }
+          else slides.push({ id: YB.uid(), kind: 'photo', ref: id });
           added++;
           return putBlob(blobId, n.blob).then(function () { return ensureImg(p); });
         }, function () { bad.push(f.name); });
@@ -664,7 +795,7 @@
       if (bad.length) { $('importNote').hidden = false; $('importNote').textContent = 'This browser couldn\'t open ' + bad.join(', ') + '. iPhone "HEIC" photos open in Safari; elsewhere, save them as JPG (or set the camera to "Most Compatible") and add them again.'; }
       if (added && !photoById(cur)) cur = photos[photos.length - added].id;
       saveProject(); renderAll(); thumbsSoon();
-      if (added) YB.toast('Added ' + added + ' photo' + (added === 1 ? '' : 's'));
+      if (added) YB.toast('Added ' + added + ' ' + (into.stage ? into.stage + ' ' : '') + 'photo' + (added === 1 ? '' : 's') + (into.setId && setById(into.setId) ? ' to ' + clientName(setById(into.setId)) : ''));
     });
   }
 
@@ -698,13 +829,13 @@
   function renderGrid() {
     $('photoCount').textContent = photos.length ? '· ' + photos.length : '';
     $('photoGrid').innerHTML = photos.map(function (p, i) {
-      var s = setOf(p.id), pk = picked.indexOf(p.id);
+      var s = setOf(p.id), pk = picked.indexOf(p.id), pst = pk !== -1 ? p.stage : '';
       return '<li class="sc-ph' + (p.id === cur ? ' on' : '') + (pk !== -1 ? ' picked' : '') + '" data-id="' + p.id + '">' +
         '<button type="button" class="sc-thumb" data-open aria-label="Edit photo ' + (i + 1) + '" style="aspect-ratio:' + thumbW() + '/' + thumbH() + '">' +
         (p._thumb ? '<img data-thumb="' + p.id + '" src="' + p._thumb + '" alt="">' : '<img data-thumb="' + p.id + '" alt="">') +
-        '<span class="sc-n">' + (i + 1) + '</span>' + (pk !== -1 ? '<span class="sc-pick">' + (pk + 1) + '</span>' : '') +
+        '<span class="sc-n">' + (i + 1) + '</span>' + (pk !== -1 ? '<span class="sc-pick ' + pst + '">' + (pst ? pst.charAt(0).toUpperCase() : pk + 1) + '</span>' : '') +
         (p.stage ? '<span class="sc-stage-badge ' + p.stage + '">' + stageName(p).toUpperCase() + '</span>' : '') +
-        (s ? '<span class="sc-inset">👤 ' + YB.esc(s.title || 'Client ' + (sets.indexOf(s) + 1)) + '</span>' : '') + '</button>' +
+        (s ? '<span class="sc-inset">👤 ' + YB.esc(clientName(s)) + '</span>' : '') + '</button>' +
         '<div class="sc-ba" role="group" aria-label="Before or after, photo ' + (i + 1) + '">' + STAGES.map(function (st) { return '<button type="button" data-stage="' + st[0] + '" class="' + st[0] + (p.stage === st[0] ? ' on' : '') + '" aria-pressed="' + (p.stage === st[0]) + '">' + st[1] + '</button>'; }).join('') + '</div>' +
         '<div class="sc-ph-ctl"><select data-label aria-label="Shot ' + (i + 1) + '">' + LABELS.map(function (l) { return '<option value="' + l + '"' + (l === p.label ? ' selected' : '') + '>' + (l || 'Angle…') + '</option>'; }).join('') + '</select>' +
         '<span class="sc-ph-btns"><button type="button" class="btn btn-ghost btn-icon btn-sm" data-left aria-label="Move earlier"' + (i ? '' : ' disabled') + '>‹</button>' +
@@ -714,8 +845,11 @@
     $('formatGroup').hidden = $('bulkRow').hidden = !photos.length;
     $('selBar').hidden = !selecting;
     $('selectModeBtn').setAttribute('aria-pressed', selecting); $('selectModeBtn').classList.toggle('on', selecting);
-    $('makeSetBtn').disabled = picked.length < 2;
-    $('selText').textContent = picked.length ? picked.length + ' picked — ' + (picked.length < 2 ? 'pick the before and after shots of this client' : 'ready') : 'Tap the photos of one client — before and after shots, in order';
+    var ts = setById(target), nb = picked.filter(function (id) { var q = photoById(id); return q && q.stage === 'before'; }).length, na = picked.filter(function (id) { var q = photoById(id); return q && q.stage === 'after'; }).length;
+    $('makeSetBtn').disabled = !picked.length;
+    $('makeSetBtn').textContent = ts ? '👤 Add to ' + clientName(ts) : '👤 Make this client';
+    document.querySelectorAll('#brushSeg [data-brush]').forEach(function (b) { var on = b.getAttribute('data-brush') === brush; b.classList.toggle('on', on); b.setAttribute('aria-pressed', on); });
+    $('selText').textContent = picked.length ? picked.length + ' picked · ' + nb + ' before · ' + na + ' after' + (brush === 'before' ? ' — switch to After for the finished shots' : '') : (brush === 'keep' ? 'Tap photos to pick them' : 'Tap the ' + brush.toUpperCase() + ' photos' + (ts ? ' for ' + clientName(ts) : ' of this client'));
   }
 
   function setStage(p, st) {
@@ -844,20 +978,30 @@
   /* ---------- Sets UI ---------- */
   function renderSets() {
     $('setCard').hidden = !photos.length;
-    if (!sets.length) { $('setList').innerHTML = '<li class="muted small fm-empty">No sets yet.</li>'; return; }
+    if (!sets.length) { $('setList').innerHTML = '<li class="muted small fm-empty">No clients yet — tap ＋ New client.</li>'; return; }
     var d = dims();
     $('setList').innerHTML = sets.map(function (s, si) {
       var ps = setPhotos(s);
       return '<li class="sc-set" data-set="' + s.id + '">' +
         '<div class="sc-set-top"><img class="sc-set-prev" data-setprev="' + s.id + '" alt="Set ' + (si + 1) + ' preview" style="aspect-ratio:' + d.W + '/' + d.H + '"' + (s._thumb ? ' src="' + s._thumb + '"' : '') + '>' +
         '<div class="sc-set-meta"><label class="field"><span>Client or cut (shown on top — optional)</span><input type="text" data-sf="title" maxlength="40" value="' + YB.esc(s.title || '') + '" placeholder="e.g. Marcus · skin fade + beard"></label>' +
-        '<div class="sc-set-photos">' + ps.map(function (p, i) { return '<span class="sc-chip"><img data-sthumb="' + p.id + '" src="' + (p._thumb || '') + '" alt=""><b>' + (i + 1) + '</b> ' + (p.stage ? '<em class="sc-stage-badge ' + p.stage + '">' + stageName(p) + '</em> ' : '') + YB.esc(p.label || (p.stage ? '' : 'Photo ' + photoNo(p))) +
-          '<button type="button" class="sc-x" data-sp-left="' + p.id + '" aria-label="Earlier"' + (i ? '' : ' disabled') + '>‹</button><button type="button" class="sc-x" data-sp-del="' + p.id + '" aria-label="Take out of the set">✕</button></span>'; }).join('') + '</div></div></div>' +
+        '</div></div>' +
+        '<div class="sc-cols">' + [['before', 'Before'], ['after', 'After'], ['', 'Not marked']].map(function (col) {
+          var list = ps.filter(function (p) { return (p.stage || '') === col[0]; });
+          if (!col[0] && !list.length) return '';
+          return '<div class="sc-col ' + (col[0] || 'none') + '" data-col="' + col[0] + '"><div class="sc-col-head"><b>' + col[1] + '</b> <span class="muted small">' + list.length + '</span></div>' +
+            '<div class="sc-col-photos">' + (list.length ? list.map(function (p) {
+              return '<span class="sc-tile"><img data-sthumb="' + p.id + '" src="' + (p._thumb || '') + '" alt="Photo ' + photoNo(p) + '"><span class="sc-tile-btns">' +
+                (col[0] ? '<button type="button" class="sc-x" data-sp-flip="' + p.id + '" title="Move to ' + (col[0] === 'before' ? 'After' : 'Before') + '" aria-label="Move photo ' + photoNo(p) + ' to ' + (col[0] === 'before' ? 'after' : 'before') + '">⇄</button>' : '<button type="button" class="sc-x" data-sp-mark="before" data-p="' + p.id + '" title="Before">B</button><button type="button" class="sc-x" data-sp-mark="after" data-p="' + p.id + '" title="After">A</button>') +
+                '<button type="button" class="sc-x" data-sp-del="' + p.id + '" aria-label="Take photo ' + photoNo(p) + ' out of this client">✕</button></span></span>';
+            }).join('') : '<span class="muted small sc-col-empty">' + (col[0] ? 'No ' + col[1].toLowerCase() + ' photos yet' : '') + '</span>') + '</div>' +
+            (col[0] ? '<div class="sc-col-add"><button type="button" class="btn btn-ghost btn-sm" data-pick="' + col[0] + '">＋ Pick from photos</button><label class="btn btn-ghost btn-sm fm-upload">📷 Upload<input type="file" accept="image/*,.heic,.heif" multiple hidden data-up="' + col[0] + '"></label></div>' : '') + '</div>';
+        }).join('') + '</div>' +
         '<div class="label" style="margin-top:10px">Layout</div><div class="seg sc-seg" role="radiogroup">' + LAYOUTS.map(function (l) { return '<button type="button" role="radio" data-layout="' + l[0] + '" class="' + (s.layout === l[0] ? 'on' : '') + '" aria-checked="' + (s.layout === l[0]) + '">' + l[1] + '</button>'; }).join('') + '</div>' +
         '<div class="row" style="gap:14px;margin-top:10px;flex-wrap:wrap">' +
         '<label class="cx-switch"><input type="checkbox" data-sf="labels"' + (s.labels ? ' checked' : '') + '> Show angles too (FRONT / SIDE / BACK)</label>' +
         '<label class="field" style="min-width:180px"><span>In the slideshow</span><select data-sf="show"><option value="collage"' + (s.show !== 'each' ? ' selected' : '') + '>As one collage</option><option value="each"' + (s.show === 'each' ? ' selected' : '') + '>One shot after another</option></select></label></div>' +
-        '<div class="row" style="gap:6px;margin-top:10px"><button type="button" class="btn btn-sm" data-set-dl>⬇ Download collage</button><button type="button" class="btn btn-ghost btn-sm" data-set-share hidden>📤 Share</button><button type="button" class="btn btn-ghost btn-sm" data-set-ungroup>Ungroup</button></div></li>';
+        '<div class="row" style="gap:6px;margin-top:10px"><button type="button" class="btn btn-sm" data-set-dl>⬇ Download collage</button><button type="button" class="btn btn-ghost btn-sm" data-set-share hidden>📤 Share</button><button type="button" class="btn btn-ghost btn-sm" data-set-ungroup>Ungroup</button><button type="button" class="btn btn-danger btn-sm" data-set-remove>Delete client</button></div></li>';
     }).join('');
     if (navigator.canShare) document.querySelectorAll('[data-set-share]').forEach(function (b) { b.hidden = false; });
     setThumbsSoon();
@@ -871,11 +1015,43 @@
       Promise.all(setPhotos(s).map(ensureImg)).then(function () { s._thumb = renderSet(s, w, h).toDataURL('image/jpeg', 0.82); im.src = s._thumb; });
     });
   }, 200);
+  function clientName(s) { return s.title || 'Client ' + (sets.indexOf(s) + 1); }
+  function ensureSetSlide(s) { if (!slides.some(function (sl) { return sl.ref === s.id; })) slides.push({ id: YB.uid(), kind: 'set', ref: s.id }); }
+  function startPicking(setId, st) {
+    selecting = true; picked = []; target = setId || ''; brush = st || 'before';
+    renderGrid();
+    var g = $('photoGrid'); if (g.scrollIntoView) g.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    YB.toast('Tap the ' + (brush === 'keep' ? '' : brush + ' ') + 'photos' + (target && setById(target) ? ' for ' + clientName(setById(target)) : ''));
+  }
+  function stopPicking() { selecting = false; picked = []; target = ''; renderGrid(); }
+  // A tap picks the photo and marks it with the brush (Before / After). Tapping a picked photo again
+  // switches it to the brush, or lets go of it when it's already marked that way.
+  function pickPhoto(p) {
+    var k = picked.indexOf(p.id);
+    if (k === -1) { picked.push(p.id); if (brush !== 'keep') p.stage = brush; }
+    else if (brush !== 'keep' && p.stage !== brush) p.stage = brush;
+    else picked.splice(k, 1);
+    var s0 = setOf(p.id); if (s0) s0._thumb = null;
+    queueThumb(p); saveProject(); renderGrid();
+  }
   function makeSet() {
-    if (picked.length < 2) return;
+    if (!picked.length) return;
+    var into = setById(target);
+    if (into) {   // add to an existing client
+      sets.forEach(function (x) { if (x !== into) x.ids = x.ids.filter(function (id) { return picked.indexOf(id) === -1; }); });
+      picked.forEach(function (id) { if (into.ids.indexOf(id) === -1) into.ids.push(id); });
+      if (picked.some(function (id) { var q = photoById(id); return q && q.stage; })) into.layout = 'split';
+      slides = slides.filter(function (sl) { return !(sl.kind === 'photo' && picked.indexOf(sl.ref) !== -1); });
+      ensureSetSlide(into); into._thumb = null;
+      var n = picked.length; picked = []; selecting = false; target = '';
+      saveProject(); renderAll(); thumbsSoon();
+      YB.toast('Added ' + n + ' photo' + (n === 1 ? '' : 's') + ' to ' + clientName(into));
+      setTimeout(function () { var el = document.querySelector('[data-set="' + into.id + '"]'); if (el && el.scrollIntoView) el.scrollIntoView({ behavior: 'smooth', block: 'center' }); }, 100);
+      return;
+    }
     // a photo belongs to one set at a time
     sets.forEach(function (s) { s.ids = s.ids.filter(function (id) { return picked.indexOf(id) === -1; }); });
-    sets = sets.filter(function (s) { if (s.ids.length < 2) { slides = slides.filter(function (sl) { return sl.ref !== s.id; }); s.ids.forEach(function (id) { if (!slides.some(function (sl) { return sl.ref === id; })) slides.push({ id: YB.uid(), kind: 'photo', ref: id }); }); return false; } return true; });
+    sets.forEach(function (x) { x._thumb = null; });
     var s = { id: YB.uid(), title: '', ids: picked.slice(), layout: defaultLayout(), labels: true, show: 'collage' };
     var ps = picked.map(photoById).filter(Boolean), anyStage = ps.some(function (p) { return p.stage; });
     if (ps.length === 2 && !anyStage) { ps[0].stage = 'before'; ps[1].stage = 'after'; anyStage = true; }
@@ -889,7 +1065,7 @@
     var at = slides.findIndex(function (sl) { return sl.kind === 'photo' && picked.indexOf(sl.ref) !== -1; });
     slides = slides.filter(function (sl) { return !(sl.kind === 'photo' && picked.indexOf(sl.ref) !== -1); });
     slides.splice(at < 0 ? slides.length : Math.min(at, slides.length), 0, { id: YB.uid(), kind: 'set', ref: s.id });
-    picked = []; selecting = false;
+    picked = []; selecting = false; target = '';
     saveProject(); renderAll(); thumbsSoon();
     YB.toast(s.layout === 'split' ? 'Before & after set made for this client' : 'Set made — it\'s one collage and one part of the slideshow');
     setTimeout(function () { var el = document.querySelector('[data-set="' + s.id + '"]'); if (el && el.scrollIntoView) el.scrollIntoView({ behavior: 'smooth', block: 'center' }); }, 100);
@@ -933,11 +1109,20 @@
     $('kenBurns').checked = !!S.kenBurns; $('introOn').checked = !!S.intro; $('outroOn').checked = !!S.outro;
     $('capStyle').value = S.capStyle; $('capPos').value = S.capPos; $('capAnim').value = S.capAnim; $('capSize').value = Math.round((S.capSize || 1) * 100); $('capSizeVal').textContent = Math.round((S.capSize || 1) * 100) + '%';
     ['introTitle', 'introSub', 'outroTitle', 'outroSub'].forEach(function (k) { if (document.activeElement !== $(k)) $(k).value = S[k] || ''; });
-    $('musicName').textContent = music ? '🎵 ' + music.name : 'No music'; $('musicDel').hidden = !music;
+    $('musicName').textContent = music ? '🎵 ' + music.name : 'No music'; $('musicDel').hidden = !music; renderMusic(); $('fxSel').value = S.fx || 'none';
+  }
+  function renderMusic() {
+    var box = $('musicOpts'); if (!box) return;
+    box.hidden = !music; if (!music) return;
+    $('musicVol').value = S.musicVol == null ? 85 : S.musicVol; $('musicVolVal').textContent = $('musicVol').value + '%';
+    var max = Math.max(1, Math.floor((music.dur || 60) - 5));
+    $('musicStart').max = max; $('musicStart').value = Math.min(max, songStart()); $('musicStartVal').textContent = mmss(songStart()) + (S.musicStart == null ? ' (first beat)' : '');
+    $('beatSync').checked = S.beatSync !== false;
+    $('bpmVal').textContent = music.bpm ? '· ' + Math.round(music.bpm) + ' BPM' : '· finding the beat…';
   }
   function renderFacts() {
     var tl = segments(), d = dims();
-    $('facts').innerHTML = photos.length ? '<span><b>' + photos.length + '</b> photo' + (photos.length === 1 ? '' : 's') + '</span>' + (sets.length ? '<span><b>' + sets.length + '</b> set' + (sets.length === 1 ? '' : 's') + '</span>' : '') + '<span><b>' + mmss(tl.total) + '</b> video</span><span><b>' + d.W + '×' + d.H + '</b></span>' + (music ? '<span>🎵 music</span>' : '') : '';
+    $('facts').innerHTML = photos.length ? '<span><b>' + photos.length + '</b> photo' + (photos.length === 1 ? '' : 's') + '</span>' + (sets.length ? '<span><b>' + sets.length + '</b> set' + (sets.length === 1 ? '' : 's') + '</span>' : '') + '<span><b>' + mmss(tl.total) + '</b> video</span><span><b>' + d.W + '×' + d.H + '</b></span>' + (music ? '<span>🎵 music' + (synced() ? ' · on the beat' : '') + '</span>' : '') : '';
     $('exportBtn').disabled = !tl.segs.length || !!rec;
   }
   function renderSteps() {
@@ -1067,16 +1252,16 @@
     if (!music || !blobs[music.blobId]) return Promise.resolve(null);
     var Off = window.OfflineAudioContext || window.webkitOfflineAudioContext, AC = window.AudioContext || window.webkitAudioContext;
     if (!Off || !AC) return Promise.resolve(null);
-    var dec = new AC();
-    return blobs[music.blobId].arrayBuffer().then(function (buf) {
-      return new Promise(function (res) { var p = dec.decodeAudioData(buf, res, function () { res(null); }); if (p && p.then) p.then(res, function () { res(null); }); });
-    }).then(function (b) {
-      try { dec.close(); } catch (e) { /* closed */ }
+    return decodeMusic().then(function (b) {
       if (!b) return null;
-      var off = new Off(2, Math.ceil(T * 48000), 48000), src = off.createBufferSource(), g = off.createGain();
-      src.buffer = b; src.loop = true; src.connect(g); g.connect(off.destination);
-      g.gain.setValueAtTime(0, 0); g.gain.linearRampToValueAtTime(1, 0.3); g.gain.setValueAtTime(1, Math.max(0.31, T - 1.6)); g.gain.linearRampToValueAtTime(0, T);
-      src.start(0); return off.startRendering();
+      var off = new Off(2, Math.ceil(T * 48000), 48000), src = off.createBufferSource(), g = off.createGain(), comp = off.createDynamicsCompressor();
+      var vol = (S.musicVol == null ? 85 : S.musicVol) / 100, st = Math.min(songStart(), Math.max(0, b.duration - 1));
+      // a gentle compressor keeps the song full and punchy without clipping
+      comp.threshold.value = -16; comp.knee.value = 8; comp.ratio.value = 3; comp.attack.value = 0.006; comp.release.value = 0.2;
+      src.buffer = b; src.loop = true; src.loopStart = 0; src.loopEnd = b.duration;
+      src.connect(g); g.connect(comp); comp.connect(off.destination);
+      g.gain.setValueAtTime(0, 0); g.gain.linearRampToValueAtTime(vol, 0.02); g.gain.setValueAtTime(vol, Math.max(0.03, T - 1.8)); g.gain.linearRampToValueAtTime(0, T);
+      src.start(0, st); return off.startRendering();
     }).catch(function () { return null; });
   }
   function opusHead(preSkip) {
@@ -1233,13 +1418,12 @@
         if (!confirm('Remove photo ' + (i + 1) + '?')) return;
         var p = photos.splice(i, 1)[0]; delBlob(p.blobId); delete blobs[p.blobId]; delete imgs[p.blobId];
         sets.forEach(function (s) { s.ids = s.ids.filter(function (x) { return x !== id; }); s._thumb = null; });
-        sets.filter(function (s) { return s.ids.length < 2; }).forEach(ungroup);
         slides = slides.filter(function (sl) { return sl.ref !== id; }); picked = picked.filter(function (x) { return x !== id; });
         if (cur === id) cur = (photos[i] || photos[i - 1] || {}).id || '';
       } else if (e.target.closest('[data-left]') && i > 0) { var t = photos[i - 1]; photos[i - 1] = photos[i]; photos[i] = t; }
       else if (e.target.closest('[data-right]') && i < photos.length - 1) { var t2 = photos[i + 1]; photos[i + 1] = photos[i]; photos[i] = t2; }
       else if (e.target.closest('[data-open]')) {
-        if (selecting) { var k = picked.indexOf(id); if (k === -1) picked.push(id); else picked.splice(k, 1); renderGrid(); return; }
+        if (selecting) { pickPhoto(photos[i]); return; }
         cur = id; renderGrid(); renderEditor();
         var ed = $('editCard'); if (ed.getBoundingClientRect().top > window.innerHeight * 0.6 && ed.scrollIntoView) ed.scrollIntoView({ behavior: 'smooth', block: 'start' });
         return;
@@ -1252,8 +1436,14 @@
       p.label = e.target.value; saveProject(); if (p.id === cur) $('labelSel').value = p.label;
       sets.forEach(function (s) { if (s.ids.indexOf(p.id) !== -1) s._thumb = null; }); renderSets(); refreshShowSoon();
     });
-    $('selectModeBtn').addEventListener('click', function () { selecting = !selecting; picked = []; renderGrid(); if (selecting) YB.toast('Tap the before and after shots of one client'); });
-    $('cancelSelBtn').addEventListener('click', function () { selecting = false; picked = []; renderGrid(); });
+    $('selectModeBtn').addEventListener('click', function () { if (selecting) stopPicking(); else startPicking('', 'before'); });
+    $('cancelSelBtn').addEventListener('click', stopPicking);
+    $('brushSeg').addEventListener('click', function (e) { var b = e.target.closest('[data-brush]'); if (!b) return; brush = b.getAttribute('data-brush'); renderGrid(); });
+    $('newClientBtn').addEventListener('click', function () {
+      var s = { id: YB.uid(), title: '', ids: [], layout: 'split', labels: true, show: 'collage' };
+      sets.push(s); ensureSetSlide(s); saveProject(); renderSets(); refreshShowSoon();
+      setTimeout(function () { var el = document.querySelector('[data-set="' + s.id + '"] [data-sf=title]'); if (el) { el.scrollIntoView({ behavior: 'smooth', block: 'center' }); el.focus({ preventScroll: true }); } }, 80);
+    });
     $('makeSetBtn').addEventListener('click', makeSet);
     $('autoAllBtn').addEventListener('click', function () { photos.forEach(function (p) { p.auto = true; p._thumb = null; }); stills = {}; saveProject(); renderAll(); thumbsSoon(); YB.toast('Auto-fix is on for every photo'); });
     $('lookAllBtn').addEventListener('click', function () {
@@ -1302,12 +1492,22 @@
 
     // sets
     var sl = $('setList');
+    ['dragenter', 'dragover'].forEach(function (ev) { sl.addEventListener(ev, function (e) { var c = e.target.closest('[data-col]'); if (!c || !c.getAttribute('data-col')) return; e.preventDefault(); c.classList.add('over'); }); });
+    sl.addEventListener('dragleave', function (e) { var c = e.target.closest('[data-col]'); if (c) c.classList.remove('over'); });
+    sl.addEventListener('drop', function (e) {
+      var c = e.target.closest('[data-col]'); if (!c || !c.getAttribute('data-col')) return; e.preventDefault(); c.classList.remove('over');
+      if (e.dataTransfer && e.dataTransfer.files.length) addFiles(e.dataTransfer.files, { setId: c.closest('[data-set]').getAttribute('data-set'), stage: c.getAttribute('data-col') });
+    });
     sl.addEventListener('click', function (e) {
       var li = e.target.closest('[data-set]'); if (!li) return;
       var s = setById(li.getAttribute('data-set')); if (!s) return;
       var lb = e.target.closest('[data-layout]'), sp;
       if (lb) { s.layout = lb.getAttribute('data-layout'); }
-      else if ((sp = e.target.closest('[data-sp-del]'))) { var id = sp.getAttribute('data-sp-del'); s.ids = s.ids.filter(function (x) { return x !== id; }); slides.push({ id: YB.uid(), kind: 'photo', ref: id }); if (s.ids.length < 2) ungroup(s); }
+      else if ((sp = e.target.closest('[data-sp-del]'))) { var id = sp.getAttribute('data-sp-del'); s.ids = s.ids.filter(function (x) { return x !== id; }); slides.push({ id: YB.uid(), kind: 'photo', ref: id }); }
+      else if ((sp = e.target.closest('[data-sp-flip]'))) { var fp = photoById(sp.getAttribute('data-sp-flip')); if (fp) { fp.stage = fp.stage === 'before' ? 'after' : 'before'; queueThumb(fp); } }
+      else if ((sp = e.target.closest('[data-sp-mark]'))) { var mp = photoById(sp.getAttribute('data-p')); if (mp) { mp.stage = sp.getAttribute('data-sp-mark'); s.layout = 'split'; queueThumb(mp); } }
+      else if ((sp = e.target.closest('[data-pick]'))) { startPicking(s.id, sp.getAttribute('data-pick')); return; }
+      else if (e.target.closest('[data-set-remove]')) { if (!confirm('Delete ' + clientName(s) + '? Its photos stay in your photos.')) return; ungroup(s); }
       else if ((sp = e.target.closest('[data-sp-left]'))) { var j = s.ids.indexOf(sp.getAttribute('data-sp-left')); if (j > 0) { var t = s.ids[j - 1]; s.ids[j - 1] = s.ids[j]; s.ids[j] = t; } }
       else if (e.target.closest('[data-set-dl]')) { setFile(s).then(function (b) { save(b, setName(s)); }); return; }
       else if (e.target.closest('[data-set-share]')) { setFile(s).then(function (b) { share(b, setName(s)); }); return; }
@@ -1316,6 +1516,10 @@
       s._thumb = null; saveProject(); renderGrid(); renderSets(); refreshShowSoon();
     });
     sl.addEventListener('change', function (e) {
+      if (e.target.matches('[data-up]')) {
+        var ul = e.target.closest('[data-set]'); if (ul) addFiles(e.target.files, { setId: ul.getAttribute('data-set'), stage: e.target.getAttribute('data-up') });
+        e.target.value = ''; return;
+      }
       var li = e.target.closest('[data-set]'), k = e.target.getAttribute('data-sf'); if (!li || !k) return;
       var s = setById(li.getAttribute('data-set')); if (!s) return;
       s[k] = e.target.type === 'checkbox' ? e.target.checked : e.target.value;
@@ -1376,14 +1580,25 @@
     $('musicFile').addEventListener('change', function () {
       var f = this.files[0]; this.value = ''; if (!f) return;
       if (music) delBlob(music.blobId);
-      var id = 'm' + YB.uid(); blobs[id] = f; putBlob(id, f); music = { blobId: id, name: f.name };
-      saveProject(); renderSlides(); renderFacts();
+      var id = 'm' + YB.uid(); blobs[id] = f; putBlob(id, f); music = { blobId: id, name: f.name }; S.musicStart = null; saveSettings();
+      if (pv.music) { pv.music.pause(); pv.music.dataset.id = ''; }
+      saveProject(); renderSlides(); renderFacts(); analyseMusic();
+      YB.toast('Finding the beat…');
     });
-    $('musicDel').addEventListener('click', function () { if (!music) return; delBlob(music.blobId); music = null; if (pv.music) pv.music.pause(); saveProject(); renderSlides(); renderFacts(); });
+    $('musicDel').addEventListener('click', function () { if (!music) return; delBlob(music.blobId); music = null; if (pv.music) { pv.music.pause(); pv.music.dataset.id = ''; } saveProject(); renderSlides(); renderFacts(); drawPreview(); });
     $('exportBtn').addEventListener('click', exportVideo);
+    $('fxSel').innerHTML = FX.map(function (f) { return '<option value="' + f[0] + '">' + f[1] + '</option>'; }).join('');
+    $('fxSel').addEventListener('change', function () { S.fx = this.value; saveSettings(); stop(); var tl = segments(), g = tl.segs[1] || tl.segs[0]; if (g) { pv.t = Math.max(0, g.start - 0.2); play(); setTimeout(function () { if (pv.playing) stop(); }, 2600); } });
+    $('musicVol').addEventListener('input', function () { S.musicVol = +this.value; $('musicVolVal').textContent = this.value + '%'; if (pv.music) pv.music.volume = S.musicVol / 100; saveSettings(); });
+    $('musicStart').addEventListener('input', function () { S.musicStart = +this.value; $('musicStartVal').textContent = mmss(S.musicStart); saveSettings(); });
+    $('musicStart').addEventListener('change', function () { renderFacts(); if (pv.playing) { stop(); play(); } else drawPreview(); });
+    $('musicStartReset').addEventListener('click', function () { S.musicStart = null; saveSettings(); renderMusic(); renderFacts(); drawPreview(); });
+    $('beatSync').addEventListener('change', function () { S.beatSync = this.checked; saveSettings(); renderFacts(); drawPreview(); });
     $('cancelBtn').addEventListener('click', function () { if (rec) rec.cancelled = true; });
     $('shareVideoBtn').addEventListener('click', function () { if (lastVideoBlob) share(lastVideoBlob, $('downloadBtn').download); });
     $('zipBtn').addEventListener('click', downloadAll);
+    $('fullBtn').addEventListener('click', openFull);
+    $('fullVideoBtn').addEventListener('click', function () { var v = $('resultVideo'); if (!v.src || !window.YB.full) return; YB.full.open({ stage: v }); v.play().catch(function () {}); });
     $('saveAllBtn').addEventListener('click', saveAllPhotos);
     window.addEventListener('resize', YB.debounce(function () { sizeEditor(); drawEditor(); sizePreview(); drawPreview(); }, 150));
     wireEditorPointer(); wirePreviewPointer();
@@ -1403,16 +1618,19 @@
   /* ---------- Start ---------- */
   function restore() {
     return kv('readonly', function (st, out) { var r = st.get('project'); r.onsuccess = function () { out.v = r.result; }; }).then(function (data) {
-      if (!data) return;
+      if (!data) { if (!S.naturalDefault) { S.naturalDefault = true; saveSettings(); } return; }
       var ids = (data.photos || []).map(function (p) { return p.blobId; });
       if (data.music) ids.push(data.music.blobId);
       if (data.logo) ids.push(data.logo.blobId);
       return Promise.all(ids.map(function (id) { return getBlob(id).then(function (b) { if (b) blobs[id] = b; }); })).then(function () {
         photos = (data.photos || []).filter(function (p) { return blobs[p.blobId]; });
+        // one time: photos that only had the old automatic look (Pro clean + auto-fix, never changed) go back to natural
+        if (!S.naturalDefault) { photos.forEach(function (p) { if (p.look === 'clean' && p.auto === true && !Object.keys(p.adj || {}).length) { p.look = 'natural'; p.auto = false; } }); S.naturalDefault = true; saveSettings(); unsaved = true; saveSoon(); }
         photos.forEach(function (p) { p.f = Object.assign(defaultFrame(), p.f); p.adj = p.adj || {}; if (p.label === 'Before' || p.label === 'After') { p.stage = p.label.toLowerCase(); p.label = ''; } p.stage = p.stage || ''; });
-        sets = (data.sets || []).map(function (s) { s.ids = s.ids.filter(photoById); return s; }).filter(function (s) { return s.ids.length >= 2; });
+        sets = (data.sets || []).map(function (s) { s.ids = s.ids.filter(photoById); return s; });
         slides = data.slides || [];
         music = data.music && blobs[data.music.blobId] ? data.music : null;
+        if (music) setTimeout(analyseMusic, 0);
         cur = photos.length ? photos[0].id : '';
         var lp = data.logo && blobs[data.logo.blobId] ? loadImg(blobs[data.logo.blobId]).then(function (im) { logo = { blobId: data.logo.blobId, _img: im }; }, function () {}) : Promise.resolve();
         return Promise.all([lp].concat(photos.map(function (p) { return ensureImg(p).catch(function () {}); })));
@@ -1420,6 +1638,7 @@
     });
   }
   window.YBShowcase = {   // used by tests
+    music: function () { return music ? { bpm: music.bpm, first: music.first, start: songStart(), synced: synced() } : null; },
     state: function () { return { S: S, photos: photos.map(clean), sets: sets.map(clean), slides: slides.map(clean), cur: cur, total: segments().total }; },
     segments: function () { return segments().segs.map(function (g) { return { key: g.key, start: g.start, dur: g.dur, trans: transFor(g) }; }); },
     frame: function (t) { var c = $('preview'); stop(); pv.t = t; drawPreview(); return c.toDataURL('image/jpeg', 0.8); },

@@ -354,10 +354,19 @@
     if (d.W >= d.H) s = Math.min(640 / d.W, 360 / d.H);
     return { w: Math.round(d.W * s), h: Math.round(d.H * s), s: s };
   }
+  var fullBox = null;   // set while the preview is full screen
   function sizePreview() {
-    var c = $('preview'), ps = previewSize(), dpr = Math.min(2, window.devicePixelRatio || 1);
-    c.width = Math.round(ps.w * dpr); c.height = Math.round(ps.h * dpr);
-    c.style.width = ps.w + 'px'; c.style.aspectRatio = ps.w + ' / ' + ps.h;
+    var c = $('preview'), ps = previewSize(), dpr = Math.min(2, window.devicePixelRatio || 1), d = dims();
+    if (fullBox) { var k = Math.min(fullBox.w / d.W, fullBox.h / d.H); ps = { w: Math.floor(d.W * k), h: Math.floor(d.H * k) }; }
+    c.width = Math.min(d.W, Math.round(ps.w * dpr)); c.height = Math.round(c.width * d.H / d.W);
+    c.style.width = ps.w + 'px'; c.style.height = fullBox ? ps.h + 'px' : ''; c.style.aspectRatio = ps.w + ' / ' + ps.h;
+  }
+  function openFull() {
+    if (!window.YB.full || !clips.length) return;
+    YB.full.open({ stage: $('preview'), bar: document.querySelector('#exportCard .cx-transport'),
+      fit: function (w, h) { fullBox = { w: w, h: h }; sizePreview(); drawPreview(); },
+      onClose: function () { fullBox = null; sizePreview(); drawPreview(); } });
+    if (!pv.playing) startPreview();
   }
   function drawPreview() {
     var c = $('preview'); if (!c) return;
@@ -1138,6 +1147,8 @@
       if (at - c.in < 0.1) return; stopPreview(); c.out = at; saveProject(); renderAll(); seekTo(pv.t);
     });
     $('exportBtn').addEventListener('click', exportVideo);
+    $('fullBtn').addEventListener('click', openFull);
+    $('fullVideoBtn').addEventListener('click', function () { var v = $('resultVideo'); if (!v.src || !window.YB.full) return; YB.full.open({ stage: v }); v.play().catch(function () {}); });
     $('cancelBtn').addEventListener('click', function () { if (rec) rec.cancelled = true; });
     window.addEventListener('resize', YB.debounce(function () { sizePreview(); drawPreview(); }, 150));
     wirePointer();

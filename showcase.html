@@ -15,10 +15,11 @@
   <meta name="mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
   <meta name="apple-mobile-web-app-title" content="YT Blue">
-  <link rel="stylesheet" href="css/style.css?v=34">
+  <link rel="stylesheet" href="css/style.css?v=37">
   <script src="js/core.js" defer></script>
   <script src="js/vendor/mp4-muxer.min.js" defer></script>
-  <script src="js/showcase.js?v=3" defer></script>
+  <script src="js/fullscreen.js?v=1" defer></script>
+  <script src="js/showcase.js?v=7" defer></script>
 </head>
 <body data-page="showcase">
   <header class="topbar">
@@ -78,9 +79,12 @@
             <button class="btn btn-ghost btn-sm" type="button" id="lookAllBtn">🎨 Use this look on every photo</button>
           </div>
           <div class="notice sc-selbar" id="selBar" hidden>
-            <span id="selText">Tap the photos of one client — before and after shots, in order</span>
+            <div class="sc-brush"><span class="muted small">Each tap marks the photo as</span>
+              <div class="sc-ba sc-ba-lg" id="brushSeg" role="group" aria-label="What a tap marks"><button type="button" data-brush="before" class="before">Before</button><button type="button" data-brush="after" class="after">After</button><button type="button" data-brush="keep" class="keep">Keep as is</button></div>
+            </div>
+            <span id="selText">Tap the BEFORE photos of this client</span>
             <span class="row" style="gap:6px">
-              <button class="btn btn-sm" type="button" id="makeSetBtn" disabled>👤 Make this client's set</button>
+              <button class="btn btn-sm" type="button" id="makeSetBtn" disabled>👤 Make this client</button>
               <button class="btn btn-ghost btn-sm" type="button" id="cancelSelBtn">Cancel</button>
             </span>
           </div>
@@ -119,7 +123,7 @@
               <div class="cx-group">
                 <div class="label">Pro look</div>
                 <div class="sc-looks" id="lookList" role="radiogroup" aria-label="Look"></div>
-                <label class="cx-switch" style="margin-top:10px"><input type="checkbox" id="autoFix"> ✨ Auto-fix light &amp; colour <span class="muted small">(removes the yellow shop-light tint)</span></label>
+                <label class="cx-switch" style="margin-top:10px"><input type="checkbox" id="autoFix"> ✨ Auto-fix light &amp; colour <span class="muted small">(off until you turn it on — removes the yellow shop-light tint)</span></label>
               </div>
               <details class="cx-more" id="fineTune">
                 <summary>Fine-tune</summary>
@@ -138,7 +142,8 @@
         <!-- ===== 3 · Sets ===== -->
         <section class="card" aria-labelledby="setTitle" id="setCard" hidden>
           <h2 id="setTitle"><span class="cx-num">3</span>Before &amp; after per client</h2>
-          <p class="muted small" style="margin:0 0 10px">Tap <b>Before</b> or <b>After</b> under each photo — it's written on the picture. Then, in <b>1 · Photos</b>, tap <b>👤 Group a client's photos</b>, tap that client's shots and <b>👤 Make this client's set</b>. Each client becomes one before | after collage and one part of the slideshow. Front / side / back angles can be added too.</p>
+          <p class="muted small" style="margin:0 0 10px">Each client has a <b>Before</b> and an <b>After</b> side — add as many photos to each as you like: <b>📷 Upload</b> new ones straight in, <b>＋ Pick from photos</b> you already added, or drop files on a side. <b>⇄</b> moves a photo to the other side. Each client becomes one before | after collage and one part of the slideshow.</p>
+          <button class="btn btn-sm" type="button" id="newClientBtn" style="margin-bottom:12px">＋ New client</button>
           <ul class="sc-sets" id="setList"></ul>
         </section>
 
@@ -186,11 +191,13 @@
           <button type="button" class="play-btn" id="playBtn" aria-label="Play slideshow" aria-pressed="false"><svg class="pi-play" viewBox="0 0 24 24" aria-hidden="true"><path d="M8 5.5v13a1 1 0 0 0 1.5.86l10.2-6.5a1 1 0 0 0 0-1.72L9.5 4.64A1 1 0 0 0 8 5.5z"/></svg><svg class="pi-pause" viewBox="0 0 24 24" aria-hidden="true"><rect x="6.5" y="5" width="4" height="14" rx="1.2"/><rect x="13.5" y="5" width="4" height="14" rx="1.2"/></svg></button>
           <input type="range" id="scrub" min="0" max="1000" value="0" aria-label="Position">
           <span class="cx-time" id="timeLabel">0:00 / 0:00</span>
+          <button type="button" class="btn btn-ghost btn-icon btn-sm yb-fullbtn" id="fullBtn" aria-label="Watch full screen" title="Full screen">⛶</button>
         </div>
 
         <div class="fields sc-showopts">
           <label class="field"><span>Transition</span><select id="transSel"></select></label>
           <label class="field"><span>Each photo <b id="durVal"></b></span><input type="range" id="durRange" min="1" max="6" step="0.5"></label>
+          <label class="field" style="grid-column:1/-1"><span>✨ Effects</span><select id="fxSel"></select></label>
         </div>
         <div class="row sc-toggles">
           <label class="cx-switch"><input type="checkbox" id="kenBurns"> Slow zoom</label>
@@ -224,6 +231,13 @@
             <span class="muted small" id="musicName">No music</span>
             <button class="btn btn-ghost btn-sm" type="button" id="musicDel" hidden>✕</button>
           </div>
+          <div class="sc-music" id="musicOpts" hidden>
+            <label class="cx-switch"><input type="checkbox" id="beatSync" checked> 🥁 Cut on the beat <span class="muted small" id="bpmVal"></span></label>
+            <div class="fields sc-showopts" style="margin-top:8px">
+              <label class="field"><span>Music volume <b id="musicVolVal"></b></span><input type="range" id="musicVol" min="0" max="100" step="1"></label>
+              <label class="field"><span>Song starts at <b id="musicStartVal"></b> <button type="button" class="sc-x" id="musicStartReset" title="Start on the first beat" aria-label="Start on the first beat">↺</button></span><input type="range" id="musicStart" min="0" max="60" step="0.5"></label>
+            </div>
+          </div>
         </div>
 
         <div class="cx-facts" id="facts"></div>
@@ -236,7 +250,7 @@
           <video id="resultVideo" controls playsinline loop></video>
           <div class="row between">
             <span class="muted small" id="resultInfo"></span>
-            <span class="row" style="gap:6px"><button class="btn btn-ghost btn-sm" type="button" id="shareVideoBtn" hidden>📤 Share</button><a class="btn btn-sm" id="downloadBtn" href="#" download>⬇ Video</a></span>
+            <span class="row" style="gap:6px"><button class="btn btn-ghost btn-sm" type="button" id="fullVideoBtn">⛶ Full screen</button><button class="btn btn-ghost btn-sm" type="button" id="shareVideoBtn" hidden>📤 Share</button><a class="btn btn-sm" id="downloadBtn" href="#" download>⬇ Video</a></span>
           </div>
         </div>
         <button class="btn" type="button" id="saveAllBtn" style="width:100%;margin-top:10px">💾 Save all edited photos</button>
