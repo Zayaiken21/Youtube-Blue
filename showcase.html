@@ -15,12 +15,12 @@
   <meta name="mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
   <meta name="apple-mobile-web-app-title" content="YT Blue">
-  <link rel="stylesheet" href="css/style.css?v=39">
+  <link rel="stylesheet" href="css/style.css?v=40">
   <script src="js/core.js" defer></script>
   <script src="js/vendor/mp4-muxer.min.js" defer></script>
   <script src="js/fullscreen.js?v=1" defer></script>
   <script src="js/showcase-fx.js?v=4" defer></script>
-  <script src="js/showcase.js?v=13" defer></script>
+  <script src="js/showcase.js?v=14" defer></script>
 </head>
 <body data-page="showcase">
   <header class="topbar">
@@ -59,6 +59,31 @@
 
     <div class="cx-layout">
       <div class="stack" style="min-width:0">
+        <!-- ===== Projects: one per client, saved on this device ===== -->
+        <section class="card sc-projcard" aria-labelledby="projTitle">
+          <div class="sc-projhead">
+            <div><h2 id="projTitle">📁 Project: <span id="projName">New project</span></h2>
+              <p class="muted small" id="projSaved">Saves by itself as you work</p></div>
+            <div class="row sc-projbtns">
+              <button class="btn" type="button" id="projNew">➕ New project</button>
+              <button class="btn btn-ghost" type="button" id="projRename">✏️ Rename</button>
+              <button class="btn btn-ghost" type="button" id="projDelete">🗑 Delete</button>
+            </div>
+          </div>
+          <p class="muted small">Make one project per client (or per day). Everything — photos, before &amp; after, effects, text and music — saves on this device by itself, so you can leave one and come back to it later. Tap a project to open it.</p>
+          <div class="sc-projlist" id="projList"></div>
+          <details class="sc-bk">
+            <summary>💾 Backup &amp; move to another phone or computer</summary>
+            <p class="muted small">Make a backup file and keep it in iCloud Drive, Google Drive, Files or your email. On any device, open this page and tap <b>Open backup file</b> to get your projects back.</p>
+            <div class="row">
+              <button class="btn" type="button" id="bkBtn">⬇ Back up this project</button>
+              <button class="btn" type="button" id="bkAllBtn">⬇ Back up all projects</button>
+              <label class="btn btn-ghost">⬆ Open backup file<input type="file" id="bkFile" accept=".json,application/json" hidden></label>
+            </div>
+            <p class="small" id="projNote" aria-live="polite"></p>
+          </details>
+        </section>
+
         <!-- ===== 1 · Photos ===== -->
         <section class="card" aria-labelledby="phTitle">
           <h2 id="phTitle"><span class="cx-num">1</span>Photos <span class="muted small" id="photoCount"></span></h2>

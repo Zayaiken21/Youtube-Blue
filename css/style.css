@@ -1308,3 +1308,20 @@ input[type="range"] { min-height: 32px; }            /* finger-friendly */
 .sc-big .sc-fxtile { font-size: 1rem; }
 .sc-big .sc-ba button { min-height: 48px; font-size: 1rem; }
 #fxSurprise, #fxCopyAll, #fxClear { white-space: normal; max-width: 100%; text-align: center; }
+
+/* ---- Photo Showcase projects ---- */
+.sc-projhead{display:flex;flex-wrap:wrap;gap:.6rem 1rem;align-items:flex-start;justify-content:space-between}
+.sc-projhead h2{margin:0;overflow-wrap:anywhere}
+.sc-projhead p{margin:.2rem 0 0}
+.sc-projbtns{flex-wrap:wrap;gap:.5rem}
+.sc-projlist{display:grid;grid-template-columns:repeat(auto-fill,minmax(130px,1fr));gap:.6rem;margin:.6rem 0}
+.sc-projlist:empty{display:none}
+.sc-proj{display:flex;flex-direction:column;gap:.2rem;align-items:stretch;text-align:left;padding:.45rem;border-radius:12px;border:2px solid rgba(255,255,255,.12);background:rgba(255,255,255,.04);color:inherit;font:inherit;cursor:pointer;min-width:0}
+.sc-proj:hover{border-color:rgba(96,165,250,.6)}
+.sc-proj.on{border-color:#3b82f6;background:rgba(59,130,246,.14)}
+.sc-proj img,.sc-proj-ph{width:100%;aspect-ratio:4/5;object-fit:cover;border-radius:8px;background:rgba(255,255,255,.06);display:grid;place-items:center;font-size:2rem}
+.sc-proj b{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.sc-bk summary{cursor:pointer;font-weight:600;padding:.4rem 0}
+.sc-bk .row{flex-wrap:wrap;gap:.5rem}
+.sc-big .sc-proj b{font-size:1.15em}
+.sc-big .sc-projlist{grid-template-columns:repeat(auto-fill,minmax(160px,1fr))}

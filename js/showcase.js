@@ -105,11 +105,27 @@
   document.addEventListener('visibilitychange', function () { if (document.hidden && unsaved) saveNow(); });
   window.addEventListener('pagehide', function () { if (unsaved) saveNow(); });
   function clean(o) { var x = {}; Object.keys(o).forEach(function (k) { if (k.charAt(0) !== '_') x[k] = o[k]; }); return x; }
+  /* ---------- Projects: one per client (or batch), each saved on this device ---------- */
+  // Settings that belong to a project (size, effects, text…). Your brand stays the same for every project.
+  var PKEYS = ['format', 'trans', 'dur', 'kenBurns', 'intro', 'outro', 'fxAll', 'beatSync', 'musicVol', 'musicStart', 'capStyle', 'capPos', 'capAnim', 'capSize',
+    'introTitle', 'introSub', 'outroTitle', 'outroSub', 'plain', 'showStage', 'showAngle', 'showBrand', 'showTitle', 'showText'];
+  var PDEF = { format: 'ig45', trans: 'mix', dur: 2.5, kenBurns: true, intro: true, outro: true, fxAll: [], beatSync: true, musicVol: 85, musicStart: null, capStyle: 'box', capPos: 'bottom', capAnim: 'pop', capSize: 1,
+    introTitle: '', introSub: '', outroTitle: '', outroSub: '', plain: false, showStage: true, showAngle: true, showBrand: true, showTitle: true, showText: true };
+  var pid = YB.store.get('scProject', ''), projects = [], pname = '', savedAt = 0;
+  function projSettings() { var o = {}; PKEYS.forEach(function (k) { o[k] = S[k]; }); return JSON.parse(JSON.stringify(o)); }
+  function projData() { return { photos: photos.map(clean), sets: sets.map(clean), slides: slides.map(clean), music: music ? clean(music) : null, logo: logo ? clean(logo) : null, settings: projSettings() }; }
+  function projThumb() { var p = photos[0]; return p && p._thumb ? p._thumb : ''; }
   function saveNow() {
-    if (!unsaved) return; unsaved = false;
-    var data = { photos: photos.map(clean), sets: sets.map(clean), slides: slides.map(clean), music: music ? clean(music) : null, logo: logo ? clean(logo) : null };
-    kv('readwrite', function (st) { st.put(data, 'project'); });
+    if (!unsaved) return Promise.resolve(); unsaved = false;
+    if (!pid) { pid = 'pr' + YB.uid(); YB.store.set('scProject', pid); }
+    var data = projData(), me = projects.find(function (q) { return q.id === pid; });
+    if (!me && !photos.length && !music) return Promise.resolve();   // don't keep an empty, untouched project
+    if (!me) { me = { id: pid, name: pname || defaultName() }; projects.unshift(me); }
+    me.name = pname || me.name; me.updated = Date.now(); me.photos = photos.length; me.clients = sets.length; me.thumb = projThumb() || me.thumb || '';
+    savedAt = Date.now(); renderSaved();
+    return kv('readwrite', function (st) { st.put(data, 'project:' + pid); st.put(projects.map(function (q) { return Object.assign({}, q); }), 'projects'); });
   }
+  function defaultName() { var d = new Date(); return 'Photos · ' + d.toLocaleDateString(undefined, { month: 'short', day: 'numeric' }); }
 
   /* ---------- Images ---------- */
   function loadImg(blob) {
@@ -789,7 +805,7 @@
       var sm = document.querySelectorAll('[data-sthumb="' + p.id + '"]'); sm.forEach(function (e) { e.src = p._thumb; });
     }).catch(function () {}).then(function () {
       thumbBusy = false;
-      if (thumbQueue.length) setTimeout(runThumbs, 0); else { renderSets(); renderSlides(); renderFx(); }
+      if (thumbQueue.length) setTimeout(runThumbs, 0); else { renderSets(); renderSlides(); renderFx(); renderProjects(); }
     });
   }
 
@@ -1116,7 +1132,7 @@
     $('logoPrev').hidden = $('logoDel').hidden = !logo;
     if (logo && logo._img) $('logoPrev').src = logo._img.src;
   }
-  function renderAll() { renderFx(); renderFormats(); renderGrid(); renderEditor(); renderSets(); renderSlides(); renderBrand(); renderSteps(); renderFacts(); sizePreview(); if (!pv.playing) drawPreview(); }
+  function renderAll() { renderProjects(); renderFx(); renderFormats(); renderGrid(); renderEditor(); renderSets(); renderSlides(); renderBrand(); renderSteps(); renderFacts(); sizePreview(); if (!pv.playing) drawPreview(); }
 
   /* ---------- Effects card (big, simple, for anyone) ---------- */
   var fxTarget = 'all', fxCat = 'popular', fxLoop = { raf: 0, on: false, t0: 0, last: 0 }, tileBase = null, tileBaseKey = '';
@@ -1703,6 +1719,13 @@
     $('musicDel').addEventListener('click', function () { if (!music) return; delBlob(music.blobId); music = null; if (pv.music) { pv.music.pause(); pv.music.dataset.id = ''; } saveProject(); renderSlides(); renderFacts(); drawPreview(); });
     $('exportBtn').addEventListener('click', exportVideo);
     wireFx();
+    $('projList').addEventListener('click', function (e) { var b = e.target.closest('[data-proj]'); if (b) openProject(b.getAttribute('data-proj')); });
+    $('projNew').addEventListener('click', newProject);
+    $('projRename').addEventListener('click', renameProject);
+    $('projDelete').addEventListener('click', deleteProject);
+    $('bkBtn').addEventListener('click', function () { backup(false); });
+    $('bkAllBtn').addEventListener('click', function () { backup(true); });
+    $('bkFile').addEventListener('change', function () { restoreBackup(this.files[0]); this.value = ''; });
     var bigBtn = $('bigBtn');
     function applyBig() { document.documentElement.classList.toggle('sc-big', !!S.big); bigBtn.setAttribute('aria-pressed', !!S.big); bigBtn.textContent = S.big ? '🔍 Normal size' : '🔍 Bigger text & buttons'; }
     bigBtn.addEventListener('click', function () { S.big = !S.big; saveSettings(); applyBig(); setTimeout(function () { sizeEditor(); drawEditor(); sizePreview(); drawPreview(); }, 50); });
@@ -1734,8 +1757,31 @@
   }
 
   /* ---------- Start ---------- */
+  function kvGet(key) { return kv('readonly', function (st, out) { var r = st.get(key); r.onsuccess = function () { out.v = r.result; }; }); }
   function restore() {
-    return kv('readonly', function (st, out) { var r = st.get('project'); r.onsuccess = function () { out.v = r.result; }; }).then(function (data) {
+    return kvGet('projects').then(function (list) {
+      projects = Array.isArray(list) ? list : [];
+      if (!projects.length) {   // first time with projects: the work already on this device becomes the first project
+        return kvGet('project').then(function (old) {
+          pid = pid || 'pr' + YB.uid(); YB.store.set('scProject', pid);
+          if (!old) return null;
+          projects = [{ id: pid, name: 'My photos', updated: Date.now(), photos: (old.photos || []).length, clients: (old.sets || []).length }];
+          return kv('readwrite', function (st) { st.put(old, 'project:' + pid); st.put(projects, 'projects'); }).then(function () { return old; });
+        });
+      }
+      if (!projects.some(function (q) { return q.id === pid; })) { pid = projects.slice().sort(function (a, b) { return (b.updated || 0) - (a.updated || 0); })[0].id; YB.store.set('scProject', pid); }
+      return kvGet('project:' + pid);
+    }).then(function (data) {
+      var me = projects.find(function (q) { return q.id === pid; }); pname = me ? me.name : ''; savedAt = me ? me.updated : 0;
+      return loadData(data);
+    });
+  }
+  function loadData(data) {
+    photos = []; sets = []; slides = []; music = null; cur = ''; picked = []; selecting = false; target = ''; stills = {};
+    if (pv.music) { pv.music.pause(); pv.music.dataset.id = ''; }
+    if (data && data.settings) PKEYS.forEach(function (k) { if (k in data.settings) S[k] = data.settings[k]; });
+    saveSettings();
+    return Promise.resolve().then(function () {
       if (!data) { if (!S.naturalDefault) { S.naturalDefault = true; saveSettings(); } return; }
       var ids = (data.photos || []).map(function (p) { return p.blobId; });
       if (data.music) ids.push(data.music.blobId);
@@ -1755,8 +1801,130 @@
       });
     });
   }
+  // Open another project: this one is saved first, so nothing is ever lost.
+  function openProject(id, noSave) {
+    if (id === pid || rec) return Promise.resolve();
+    stop(); unsaved = !noSave;
+    return (noSave ? Promise.resolve() : saveNow()).then(function () {
+      pid = id; YB.store.set('scProject', pid);
+      var me = projects.find(function (q) { return q.id === id; }); pname = me ? me.name : ''; savedAt = me ? me.updated : 0;
+      return kvGet('project:' + id);
+    }).then(loadData).then(function () { pv.t = 0; lastVideo = null; $('result').hidden = true; renderAll(); thumbsSoon(); renderProjects(); YB.toast('Opened "' + pname + '"'); window.scrollTo({ top: 0, behavior: 'smooth' }); });
+  }
+  function newProject() {
+    var name = prompt('Name for the new project (for example the client\'s name):', defaultName()); if (name === null) return;
+    stop(); unsaved = true;
+    saveNow().then(function () {
+      var keep = { format: S.format };   // the same size as before; everything else starts fresh
+      pid = 'pr' + YB.uid(); YB.store.set('scProject', pid); pname = String(name).trim() || defaultName();
+      PKEYS.forEach(function (k) { S[k] = JSON.parse(JSON.stringify(PDEF[k])); }); S.format = keep.format;
+      var lg = logo;
+      return loadData(null).then(function () { logo = lg; projects.unshift({ id: pid, name: pname, updated: Date.now(), photos: 0, clients: 0 }); unsaved = true; return saveNow(); });
+    }).then(function () { lastVideo = null; $('result').hidden = true; renderAll(); renderProjects(); YB.toast('New project "' + pname + '" — add its photos'); window.scrollTo({ top: 0, behavior: 'smooth' }); });
+  }
+  function renameProject() {
+    var name = prompt('New name for this project:', pname); if (!name || !name.trim()) return;
+    pname = name.trim(); unsaved = true; saveNow(); renderProjects();
+  }
+  function deleteProject() {
+    if (!confirm('Delete "' + pname + '" and its photos from this device? Other projects are not touched.')) return;
+    var gone = pid, mine = [];
+    kvGet('project:' + gone).then(function (d) {
+      if (d) { (d.photos || []).forEach(function (p) { mine.push(p.blobId); }); if (d.music) mine.push(d.music.blobId); }
+      // keep any picture another project still uses
+      return Promise.all(projects.filter(function (q) { return q.id !== gone; }).map(function (q) { return kvGet('project:' + q.id); }));
+    }).then(function (others) {
+      var used = {}; others.forEach(function (d) { if (!d) return; (d.photos || []).forEach(function (p) { used[p.blobId] = 1; }); if (d.music) used[d.music.blobId] = 1; if (d.logo) used[d.logo.blobId] = 1; });
+      if (logo) used[logo.blobId] = 1;
+      mine.filter(function (b) { return !used[b]; }).forEach(function (b) { delBlob(b); delete blobs[b]; delete imgs[b]; });
+      projects = projects.filter(function (q) { return q.id !== gone; });
+      return kv('readwrite', function (st) { st.delete('project:' + gone); st.put(projects, 'projects'); });
+    }).then(function () {
+      if (projects.length) { unsaved = false; var next = projects.slice().sort(function (a, b) { return (b.updated || 0) - (a.updated || 0); })[0].id; pid = ''; return openProject(next, true); }
+      pid = ''; YB.store.remove('scProject'); pname = ''; return loadData(null).then(function () { renderAll(); renderProjects(); });
+    }).then(function () { YB.toast('Project deleted'); });
+  }
+
+  /* ---------- Backup file (keeps everything; open it on this or another device) ---------- */
+  function blobToData(b) { return new Promise(function (res) { var r = new FileReader(); r.onload = function () { res(r.result); }; r.onerror = function () { res(null); }; r.readAsDataURL(b); }); }
+  function dataToBlob(u) { var m = /^data:([^;,]+)?(;base64)?,(.*)$/.exec(u || ''); if (!m) return null; var bin = atob(m[3]), a = new Uint8Array(bin.length); for (var i = 0; i < bin.length; i++) a[i] = bin.charCodeAt(i); return new Blob([a], { type: m[1] || 'application/octet-stream' }); }
+  function backup(all) {
+    unsaved = true;
+    var btn = all ? $('bkAllBtn') : $('bkBtn'); btn.disabled = true; $('projNote').textContent = 'Making the backup file…';
+    saveNow().then(function () {
+      var list = all ? projects : projects.filter(function (q) { return q.id === pid; });
+      return Promise.all(list.map(function (q) { return kvGet('project:' + q.id).then(function (d) { return { id: q.id, name: q.name, updated: q.updated, thumb: q.thumb || '', data: d }; }); }));
+    }).then(function (items) {
+      var ids = {}; items.forEach(function (it) { var d = it.data || {}; (d.photos || []).forEach(function (p) { ids[p.blobId] = 1; }); if (d.music) ids[d.music.blobId] = 1; if (d.logo) ids[d.logo.blobId] = 1; });
+      var out = {}, keys = Object.keys(ids), i = 0;
+      function next() {
+        if (i >= keys.length) return Promise.resolve();
+        var k = keys[i++]; $('projNote').textContent = 'Adding photo ' + i + ' of ' + keys.length + '…';
+        return (blobs[k] ? Promise.resolve(blobs[k]) : getBlob(k)).then(function (b) { return b ? blobToData(b) : null; }).then(function (u) { if (u) out[k] = u; }).then(next);
+      }
+      return next().then(function () {
+        var brand = {}; ['shop', 'handle', 'book', 'color', 'wmPos', 'wmStyle'].forEach(function (k) { brand[k] = S[k]; });
+        var file = { app: 'youtube-blue-photo-showcase', version: 1, made: new Date().toISOString(), brand: brand, projects: items, files: out };
+        var name = 'showcase-backup-' + (all ? 'all-projects' : slug(pname) || 'project') + '-' + new Date().toISOString().slice(0, 10) + '.json';
+        var blob = new Blob([JSON.stringify(file)], { type: 'application/json' });
+        savePhoto(blob, name);
+        $('projNote').textContent = 'Backup made: ' + items.length + ' project' + (items.length === 1 ? '' : 's') + ', ' + keys.length + ' files, ' + (blob.size / 1048576).toFixed(1) + ' MB. Keep it in iCloud Drive, Google Drive, Files or email it to yourself.';
+      });
+    }).catch(function (e) { console.error(e); YB.toast('The backup couldn\'t be made'); $('projNote').textContent = ''; }).then(function () { btn.disabled = false; });
+  }
+  function restoreBackup(file) {
+    if (!file) return;
+    $('projNote').textContent = 'Reading the backup…';
+    file.text().then(function (txt) {
+      var bk = JSON.parse(txt);
+      if (!bk || bk.app !== 'youtube-blue-photo-showcase' || !Array.isArray(bk.projects)) throw new Error('not a Photo Showcase backup');
+      var keys = Object.keys(bk.files || {}), i = 0;
+      function next() {
+        if (i >= keys.length) return Promise.resolve();
+        var k = keys[i++]; $('projNote').textContent = 'Putting back file ' + i + ' of ' + keys.length + '…';
+        return getBlob(k).then(function (have) { if (have) return; var b = dataToBlob(bk.files[k]); if (b) return putBlob(k, b); }).then(next);
+      }
+      return next().then(function () {
+        var added = [];
+        bk.projects.forEach(function (it) {
+          var id = it.id, name = it.name || 'Restored project';
+          if (projects.some(function (q) { return q.id === id; })) { id = 'pr' + YB.uid(); name += ' (restored)'; }   // never overwrite work on this device
+          var d = it.data || {};
+          projects.push({ id: id, name: name, updated: it.updated || Date.now(), thumb: it.thumb || '', photos: (d.photos || []).length, clients: (d.sets || []).length });
+          added.push({ id: id, data: d });
+        });
+        if (bk.brand && !S.shop && !S.handle) { Object.keys(bk.brand).forEach(function (k) { S[k] = bk.brand[k]; }); saveSettings(); }
+        return kv('readwrite', function (st) { added.forEach(function (a) { st.put(a.data, 'project:' + a.id); }); st.put(projects, 'projects'); }).then(function () { return added; });
+      });
+    }).then(function (added) {
+      $('projNote').textContent = 'Restored ' + added.length + ' project' + (added.length === 1 ? '' : 's') + '. Tap one below to open it.';
+      renderProjects(); YB.toast('Backup restored');
+    }).catch(function (e) { console.error(e); $('projNote').textContent = 'That file isn\'t a Photo Showcase backup.'; YB.toast('Couldn\'t open that backup'); });
+  }
+  function ago(t) {
+    if (!t) return ''; var s2 = Math.round((Date.now() - t) / 1000);
+    if (s2 < 10) return 'just now'; if (s2 < 60) return s2 + ' s ago'; if (s2 < 3600) return Math.round(s2 / 60) + ' min ago'; if (s2 < 86400) return Math.round(s2 / 3600) + ' h ago';
+    return new Date(t).toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
+  }
+  function renderSaved() { var e = $('projSaved'); if (e) e.textContent = savedAt ? '✓ Saved on this device · ' + ago(savedAt) : 'Saves by itself as you work'; }
+  function renderProjects() {
+    var box = $('projList'); if (!box) return;
+    var me = projects.find(function (q) { return q.id === pid; }); if (me && photos.length) { me.photos = photos.length; me.clients = sets.length; me.thumb = projThumb() || me.thumb; }
+    $('projName').textContent = pname || 'New project';
+    renderSaved();
+    var list = projects.slice().sort(function (a, b) { return (b.updated || 0) - (a.updated || 0); });
+    box.innerHTML = list.map(function (q) {
+      var on = q.id === pid;
+      return '<button type="button" class="sc-proj' + (on ? ' on' : '') + '" data-proj="' + q.id + '" aria-pressed="' + on + '">' +
+        (q.thumb ? '<img src="' + q.thumb + '" alt="">' : '<span class="sc-proj-ph">📁</span>') +
+        '<b>' + YB.esc(q.name || 'Project') + '</b><span class="muted small">' + (q.photos || 0) + ' photo' + (q.photos === 1 ? '' : 's') + (q.clients ? ' · ' + q.clients + ' client' + (q.clients === 1 ? '' : 's') : '') + '</span>' +
+        '<span class="muted small">' + (on ? 'Open now' : ago(q.updated)) + '</span></button>';
+    }).join('');
+  }
+  setInterval(renderSaved, 30000);
   window.YBShowcase = {   // used by tests
     music: function () { return music ? { bpm: music.bpm, first: music.first, start: songStart(), synced: synced() } : null; },
+    projects: function () { return { pid: pid, name: pname, list: projects.map(function (q) { return { id: q.id, name: q.name, photos: q.photos, clients: q.clients }; }) }; },
     state: function () { return { S: S, photos: photos.map(clean), sets: sets.map(clean), slides: slides.map(clean), cur: cur, total: segments().total }; },
     segments: function () { return segments().segs.map(function (g) { return { key: g.key, start: g.start, dur: g.dur, trans: transFor(g) }; }); },
     frame: function (t) { var c = $('preview'); stop(); pv.t = t; drawPreview(); return c.toDataURL('image/jpeg', 0.8); },
