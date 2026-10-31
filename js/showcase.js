@@ -303,7 +303,8 @@
   function brandText() { return [S.handle, S.shop].filter(Boolean)[0] || ''; }
   function rr(x, X, Y, w, h, r) { r = Math.min(r, w / 2, h / 2); x.beginPath(); x.moveTo(X + r, Y); x.arcTo(X + w, Y, X + w, Y + h, r); x.arcTo(X + w, Y + h, X, Y + h, r); x.arcTo(X, Y + h, X, Y, r); x.arcTo(X, Y, X + w, Y, r); x.closePath(); }
   var FONT = '"Arial Black", "Segoe UI Black", system-ui, -apple-system, sans-serif', FONT2 = 'system-ui, -apple-system, "Segoe UI", Roboto, Arial, sans-serif';
-  function drawBrand(x, W, H) {
+  function drawBrand(x, W, H, ins) {
+    ins = ins || { l: 0, r: 0, t: 0, b: 0 };
     var txt = brandText(), lim = logo && logo._img && logo._img.naturalWidth ? logo._img : null;
     if (!show('showBrand') || S.wmPos === 'off' || (!txt && !lim)) return;
     var base = Math.min(W, H), fs = Math.round(base * 0.034), pad = Math.round(base * 0.035), lh = lim ? Math.round(fs * 1.9) : 0;
@@ -321,7 +322,7 @@
       x.fillStyle = S.color; x.fillRect(W / 2 - base * 0.06, H - pad * 0.45, base * 0.12, Math.max(2, base * 0.004));
       x.restore(); return;
     }
-    var pos = S.wmPos, X = pos.charAt(1) === 'r' ? W - pad - bw : pos.charAt(1) === 'l' ? pad : (W - bw) / 2, Y = pos.charAt(0) === 't' ? pad : H - pad - bh;
+    var pos = S.wmPos, X = pos.charAt(1) === 'r' ? W - pad - bw - ins.r : pos.charAt(1) === 'l' ? pad + ins.l : (W - bw) / 2, Y = pos.charAt(0) === 't' ? pad + ins.t : H - pad - bh - ins.b;
     if (S.wmStyle === 'tag') {
       x.shadowColor = 'rgba(0,0,0,.4)'; x.shadowBlur = fs * 0.6;
       x.fillStyle = 'rgba(10,10,14,0.72)'; rr(x, X, Y, bw, bh, bh / 2); x.fill(); x.shadowBlur = 0;
@@ -520,8 +521,7 @@
     var k = g.key + '|' + W + 'x' + H + '|' + (g.photo ? verOf(g.photo) : g.set ? verOfSet(g.set) : brandVer());
     if (stills[k]) return stills[k];
     var c = g.card ? renderCard(g.card, W, H) : g.set ? renderSet(g.set, W, H) : renderPhoto(g.photo, W, H);
-    var lab = g.photo ? tagText(g.photo, g.angle === true) : '';
-    if (lab) labelChip(c.getContext('2d'), W, H, g.photo, lab);
+
     stills[k] = c; return c;
   }
   // BEFORE is a dark tag, AFTER is a tag in your brand colour — easy to tell apart at a glance.
@@ -535,7 +535,7 @@
     x.fillStyle = '#fff'; x.textBaseline = 'middle'; x.fillText(lab, lx + fs * 0.65, ly + fs * 0.93);
     x.restore();
   }
-  function labelChip(x, W, H, p, lab) { var base = Math.min(W, H); tag(x, base * 0.04, base * 0.04, Math.round(base * 0.045), p, lab); }
+  function labelChip(x, W, H, p, lab, ins) { var base = Math.min(W, H); ins = ins || { l: 0, t: 0 }; tag(x, base * 0.035 + ins.l, base * 0.035 + ins.t, Math.round(base * 0.045), p, lab); }
   function verOf(p) { return JSON.stringify([p.f, p.look, p.adj, p.auto, p.stage, p.label, S.plain, S.showStage, S.showAngle, S.color]); }
   function verOfSet(s) { return JSON.stringify([s.layout, s.labels, s.title, S.showTitle, s.ids.map(function (id) { var p = photoById(id); return p ? verOf(p) + p.label : ''; }), S.color]); }
   function brandVer() { return JSON.stringify([S.shop, S.handle, S.book, S.color, logo && logo.blobId, S.introTitle, S.introSub, S.outroTitle, S.outroSub]); }
@@ -589,7 +589,10 @@
       }
     }
     applyFx(x, W, H, t, g, u, tl);
-    if (!g.card) drawBrand(x, W, H);   // your name stays put on every photo (not on the intro / outro cards)
+    var ins = window.YBFX ? YBFX.inset(fxFor(g), W, H) : null;
+    if (!g.card) drawBrand(x, W, H, ins);   // your name stays put on every photo (not on the intro / outro cards)
+    var tagLab = g.photo ? tagText(g.photo, g.angle === true) : '';
+    if (tagLab && !(prev && u < TR * 0.5)) labelChip(x, W, H, g.photo, tagLab, ins);   // BEFORE / AFTER, always inside the frame
     capBox = null;
     if (show('showText')) {
       // the text of a part comes in once its picture is on screen, and the last one fades out during the change
@@ -1140,6 +1143,7 @@
       return '<li class="sc-fxon" data-fxi="' + i + '"><b>' + YB.esc(e.name) + '</b><span class="sc-fxs" role="group" aria-label="How strong">' + STRENGTH.map(function (st) { return '<button type="button" data-fxs="' + st[0] + '" class="' + (Math.abs((it.s || 1) - st[0]) < 0.01 ? 'on' : '') + '">' + st[1] + '</button>'; }).join('') + '</span><button type="button" class="btn btn-danger btn-sm" data-fxdel aria-label="Remove ' + YB.esc(e.name) + '">✕ Remove</button></li>';
     }).join('');
     $('fxClear').hidden = !list.length; $('fxCopyAll').hidden = !list.length || fxTarget === 'all';
+    $('fxSurprise').textContent = fxTarget === 'all' ? '🎲 Surprise me — one matching style for every photo' : '🎲 Surprise me (keeps the matching frame)';
     // categories + tiles
     $('fxCats').innerHTML = YBFX.cats.map(function (c) { var n = c[0] === 'popular' ? YBFX.list.filter(function (e) { return e.pop; }).length : YBFX.list.filter(function (e) { return e.cat === c[0]; }).length; return '<button type="button" class="' + (fxCat === c[0] ? 'on' : '') + '" data-fxc="' + c[0] + '" aria-pressed="' + (fxCat === c[0]) + '">' + c[1] + ' <span>' + n + '</span></button>'; }).join('');
     var on = {}; list.forEach(function (it) { on[it.id] = 1; });
@@ -1192,6 +1196,27 @@
     var u = (t % Math.max(1, g.dur));
     renderFrame(c.getContext('2d'), W, H, g.start + u, tl, { still: false, noTrans: true });
   }
+  // ---- matching styles: every photo shares one frame + colour; each photo gets its own light / sparkle and movement
+  var LIVELY = ['l-warm', 'l-golden', 'l-flare', 'l-shine', 'l-shineg', 'l-rays', 'l-bloom', 'l-dreamy', 'p-glitter', 'p-sparkle', 'p-bokeh', 'p-fireflies', 'p-confetti', 'p-goldrain', 'p-stardust', 'b-fresh', 'b-razor', 'b-clippings', 'b-goldcut'];
+  var MOVES = ['m-zoomIn', 'm-zoomOut', 'm-faceZoom', 'm-panL', 'm-panR', 'm-punch', 'm-bounceBeat', 'm-tilt'];
+  var FRAMESET = ['b-pole', 'b-pole', 'f-neon', 'f-gold', 'f-film', 'f-polaroid', 'f-white', 'f-cinema', 'f-brand'];   // clear, visible frames (barber poles come up most)
+  var COLORSET = ['c-tealOrange', 'c-gold', 'c-contrast', 'c-cinema', 'c-warm', 'c-cool', 'c-bw', 'c-chrome', 'c-moody'];
+  function pickFx(ids, avoid) { var l = ids.filter(function (id) { return YBFX.byId[id] && (!avoid || avoid.indexOf(id) === -1); }); return YBFX.byId[l[Math.floor(Math.random() * l.length)]]; }
+  function isFrame(e) { return e.kind === 'frame' && e.p.fn !== 'date' && e.p.fn !== 'story'; }
+  function themeOf() { var t = {}; (S.fxAll || []).forEach(function (it) { var e = YBFX.byId[it.id]; if (!e) return; if (isFrame(e)) t.frame = it; if (e.cat === 'color') t.color = it; }); return t; }
+  function newTheme() { return [{ id: pickFx(FRAMESET).id, s: 1 }, { id: pickFx(COLORSET).id, s: 0.6 }]; }
+  function surpriseAll() {
+    // Every photo: one shared frame (e.g. barber poles) and one colour for the whole video,
+    // then each photo gets a different light / sparkle and a different movement so slides change but still match.
+    S.fxAll = newTheme();
+    var lastL = [], lastM = [];
+    slides.forEach(function (sl) {
+      var l = pickFx(LIVELY, lastL.slice(-3)), m = pickFx(MOVES, lastM.slice(-2));
+      sl.fx = [{ id: l.id, s: 1 }, { id: m.id, s: 1 }]; lastL.push(l.id); lastM.push(m.id);
+    });
+    fxChanged();
+    var t = themeOf(); YB.toast('Matching style: ' + YBFX.byId[t.frame.id].name + ' + ' + YBFX.byId[t.color.id].name + ' on every photo, with a different sparkle and move on each');
+  }
   function fxChanged() { fxSave(); renderFx(); renderSlides(); renderFacts(); if (!pv.playing) drawPreview(); }
   function wireFx() {
     $('fxTargets').addEventListener('click', function (e) { var b = e.target.closest('[data-fxt]'); if (!b) return; fxTarget = b.getAttribute('data-fxt'); renderFx(); });
@@ -1214,11 +1239,14 @@
       slides.forEach(function (sl) { sl.fx = src.map(function (it) { return { id: it.id, s: it.s }; }); });
       fxChanged(); YB.toast('These effects are now on every photo');
     });
-    $('fxSurprise').addEventListener('click', function () {   // a good mix: one colour, one light or sparkle, one movement
-      var pick = function (cats) { var l = YBFX.list.filter(function (e) { return cats.indexOf(e.cat) !== -1 && e.kind !== 'sticker'; }); return l[Math.floor(Math.random() * l.length)]; };
-      var list = fxListNow(); list.length = 0;
-      [pick(['color']), pick(['light', 'particles', 'barber']), pick(['motion'])].forEach(function (e) { if (e) list.push({ id: e.id, s: 1 }); });
-      fxChanged(); YB.toast('Try this mix — tap ✕ Remove on anything you don\'t like');
+    $('fxSurprise').addEventListener('click', function () {
+      if (fxTarget === 'all') surpriseAll();
+      else {   // one photo: a light / sparkle and a movement; the video's shared frame and colour stay the same
+        var list = fxListNow(); list.length = 0;
+        [pickFx(LIVELY), pickFx(MOVES)].forEach(function (e) { if (e) list.push({ id: e.id, s: 1 }); });
+        if (!themeOf().frame) { var th = newTheme(); S.fxAll = (S.fxAll || []).filter(function (it) { var e = YBFX.byId[it.id]; return e && !isFrame(e) && e.cat !== 'color'; }).concat(th); }
+        fxChanged(); YB.toast('New mix for this photo — the frame and colour still match the rest');
+      }
     });
     $('fxWatch').addEventListener('click', function () { var g = fxSeg(); stop(); pv.t = g ? Math.max(0, g.start - 0.3) : 0; openFull(); });
   }

@@ -580,5 +580,24 @@
       x.restore();
     });
   }
-  window.YBFX = { cats: CATS, list: L, byId: BY, apply: apply };
+  // How much of each edge the chosen frames cover (fractions of the short side), so tags and
+  // your name can sit just inside the frame instead of under it.
+  var INSET = {
+    pole: { l: 0.045, r: 0.045 }, film: { l: 0.07, r: 0.07 }, border: { a: 0.03 }, goldFrame: { a: 0.035 }, neon: { a: 0.045 },
+    polaroid: { l: 0.045, r: 0.045, t: 0.045, b: 0.19 }, cinema: { tb: 1 }, story: { t: 0.04 }, rounded: { a: 0.02 }, torn: { a: 0.035 },
+    dashed: { a: 0.045 }, viewfinder: { t: 0.1, l: 0.04, r: 0.04, b: 0.1 }, eightMM: { a: 0.035 }, circle: { a: 0.02 }
+  };
+  function inset(items, W, H) {
+    var base = Math.min(W, H), o = { l: 0, r: 0, t: 0, b: 0 };
+    (items || []).forEach(function (it) {
+      var e = BY[it.id]; if (!e) return; var fn = e.p && e.p.fn, k = INSET[fn], s = it.s || 1; if (!k) return;
+      var sc = /border|goldFrame|pole/.test(fn) ? s : 1;
+      if (k.a) { o.l = Math.max(o.l, k.a * sc * base); o.r = Math.max(o.r, k.a * sc * base); o.t = Math.max(o.t, k.a * sc * base); o.b = Math.max(o.b, k.a * sc * base); }
+      if (k.l) o.l = Math.max(o.l, k.l * sc * base); if (k.r) o.r = Math.max(o.r, k.r * sc * base);
+      if (k.t) o.t = Math.max(o.t, k.t * base); if (k.b) o.b = Math.max(o.b, k.b * base);
+      if (k.tb) { var bar = H * (W >= H ? 0.1 : 0.07) * s; o.t = Math.max(o.t, bar); o.b = Math.max(o.b, bar); }
+    });
+    return o;
+  }
+  window.YBFX = { cats: CATS, list: L, byId: BY, apply: apply, inset: inset };
 })();

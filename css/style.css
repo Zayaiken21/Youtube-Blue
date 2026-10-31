@@ -1307,3 +1307,4 @@ input[type="range"] { min-height: 32px; }            /* finger-friendly */
 .sc-big .sc-fxtiles { grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); }
 .sc-big .sc-fxtile { font-size: 1rem; }
 .sc-big .sc-ba button { min-height: 48px; font-size: 1rem; }
+#fxSurprise, #fxCopyAll, #fxClear { white-space: normal; max-width: 100%; text-align: center; }
