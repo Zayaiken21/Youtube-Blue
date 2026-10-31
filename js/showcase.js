@@ -16,11 +16,12 @@
   'use strict';
 
   var FORMATS = {
-    ig45: { w: 1080, h: 1350, name: 'Instagram post', sub: '4:5 · best for feed', ar: 'portrait' },
-    square: { w: 1080, h: 1080, name: 'Square', sub: '1:1 · theCut, Instagram', ar: 'square' },
-    story: { w: 1080, h: 1920, name: 'Story / Reel', sub: '9:16 · Reels, TikTok, Shorts', ar: 'short' },
-    p34: { w: 1080, h: 1440, name: 'Portrait', sub: '3:4 · photo apps', ar: 'p34' },
-    wide: { w: 1920, h: 1080, name: 'Wide', sub: '16:9 · YouTube, Facebook', ar: 'long' }
+    ig45: { w: 1080, h: 1350, name: 'Instagram post', sub: '4:5 · Instagram & Facebook feed', ar: 'portrait' },
+    square: { w: 1080, h: 1080, name: 'Square', sub: '1:1 · theCut, Instagram, Facebook', ar: 'square' },
+    p34: { w: 1080, h: 1440, name: 'Portrait', sub: '3:4 · theCut, phone photos', ar: 'p34' },
+    story: { w: 1080, h: 1920, name: 'Vertical video', sub: '9:16 · Reels, TikTok, Shorts, Stories', ar: 'short' },
+    wide: { w: 1920, h: 1080, name: 'YouTube', sub: '16:9 · YouTube video, Facebook', ar: 'long' },
+    thumb: { w: 1280, h: 720, name: 'YouTube thumbnail', sub: '16:9 · 1280×720', ar: 'long' }
   };
   var LABELS = ['', 'Front', 'Side', 'Left side', 'Right side', 'Back', 'Top', 'Line-up', 'Beard', 'Detail'];
   var STAGES = [['before', 'Before'], ['after', 'After']];
@@ -45,7 +46,8 @@
   var MIX = ['blade', 'slide', 'flash', 'zoom'];
   var FPS = 30, TR = 0.55, INTRO = 2.4, OUTRO = 3;
 
-  var S = Object.assign({ format: 'ig45', trans: 'mix', dur: 2.5, kenBurns: true, intro: true, outro: true,
+  var S = Object.assign({ format: 'ig45', trans: 'mix', dur: 2.5, kenBurns: true, intro: true, outro: true, plain: false, showStage: true, showAngle: true, showBrand: true, showTitle: true, showText: true,
+    capStyle: 'box', capPos: 'bottom', capAnim: 'pop', capSize: 1, introTitle: '', introSub: '', outroTitle: '', outroSub: '',
     shop: '', handle: '', book: '', color: '#e11d48', wmPos: 'br', wmStyle: 'tag' }, YB.store.get('scSettings', {}));
   if (!FORMATS[S.format]) S.format = 'ig45';
   var photos = [], sets = [], slides = [], blobs = {}, imgs = {}, music = null, logo = null;
@@ -55,6 +57,8 @@
   function clamp(v, a, b) { return Math.max(a, Math.min(b, v)); }
   function mmss(s) { s = Math.max(0, Math.round(s || 0)); return Math.floor(s / 60) + ':' + String(s % 60).padStart(2, '0'); }
   function saveSettings() { YB.store.set('scSettings', S); }
+  // What goes on the pictures: each can be switched off, and "Plain photos" switches everything off at once.
+  function show(k) { return !S.plain && S[k] !== false; }
   function dims() { var f = FORMATS[S.format]; return { W: f.w, H: f.h }; }
   function photoById(id) { return photos.find(function (p) { return p.id === id; }); }
   function setById(id) { return sets.find(function (s) { return s.id === id; }); }
@@ -63,6 +67,7 @@
   function stageName(p) { return p.stage === 'before' ? 'Before' : p.stage === 'after' ? 'After' : ''; }
   // What a photo says on itself: "BEFORE · SIDE", "AFTER", "FRONT"…
   function chipText(p, withAngle) { return [stageName(p), withAngle === false ? '' : p.label].filter(Boolean).join(' · '); }
+  function tagText(p, angle) { return [show('showStage') ? stageName(p) : '', angle && show('showAngle') ? p.label : ''].filter(Boolean).join(' · '); }
   function photoTitle(p) { return 'Photo ' + photoNo(p) + (chipText(p) ? ' · ' + chipText(p) : ''); }
 
   /* ---------- Storage ---------- */
@@ -286,7 +291,7 @@
     var a = lookOf(p);
     grade(x, W, H, a, p.auto ? p._lv : null, opts.fast);
     finish(x, W, H, a);
-    if (opts.chip && S.showStage !== false && chipText(p)) labelChip(x, W, H, p, chipText(p));
+    var ct = tagText(p, true); if (opts.chip && ct) labelChip(x, W, H, p, ct);
     if (opts.brand) drawBrand(x, W, H);
     return c;
   }
@@ -297,7 +302,7 @@
   var FONT = '"Arial Black", "Segoe UI Black", system-ui, -apple-system, sans-serif', FONT2 = 'system-ui, -apple-system, "Segoe UI", Roboto, Arial, sans-serif';
   function drawBrand(x, W, H) {
     var txt = brandText(), lim = logo && logo._img && logo._img.naturalWidth ? logo._img : null;
-    if (S.wmPos === 'off' || (!txt && !lim)) return;
+    if (!show('showBrand') || S.wmPos === 'off' || (!txt && !lim)) return;
     var base = Math.min(W, H), fs = Math.round(base * 0.034), pad = Math.round(base * 0.035), lh = lim ? Math.round(fs * 1.9) : 0;
     x.save();
     x.font = '800 ' + fs + 'px ' + FONT2;
@@ -381,13 +386,13 @@
       if (!p || w < 4 || h < 4) return;
       x.drawImage(renderPhoto(p, w, h, { fast: opts.fast }), Math.round(r.x), Math.round(r.y));
       // BEFORE / AFTER always shows (unless turned off in Your brand); angles only when the set says so
-      var lab = [S.showStage !== false ? stageName(p) : '', s.labels !== false ? p.label : ''].filter(Boolean).join(' · ');
+      var lab = tagText(p, s.labels !== false);
       if (lab) {
         var fs = Math.round(base * (cs.length > 3 ? 0.026 : 0.032)), pd = fs * 0.55;
         tag(x, r.x + pd, r.y + pd + (s.title && r.y < base * 0.12 ? base * 0.1 : 0), fs, p, lab);
       }
     });
-    if (s.title) {
+    if (s.title && show('showTitle')) {
       var ts = Math.round(base * 0.04);
       x.save(); x.font = '900 ' + ts + 'px ' + FONT;
       var tw2 = Math.min(W * 0.9, x.measureText(s.title.toUpperCase()).width + ts * 1.4), tx = (W - tw2) / 2, ty = Math.round(base * 0.035);
@@ -414,7 +419,7 @@
     var lim = logo && logo._img && logo._img.naturalWidth ? logo._img : null, y = H * 0.4;
     if (lim) { var lh = base * 0.2, lw = lh * lim.naturalWidth / lim.naturalHeight; x.drawImage(lim, (W - lw) / 2, H * 0.36 - lh - base * 0.03, lw, lh); y = H * 0.44; }
     x.textAlign = 'center'; x.textBaseline = 'middle'; x.fillStyle = '#fff';
-    var big = kind === 'intro' ? (S.shop || S.handle || 'Fresh cuts') : 'Book now', small1 = kind === 'intro' ? (S.shop && S.handle ? S.handle : 'Fresh cuts · clean lines') : (S.book || 'Link in bio'), small2 = kind === 'intro' ? '' : (S.handle || S.shop || '');
+    var big = kind === 'intro' ? (S.introTitle || S.shop || S.handle || 'Fresh cuts') : (S.outroTitle || 'Book now'), small1 = kind === 'intro' ? (S.introSub || (S.shop && S.handle ? S.handle : 'Fresh cuts · clean lines')) : (S.outroSub || S.book || 'Link in bio'), small2 = kind === 'intro' ? '' : (S.handle || S.shop || '');
     fit(x, big.toUpperCase(), '900 {s}px ' + FONT, base * 0.1, W * 0.86); x.fillText(big.toUpperCase(), W / 2, y);
     x.fillStyle = col; x.fillRect(W / 2 - base * 0.08, y + base * 0.075, base * 0.16, Math.max(3, base * 0.008));
     x.fillStyle = 'rgba(255,255,255,0.88)'; fit(x, small1, '700 {s}px ' + FONT2, base * 0.045, W * 0.86); x.fillText(small1, W / 2, y + base * 0.15);
@@ -430,11 +435,11 @@
     if (S.intro) segs.push({ key: 'intro', dur: INTRO, card: 'intro' });
     slides.forEach(function (sl) {
       var dur = sl.dur || S.dur;
-      if (sl.kind === 'photo') { var p = photoById(sl.ref); if (p) segs.push({ key: 'p:' + p.id, dur: dur, photo: p, trans: sl.trans }); }
+      if (sl.kind === 'photo') { var p = photoById(sl.ref); if (p) segs.push({ key: 'p:' + p.id, dur: dur, photo: p, trans: sl.trans, sl: sl }); }
       else {
         var s = setById(sl.ref); if (!s || !s.ids.length) return;
-        if (s.show === 'each') setPhotos(s).forEach(function (p, i) { segs.push({ key: 's:' + s.id + ':' + p.id, dur: Math.max(1.2, dur * 0.75), photo: p, angle: s.labels !== false, trans: i ? 'slide' : sl.trans }); });
-        else segs.push({ key: 's:' + s.id, dur: dur + 0.8, set: s, trans: sl.trans });
+        if (s.show === 'each') setPhotos(s).forEach(function (p, i) { segs.push({ key: 's:' + s.id + ':' + p.id, dur: Math.max(1.2, dur * 0.75), photo: p, angle: s.labels !== false, trans: i ? 'slide' : sl.trans, sl: sl, first: i === 0 }); });
+        else segs.push({ key: 's:' + s.id, dur: dur + 0.8, set: s, trans: sl.trans, sl: sl, first: true });
       }
     });
     if (S.outro) segs.push({ key: 'outro', dur: OUTRO, card: 'outro' });
@@ -446,8 +451,8 @@
     var k = g.key + '|' + W + 'x' + H + '|' + (g.photo ? verOf(g.photo) : g.set ? verOfSet(g.set) : brandVer());
     if (stills[k]) return stills[k];
     var c = g.card ? renderCard(g.card, W, H) : g.set ? renderSet(g.set, W, H) : renderPhoto(g.photo, W, H);
-    var lab = g.photo ? chipText(g.photo, g.angle === true) : '';
-    if (lab && S.showStage !== false) labelChip(c.getContext('2d'), W, H, g.photo, lab);
+    var lab = g.photo ? tagText(g.photo, g.angle === true) : '';
+    if (lab) labelChip(c.getContext('2d'), W, H, g.photo, lab);
     stills[k] = c; return c;
   }
   // BEFORE is a dark tag, AFTER is a tag in your brand colour — easy to tell apart at a glance.
@@ -462,9 +467,9 @@
     x.restore();
   }
   function labelChip(x, W, H, p, lab) { var base = Math.min(W, H); tag(x, base * 0.04, base * 0.04, Math.round(base * 0.045), p, lab); }
-  function verOf(p) { return JSON.stringify([p.f, p.look, p.adj, p.auto, p.stage, p.label, S.showStage, S.color]); }
-  function verOfSet(s) { return JSON.stringify([s.layout, s.labels, s.title, s.ids.map(function (id) { var p = photoById(id); return p ? verOf(p) + p.label : ''; }), S.color]); }
-  function brandVer() { return JSON.stringify([S.shop, S.handle, S.book, S.color, logo && logo.blobId]); }
+  function verOf(p) { return JSON.stringify([p.f, p.look, p.adj, p.auto, p.stage, p.label, S.plain, S.showStage, S.showAngle, S.color]); }
+  function verOfSet(s) { return JSON.stringify([s.layout, s.labels, s.title, S.showTitle, s.ids.map(function (id) { var p = photoById(id); return p ? verOf(p) + p.label : ''; }), S.color]); }
+  function brandVer() { return JSON.stringify([S.shop, S.handle, S.book, S.color, logo && logo.blobId, S.introTitle, S.introSub, S.outroTitle, S.outroSub]); }
   function trimStills() { var ks = Object.keys(stills); if (ks.length > 60) ks.slice(0, ks.length - 40).forEach(function (k) { delete stills[k]; }); }
 
   function ease(p) { return p < 0.5 ? 4 * p * p * p : 1 - Math.pow(-2 * p + 2, 3) / 2; }
@@ -482,7 +487,7 @@
     x.drawImage(c, (W - w) / 2 + ox + (dx || 0), (H - h) / 2, w, h);
     x.restore();
   }
-  function renderFrame(x, W, H, t, tl) {
+  function renderFrame(x, W, H, t, tl, opts) {
     tl = tl || segments();
     x.fillStyle = '#000'; x.fillRect(0, 0, W, H);
     if (!tl.segs.length) return;
@@ -515,6 +520,70 @@
       }
     }
     if (!g.card) drawBrand(x, W, H);   // your name stays put on every photo (not on the intro / outro cards)
+    capBox = null;
+    if (show('showText')) {
+      // the text of a part comes in once its picture is on screen, and the last one fades out during the change
+      if (prev && prev.sl && prev.sl.text && u < TR * 0.5 && !(prev.sl === g.sl)) drawCaption(x, W, H, prev.sl, { a: 1 - u / (TR * 0.5), s: 1, dy: 0, chars: 1 });
+      if (g.sl && g.sl.text) {
+        var from = g.first === false || (prev && prev.sl === g.sl) ? -1 : TR * 0.6, still = opts && opts.still;
+        var k = still || from < 0 ? { a: 1, s: 1, dy: 0, chars: 1 } : capAnim(u - from, g.dur - from);
+        if (u >= from || still) capBox = { sl: g.sl, b: drawCaption(x, W, H, g.sl, k) };
+      }
+    }
+  }
+  var capBox = null;
+  var CAP_STYLES = [['box', 'White on dark box'], ['bold', 'Bold with outline'], ['brand', 'On your brand colour'], ['neon', 'Neon glow'], ['clean', 'Clean with shadow']];
+  var CAP_ANIMS = [['pop', 'Pop'], ['slide', 'Slide up'], ['type', 'Type out'], ['fade', 'Fade'], ['none', 'None']];
+  function capAnim(t, len) {
+    var p = clamp(t / 0.35, 0, 1), k = { a: 1, s: 1, dy: 0, chars: 1 }, a = S.capAnim;
+    if (a === 'fade') k.a = p;
+    else if (a === 'pop') { var e = 1 - Math.pow(1 - p, 3); k.s = 0.6 + 0.4 * e + (p > 0.6 && p < 1 ? 0.07 * Math.sin((p - 0.6) / 0.4 * Math.PI) : 0); k.a = Math.min(1, p * 2); }
+    else if (a === 'slide') { k.dy = (1 - (1 - Math.pow(1 - p, 3))) * 0.05; k.a = p; }
+    else if (a === 'type') k.chars = clamp(t / Math.max(0.5, Math.min(1.4, len * 0.45)), 0, 1);
+    return k;
+  }
+  function capPos(sl) {
+    if (sl.tx != null) return { x: sl.tx, y: sl.ty };
+    return { x: 0.5, y: S.capPos === 'top' ? 0.17 : S.capPos === 'middle' ? 0.5 : 0.8 };
+  }
+  function wrapText(x, text, maxW) {
+    var out = [];
+    String(text || '').split('\n').forEach(function (para) {
+      var words = para.split(/\s+/).filter(Boolean), line = '';
+      words.forEach(function (w) { var t = line ? line + ' ' + w : w; if (line && x.measureText(t).width > maxW) { out.push(line); line = w; } else line = t; });
+      if (line || !words.length) out.push(line);
+    });
+    return out;
+  }
+  // Text on screen for one part of the slideshow. Returns its box (for dragging on the preview).
+  function drawCaption(x, W, H, sl, k) {
+    var base = Math.min(W, H), st = S.capStyle, fs = Math.round(base * 0.058 * (S.capSize || 1)), pos = capPos(sl);
+    var bold = st === 'bold' || st === 'neon';
+    x.save(); x.globalAlpha = k.a;
+    x.font = (bold ? '900 ' + fs + 'px ' + FONT : '800 ' + fs + 'px ' + FONT2);
+    var lines = wrapText(x, sl.text, W * 0.84), lh = fs * 1.2, widths = lines.map(function (l) { return x.measureText(l).width; });
+    var bw = Math.max.apply(null, widths.concat([fs])), bh = lines.length * lh, padX = fs * 0.55, padY = fs * 0.35;
+    var cx = pos.x * W, cy = (pos.y + k.dy) * H;
+    // keep it on the screen
+    cx = clamp(cx, bw / 2 + padX + 4, W - bw / 2 - padX - 4); cy = clamp(cy, bh / 2 + padY + 4, H - bh / 2 - padY - 4);
+    x.translate(cx, cy); x.scale(k.s, k.s);
+    if (st === 'box' || st === 'brand') {
+      x.shadowColor = 'rgba(0,0,0,.35)'; x.shadowBlur = fs * 0.5;
+      x.fillStyle = st === 'brand' ? S.color : 'rgba(8,8,12,0.82)'; rr(x, -bw / 2 - padX, -bh / 2 - padY, bw + 2 * padX, bh + 2 * padY, fs * 0.35); x.fill(); x.shadowBlur = 0;
+    }
+    var total = lines.join('\n').length, showN = Math.round(total * k.chars), used = 0;
+    x.textAlign = 'center'; x.textBaseline = 'middle'; x.lineJoin = 'round';
+    lines.forEach(function (l, i) {
+      var t = l; if (used + l.length > showN) t = l.slice(0, Math.max(0, showN - used)); used += l.length + 1;
+      if (!t) return;
+      var ly = -bh / 2 + lh * (i + 0.5);
+      if (st === 'bold') { x.lineWidth = Math.max(3, fs * 0.18); x.strokeStyle = '#000'; x.strokeText(t, 0, ly); x.fillStyle = '#fff'; x.fillText(t, 0, ly); }
+      else if (st === 'neon') { x.shadowColor = S.color; x.shadowBlur = fs * 0.7; x.fillStyle = S.color; x.fillText(t, 0, ly); x.fillText(t, 0, ly); x.shadowBlur = 0; x.fillStyle = 'rgba(255,255,255,.9)'; x.fillText(t, 0, ly); }
+      else if (st === 'clean') { x.shadowColor = 'rgba(0,0,0,.75)'; x.shadowBlur = fs * 0.35; x.shadowOffsetY = fs * 0.06; x.fillStyle = '#fff'; x.fillText(t, 0, ly); x.shadowBlur = 0; x.shadowOffsetY = 0; }
+      else { x.fillStyle = '#fff'; x.fillText(t, 0, ly); }
+    });
+    x.restore();
+    return { x: cx - (bw / 2 + padX) * k.s, y: cy - (bh / 2 + padY) * k.s, w: (bw + 2 * padX) * k.s, h: (bh + 2 * padY) * k.s };
   }
 
   /* ---------- Preview player ---------- */
@@ -530,10 +599,31 @@
   function drawPreview() {
     var c = $('preview'); if (!c) return;
     var x = c.getContext('2d'), tl = segments();
-    renderFrame(x, c.width, c.height, pv.t, tl);
+    renderFrame(x, c.width, c.height, pv.t, tl, { still: !pv.playing });
+    if (!pv.playing && capBox && capDrag) { var b = capBox.b; x.save(); x.setLineDash([6, 4]); x.lineWidth = 2; x.strokeStyle = '#7cc4ff'; x.strokeRect(b.x, b.y, b.w, b.h); x.restore(); }
     $('scrub').value = tl.total ? Math.round(pv.t / tl.total * 1000) : 0;
     $('timeLabel').textContent = mmss(pv.t) + ' / ' + mmss(tl.total);
     trimStills();
+  }
+  var capDrag = null;
+  function wirePreviewPointer() {
+    var c = $('preview');
+    function pt(e) { var r = c.getBoundingClientRect(); return { x: (e.clientX - r.left) * c.width / r.width, y: (e.clientY - r.top) * c.height / r.height }; }
+    c.addEventListener('pointerdown', function (e) {
+      if (pv.playing) stop();
+      drawPreview();
+      var q = pt(e), b = capBox && capBox.b;
+      if (!b || q.x < b.x || q.x > b.x + b.w || q.y < b.y || q.y > b.y + b.h) return;
+      var pos = capPos(capBox.sl);
+      capDrag = { sl: capBox.sl, dx: q.x - pos.x * c.width, dy: q.y - pos.y * c.height };
+      c.setPointerCapture(e.pointerId); e.preventDefault(); drawPreview();
+    });
+    c.addEventListener('pointermove', function (e) {
+      if (!capDrag) return; var q = pt(e);
+      capDrag.sl.tx = clamp((q.x - capDrag.dx) / c.width, 0, 1); capDrag.sl.ty = clamp((q.y - capDrag.dy) / c.height, 0, 1); drawPreview();
+    });
+    var end = function () { if (!capDrag) return; capDrag = null; saveProject(); drawPreview(); renderSlides(); };
+    c.addEventListener('pointerup', end); c.addEventListener('pointercancel', end);
   }
   function play() {
     var tl = segments(); if (!tl.segs.length || rec) return;
@@ -594,7 +684,7 @@
       var sm = document.querySelectorAll('[data-sthumb="' + p.id + '"]'); sm.forEach(function (e) { e.src = p._thumb; });
     }).catch(function () {}).then(function () {
       thumbBusy = false;
-      if (thumbQueue.length) setTimeout(runThumbs, 0); else { renderSets(); }
+      if (thumbQueue.length) setTimeout(runThumbs, 0); else { renderSets(); renderSlides(); }
     });
   }
 
@@ -834,11 +924,15 @@
       return '<li class="sc-slide" data-slide="' + sl.id + '"><span class="cx-pnum">' + (i + 1) + '</span>' + (th ? '<img src="' + th + '" alt="">' : '<span class="sc-sl-ph"></span>') +
         '<div class="sc-sl-meta"><b>' + YB.esc(slideName(sl)) + '</b><span class="sc-sl-sel">' +
         '<select data-sl="trans" aria-label="Transition into this part">' + opts.replace('value="' + (sl.trans || '') + '"', 'value="' + (sl.trans || '') + '" selected') + '</select>' +
-        '<select data-sl="dur" aria-label="How long">' + durs.replace('value="' + (sl.dur || '') + '"', 'value="' + (sl.dur || '') + '" selected') + '</select></span></div>' +
+        '<select data-sl="dur" aria-label="How long">' + durs.replace('value="' + (sl.dur || '') + '"', 'value="' + (sl.dur || '') + '" selected') + '</select></span>' +
+        '<span class="sc-sl-text"><input type="text" data-sl-text maxlength="90" value="' + YB.esc(sl.text || '') + '" placeholder="✍️ Text on screen (optional)" aria-label="Text on screen for part ' + (i + 1) + '">' +
+        (sl.tx != null ? '<button type="button" class="sc-x" data-sl-repos title="Put the text back in its usual place" aria-label="Reset text position">↺</button>' : '') + '</span></div>' +
         '<span class="cx-pbtns"><button type="button" class="btn btn-ghost btn-icon btn-sm" data-sl-up aria-label="Earlier"' + (i ? '' : ' disabled') + '>↑</button><button type="button" class="btn btn-ghost btn-icon btn-sm" data-sl-down aria-label="Later"' + (i < slides.length - 1 ? '' : ' disabled') + '>↓</button><button type="button" class="btn btn-ghost btn-icon btn-sm" data-sl-del aria-label="Leave out of the slideshow">✕</button></span></li>';
     }).join('') + (missing.length ? '<li class="sc-addback"><select id="addBack" aria-label="Add back"><option value="">＋ Put back in the slideshow…</option>' + missing.map(function (m) { return '<option value="' + m[0] + ':' + m[1] + '">' + YB.esc(m[2]) + '</option>'; }).join('') + '</select></li>' : '');
     $('transSel').value = S.trans; $('durRange').value = S.dur; $('durVal').textContent = S.dur + ' s';
     $('kenBurns').checked = !!S.kenBurns; $('introOn').checked = !!S.intro; $('outroOn').checked = !!S.outro;
+    $('capStyle').value = S.capStyle; $('capPos').value = S.capPos; $('capAnim').value = S.capAnim; $('capSize').value = Math.round((S.capSize || 1) * 100); $('capSizeVal').textContent = Math.round((S.capSize || 1) * 100) + '%';
+    ['introTitle', 'introSub', 'outroTitle', 'outroSub'].forEach(function (k) { if (document.activeElement !== $(k)) $(k).value = S[k] || ''; });
     $('musicName').textContent = music ? '🎵 ' + music.name : 'No music'; $('musicDel').hidden = !music;
   }
   function renderFacts() {
@@ -856,7 +950,10 @@
   }
   function renderBrand() {
     $('bShop').value = S.shop; $('bHandle').value = S.handle; $('bBook').value = S.book; $('bColor').value = S.color;
-    $('wmPos').value = S.wmPos; $('wmStyle').value = S.wmStyle; $('showStage').checked = S.showStage !== false;
+    $('wmPos').value = S.wmPos; $('wmStyle').value = S.wmStyle;
+    $('plainOn').checked = !!S.plain;
+    ['showStage', 'showAngle', 'showBrand', 'showTitle', 'showText'].forEach(function (k) { $(k).checked = S[k] !== false; $(k).disabled = !!S.plain; });
+    $('switchGroup').classList.toggle('sc-off', !!S.plain);
     $('logoPrev').hidden = $('logoDel').hidden = !logo;
     if (logo && logo._img) $('logoPrev').src = logo._img.src;
   }
@@ -867,9 +964,37 @@
   function toBlob(c) { return new Promise(function (res) { c.toBlob(res, 'image/jpeg', 0.93); }); }
   function photoFile(p) { var d = dims(); return ensureImg(p).then(function () { return toBlob(renderPhoto(p, d.W, d.H, { brand: true, chip: true })); }); }
   function setFile(s) { var d = dims(); return Promise.all(setPhotos(s).map(ensureImg)).then(function () { return toBlob(renderSet(s, d.W, d.H, { brand: true })); }); }
-  function photoName(p) { return String(photoNo(p)).padStart(2, '0') + (chipText(p) ? '-' + slug(chipText(p)) : '') + '-' + S.format + '.jpg'; }
+  function photoName(p) { return String(photoNo(p)).padStart(2, '0') + (chipText(p) ? '-' + slug(chipText(p)) : '') + '-' + S.format + (S.plain ? '-plain' : '') + '.jpg'; }
   function setName(s) { return 'set-' + (sets.indexOf(s) + 1) + (s.title ? '-' + slug(s.title) : '') + '-' + S.format + '.jpg'; }
   function save(blob, name) { var url = URL.createObjectURL(blob), a = document.createElement('a'); a.href = url; a.download = name; document.body.appendChild(a); a.click(); a.remove(); setTimeout(function () { URL.revokeObjectURL(url); }, 4000); }
+  // Save: phones open the share sheet ("Save Image" puts it in Photos); computers download the file.
+  function touchy() { return (navigator.maxTouchPoints || 0) > 0 && window.matchMedia && matchMedia('(pointer: coarse)').matches; }
+  function savePhoto(blob, name) {
+    var f = new File([blob], name, { type: blob.type });
+    if (touchy() && navigator.canShare && navigator.canShare({ files: [f] })) return navigator.share({ files: [f] }).catch(function () {});
+    save(blob, name); YB.toast('Saved ' + name);
+  }
+  function saveAllPhotos() {
+    if (!photos.length) return;
+    var btn = $('saveAllBtn'); btn.disabled = true; $('zipNote').textContent = 'Preparing your photos…';
+    var files = [], i = 0;
+    function next() {
+      if (i >= photos.length) return Promise.resolve();
+      var p = photos[i++]; $('zipNote').textContent = 'Preparing ' + i + ' of ' + photos.length + '…';
+      return photoFile(p).then(function (b) { files.push(new File([b], photoName(p), { type: 'image/jpeg' })); }).then(next);
+    }
+    next().then(function () {
+      sets.forEach(function () {});
+      if (touchy() && navigator.canShare && navigator.canShare({ files: files })) {
+        $('zipNote').textContent = 'Choose “Save ' + files.length + ' Images” to put them in Photos.';
+        return navigator.share({ files: files }).catch(function () {});
+      }
+      return Promise.all(files.map(function (f) { return f.arrayBuffer().then(function (ab) { return { name: f.name, data: new Uint8Array(ab) }; }); })).then(function (list) {
+        save(zip(list), 'photos-' + (slug(brandText()) || 'showcase') + '-' + S.format + (S.plain ? '-plain' : '') + '.zip');
+        $('zipNote').textContent = list.length + ' edited photos saved (ZIP).';
+      });
+    }).catch(function (e) { console.error(e); YB.toast('Couldn\'t save the photos'); }).then(function () { btn.disabled = false; });
+  }
   function share(blob, name) {
     var f = new File([blob], name, { type: blob.type });
     if (navigator.canShare && navigator.canShare({ files: [f] })) return navigator.share({ files: [f], title: brandText() || 'Fresh cut' }).catch(function () {});
@@ -1149,7 +1274,12 @@
     $('flipBtn').addEventListener('click', function () { var p = photoById(cur); if (!p) return; p.f.flip = !p.f.flip; photoChanged(p); });
     $('resetCropBtn').addEventListener('click', function () { var p = photoById(cur); if (!p) return; p.f = defaultFrame(); renderEditor(); photoChanged(p); });
     $('stageSeg').addEventListener('click', function (e) { var b = e.target.closest('[data-estage]'), p = photoById(cur); if (b && p) setStage(p, b.getAttribute('data-estage')); });
-    $('showStage').addEventListener('change', function () { S.showStage = this.checked; saveSettings(); stills = {}; photos.forEach(function (p) { p._thumb = null; }); sets.forEach(function (s) { s._thumb = null; }); drawEditor(); thumbsSoon(); drawPreview(); });
+    function shownChanged() { saveSettings(); stills = {}; photos.forEach(function (p) { p._thumb = null; }); sets.forEach(function (s) { s._thumb = null; }); renderBrand(); drawEditor(); thumbsSoon(); renderSets(); drawPreview(); }
+    ['showStage', 'showAngle', 'showBrand', 'showTitle', 'showText'].forEach(function (k) { $(k).addEventListener('change', function () { S[k] = this.checked; shownChanged(); }); });
+    $('plainOn').addEventListener('change', function () { S.plain = this.checked; shownChanged(); YB.toast(S.plain ? 'Plain photos: nothing is added on top — your crops and looks stay' : 'Tags, name and text are back on'); });
+    [['capStyle', 'capStyle'], ['capPos', 'capPos'], ['capAnim', 'capAnim']].forEach(function (a) { $(a[0]).addEventListener('change', function () { S[a[1]] = this.value; if (a[0] === 'capPos') slides.forEach(function (sl) { sl.tx = sl.ty = null; }); saveSettings(); saveProject(); showTextPart(a[0] === 'capAnim'); }); });
+    $('capSize').addEventListener('input', function () { S.capSize = +this.value / 100; $('capSizeVal').textContent = this.value + '%'; saveSettings(); showTextPart(false); });
+    ['introTitle', 'introSub', 'outroTitle', 'outroSub'].forEach(function (k) { $(k).addEventListener('input', function () { S[k] = this.value; saveSettings(); stills = {}; stop(); var tl = segments(); var g = tl.segs.find(function (x) { return x.card === (k.indexOf('intro') === 0 ? 'intro' : 'outro'); }); if (g) pv.t = g.start + 1; drawPreview(); }); });
     $('labelSel').addEventListener('change', function () { var p = photoById(cur); if (!p) return; p.label = this.value; saveProject(); renderGrid(); sets.forEach(function (s) { if (s.ids.indexOf(p.id) !== -1) s._thumb = null; }); renderSets(); refreshShowSoon(); });
     $('lookList').addEventListener('click', function (e) {
       var b = e.target.closest('[data-look]'), p = photoById(cur); if (!b || !p) return;
@@ -1166,8 +1296,8 @@
     });
     $('adjList').addEventListener('change', function (e) { var p = photoById(cur); if (!p || !e.target.getAttribute('data-adj')) return; renderAdj(); photoChanged(p); });
     $('resetAdjBtn').addEventListener('click', function () { var p = photoById(cur); if (!p) return; p.adj = {}; renderAdj(); photoChanged(p); });
-    $('dlPhotoBtn').addEventListener('click', function () { var p = photoById(cur); if (p) photoFile(p).then(function (b) { save(b, photoName(p)); }); });
-    $('sharePhotoBtn').hidden = !navigator.canShare;
+    $('dlPhotoBtn').addEventListener('click', function () { var p = photoById(cur); if (p) photoFile(p).then(function (b) { savePhoto(b, photoName(p)); }); });
+    $('sharePhotoBtn').hidden = !navigator.canShare || touchy();
     $('sharePhotoBtn').addEventListener('click', function () { var p = photoById(cur); if (p) photoFile(p).then(function (b) { share(b, photoName(p)); }); });
 
     // sets
@@ -1221,11 +1351,22 @@
       if (e.target.closest('[data-sl-up]') && i > 0) { var t = slides[i - 1]; slides[i - 1] = slides[i]; slides[i] = t; }
       else if (e.target.closest('[data-sl-down]') && i < slides.length - 1) { var t2 = slides[i + 1]; slides[i + 1] = slides[i]; slides[i] = t2; }
       else if (e.target.closest('[data-sl-del]')) slides.splice(i, 1);
+      else if (e.target.closest('[data-sl-repos]')) { slides[i].tx = slides[i].ty = null; }
+      else if (e.target.closest('input')) return;
       else if (!e.target.closest('select,button')) { stop(); var tl = segments(), key = slides[i].kind === 'photo' ? 'p:' + slides[i].ref : 's:' + slides[i].ref; var g = tl.segs.find(function (x) { return x.key.indexOf(key) === 0; }); if (g) { pv.t = g.start + Math.min(g.dur * 0.5, 1); drawPreview(); } return; }
       else return;
       saveProject(); renderSlides(); renderFacts(); drawPreview();
     });
+    list.addEventListener('input', function (e) {
+      if (!e.target.matches('[data-sl-text]')) return;
+      var li = e.target.closest('[data-slide]'), sl = slides.find(function (x) { return x.id === li.getAttribute('data-slide'); }); if (!sl) return;
+      sl.text = e.target.value; saveProject();
+      // show the part with its text while typing
+      stop(); var tl = segments(), g = tl.segs.find(function (x) { return x.sl === sl; }); if (g) pv.t = g.start + Math.min(g.dur - 0.1, TR + 0.5);
+      drawPreview();
+    });
     list.addEventListener('change', function (e) {
+      if (e.target.matches('[data-sl-text]')) return;
       if (e.target.id === 'addBack') { var v = e.target.value.split(':'); if (v[1]) { slides.push({ id: YB.uid(), kind: v[0], ref: v[1] }); saveProject(); renderSlides(); renderFacts(); drawPreview(); } return; }
       var li = e.target.closest('[data-slide]'), k = e.target.getAttribute('data-sl'); if (!li || !k) return;
       var s = slides.find(function (x) { return x.id === li.getAttribute('data-slide'); }); if (!s) return;
@@ -1243,8 +1384,15 @@
     $('cancelBtn').addEventListener('click', function () { if (rec) rec.cancelled = true; });
     $('shareVideoBtn').addEventListener('click', function () { if (lastVideoBlob) share(lastVideoBlob, $('downloadBtn').download); });
     $('zipBtn').addEventListener('click', downloadAll);
+    $('saveAllBtn').addEventListener('click', saveAllPhotos);
     window.addEventListener('resize', YB.debounce(function () { sizeEditor(); drawEditor(); sizePreview(); drawPreview(); }, 150));
-    wireEditorPointer();
+    wireEditorPointer(); wirePreviewPointer();
+  }
+  function showTextPart(animate) {   // jump to the first part that has text so the change can be seen
+    var tl = segments(), g = tl.segs.find(function (x) { return x.sl && x.sl.text; });
+    stop(); if (!g) { drawPreview(); return; }
+    if (animate) { pv.t = g.start + TR * 0.4; play(); setTimeout(function () { if (pv.playing) stop(); }, 1600); }
+    else { pv.t = g.start + Math.min(g.dur - 0.1, TR + 0.5); drawPreview(); }
   }
   function jumpToTransition() {   // show the new transition straight away
     stop(); var tl = segments(), g = tl.segs[1] || tl.segs[0]; if (!g) return;

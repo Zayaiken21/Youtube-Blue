@@ -1225,3 +1225,11 @@ input[type="range"] { min-height: 32px; }            /* finger-friendly */
 .sc-stage-badge.after { background: var(--ok); color: #04241a; }
 .sc-chip .sc-stage-badge { position: static; padding: 2px 5px; font-size: .62rem; }
 .sc-ph.picked .sc-stage-badge { top: 38px; }
+.sc-shown { margin-top: 14px; padding-top: 12px; border-top: 1px solid var(--line-soft); }
+.sc-plain { display: flex; flex-wrap: wrap; align-items: center; padding: 10px 12px; border-radius: 12px; background: #081732; border: 1px solid var(--line); }
+.sc-switches { display: grid; gap: 10px; margin-top: 10px; grid-template-columns: repeat(auto-fit, minmax(min(100%, 210px), 1fr)); }
+.sc-switches.sc-off { opacity: .45; }
+.sc-sl-text { display: flex; gap: 4px; align-items: center; }
+.sc-sl-text input { min-height: 32px; padding: 4px 8px; font-size: 14px; min-width: 0; flex: 1; }
+.sc-textbox summary { color: var(--text); }
+.fm-ar-long + b { white-space: nowrap; }

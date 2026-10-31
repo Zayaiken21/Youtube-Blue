@@ -15,10 +15,10 @@
   <meta name="mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
   <meta name="apple-mobile-web-app-title" content="YT Blue">
-  <link rel="stylesheet" href="css/style.css?v=33">
+  <link rel="stylesheet" href="css/style.css?v=34">
   <script src="js/core.js" defer></script>
   <script src="js/vendor/mp4-muxer.min.js" defer></script>
-  <script src="js/showcase.js?v=2" defer></script>
+  <script src="js/showcase.js?v=3" defer></script>
 </head>
 <body data-page="showcase">
   <header class="topbar">
@@ -68,7 +68,7 @@
           <p class="notice warn" id="importNote" hidden></p>
 
           <div class="cx-group" id="formatGroup" hidden style="margin-top:14px">
-            <div class="label">Size for every photo, set and video</div>
+            <div class="label">Where is it going? <span class="muted small">(size for every photo, set and video — change it any time)</span></div>
             <div class="fm-formats sc-formats" id="formatSeg" role="radiogroup" aria-label="Photo size"></div>
           </div>
 
@@ -126,8 +126,9 @@
                 <div class="sc-sliders" id="adjList"></div>
                 <button class="btn btn-ghost btn-sm" type="button" id="resetAdjBtn" style="margin-top:8px">↺ Back to the look</button>
               </details>
-              <div class="row" style="gap:6px;margin-top:14px">
-                <button class="btn btn-sm" type="button" id="dlPhotoBtn">⬇ Download this photo</button>
+              <p class="muted small" style="margin:12px 0 0">Your edits save on this device by themselves. <b>Save this photo</b> keeps a finished copy — on a phone choose <b>Save Image</b> to put it in Photos.</p>
+              <div class="row" style="gap:6px;margin-top:8px">
+                <button class="btn btn-sm" type="button" id="dlPhotoBtn">💾 Save this photo</button>
                 <button class="btn btn-ghost btn-sm" type="button" id="sharePhotoBtn" hidden>📤 Share</button>
               </div>
             </div>
@@ -143,7 +144,7 @@
 
         <!-- ===== Brand ===== -->
         <section class="card" aria-labelledby="brandTitle" id="brandCard" hidden>
-          <h2 id="brandTitle"><span class="cx-num">★</span>Your brand</h2>
+          <h2 id="brandTitle"><span class="cx-num">★</span>Your brand &amp; what's on the pictures</h2>
           <div class="fields">
             <label class="field"><span>Shop name</span><input type="text" id="bShop" maxlength="40" placeholder="e.g. Fresh Cuts Barbershop"></label>
             <label class="field"><span>Barber name or @handle</span><input type="text" id="bHandle" maxlength="40" placeholder="e.g. @cutsbymike"></label>
@@ -163,7 +164,17 @@
               <select id="wmStyle"><option value="tag">Tag</option><option value="plain">Plain text</option><option value="bar">Bar across the bottom</option></select>
             </label>
           </div>
-          <label class="cx-switch" style="margin-top:12px"><input type="checkbox" id="showStage" checked> Write BEFORE / AFTER on the pictures</label>
+          <div class="sc-shown">
+            <div class="label">What shows on the pictures</div>
+            <label class="cx-switch sc-plain"><input type="checkbox" id="plainOn"> 📷 Plain photos — nothing added on top <span class="muted small">(regular photos for theCut or your gallery; crops and looks stay)</span></label>
+            <div class="sc-switches" id="switchGroup">
+              <label class="cx-switch"><input type="checkbox" id="showStage" checked> BEFORE / AFTER tags</label>
+              <label class="cx-switch"><input type="checkbox" id="showAngle" checked> Angles (FRONT / SIDE / BACK)</label>
+              <label class="cx-switch"><input type="checkbox" id="showBrand" checked> Your name / logo</label>
+              <label class="cx-switch"><input type="checkbox" id="showTitle" checked> Client name on sets</label>
+              <label class="cx-switch"><input type="checkbox" id="showText" checked> Text on screen (video)</label>
+            </div>
+          </div>
         </section>
       </div>
 
@@ -184,8 +195,25 @@
         <div class="row sc-toggles">
           <label class="cx-switch"><input type="checkbox" id="kenBurns"> Slow zoom</label>
           <label class="cx-switch"><input type="checkbox" id="introOn"> Intro card</label>
-          <label class="cx-switch"><input type="checkbox" id="outroOn"> “Book now” card</label>
+          <label class="cx-switch"><input type="checkbox" id="outroOn"> Ending card</label>
         </div>
+
+        <details class="cx-more sc-textbox" id="textBox" open>
+          <summary>✍️ Text on screen</summary>
+          <p class="muted small" style="margin:8px 0">Type text for any part in the list below (a price, the cut's name, "Walk-ins welcome"…). Drag the text on the preview to move it.</p>
+          <div class="fields sc-showopts" style="margin-top:0">
+            <label class="field"><span>Style</span><select id="capStyle"><option value="box">White on dark box</option><option value="bold">Bold with outline</option><option value="brand">On your brand colour</option><option value="neon">Neon glow</option><option value="clean">Clean with shadow</option></select></label>
+            <label class="field"><span>Where</span><select id="capPos"><option value="bottom">Bottom</option><option value="middle">Middle</option><option value="top">Top</option></select></label>
+            <label class="field"><span>Comes in with</span><select id="capAnim"><option value="pop">Pop</option><option value="slide">Slide up</option><option value="type">Type out</option><option value="fade">Fade</option><option value="none">No animation</option></select></label>
+            <label class="field"><span>Size <b id="capSizeVal"></b></span><input type="range" id="capSize" min="60" max="170" step="5"></label>
+          </div>
+          <div class="fields sc-showopts">
+            <label class="field"><span>Intro card — big line</span><input type="text" id="introTitle" maxlength="40" placeholder="your shop name"></label>
+            <label class="field"><span>Intro card — small line</span><input type="text" id="introSub" maxlength="60" placeholder="Fresh cuts · clean lines"></label>
+            <label class="field"><span>Ending card — big line</span><input type="text" id="outroTitle" maxlength="40" placeholder="Book now"></label>
+            <label class="field"><span>Ending card — small line</span><input type="text" id="outroSub" maxlength="60" placeholder="your booking line"></label>
+          </div>
+        </details>
 
         <div class="label" style="margin-top:14px">Order <span class="muted small" id="slideCount"></span></div>
         <ol class="sc-slides" id="slideList" aria-label="Slides"></ol>
@@ -211,7 +239,8 @@
             <span class="row" style="gap:6px"><button class="btn btn-ghost btn-sm" type="button" id="shareVideoBtn" hidden>📤 Share</button><a class="btn btn-sm" id="downloadBtn" href="#" download>⬇ Video</a></span>
           </div>
         </div>
-        <button class="btn btn-ghost" type="button" id="zipBtn" style="width:100%;margin-top:10px">🗂️ Download every photo &amp; set (ZIP)</button>
+        <button class="btn" type="button" id="saveAllBtn" style="width:100%;margin-top:10px">💾 Save all edited photos</button>
+        <button class="btn btn-ghost" type="button" id="zipBtn" style="width:100%;margin-top:8px">🗂️ Download everything (ZIP)</button>
         <p class="muted small" id="zipNote" style="margin:6px 0 0"></p>
       </aside>
     </div>
