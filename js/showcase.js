@@ -1142,7 +1142,9 @@
       var e = YBFX.byId[it.id]; if (!e) return '';
       return '<li class="sc-fxon" data-fxi="' + i + '"><b>' + YB.esc(e.name) + '</b><span class="sc-fxs" role="group" aria-label="How strong">' + STRENGTH.map(function (st) { return '<button type="button" data-fxs="' + st[0] + '" class="' + (Math.abs((it.s || 1) - st[0]) < 0.01 ? 'on' : '') + '">' + st[1] + '</button>'; }).join('') + '</span><button type="button" class="btn btn-danger btn-sm" data-fxdel aria-label="Remove ' + YB.esc(e.name) + '">✕ Remove</button></li>';
     }).join('');
-    $('fxClear').hidden = !list.length; $('fxCopyAll').hidden = !list.length || fxTarget === 'all';
+    var anyFx = (S.fxAll || []).length || slides.some(function (sl) { return (sl.fx || []).length; });
+    $('fxClear').hidden = fxTarget === 'all' ? !anyFx : !list.length; $('fxCopyAll').hidden = !list.length || fxTarget === 'all';
+    $('fxClear').textContent = fxTarget === 'all' ? '🗑 Remove all effects from every photo' : '🗑 Remove all from this photo';
     $('fxSurprise').textContent = fxTarget === 'all' ? '🎲 Surprise me — one matching style for every photo' : '🎲 Surprise me (keeps the matching frame)';
     // categories + tiles
     $('fxCats').innerHTML = YBFX.cats.map(function (c) { var n = c[0] === 'popular' ? YBFX.list.filter(function (e) { return e.pop; }).length : YBFX.list.filter(function (e) { return e.cat === c[0]; }).length; return '<button type="button" class="' + (fxCat === c[0] ? 'on' : '') + '" data-fxc="' + c[0] + '" aria-pressed="' + (fxCat === c[0]) + '">' + c[1] + ' <span>' + n + '</span></button>'; }).join('');
@@ -1233,7 +1235,13 @@
       if (sb) list[i].s = +sb.getAttribute('data-fxs'); else if (e.target.closest('[data-fxdel]')) list.splice(i, 1); else return;
       fxChanged();
     });
-    $('fxClear').addEventListener('click', function () { var list = fxListNow(); if (list.length && confirm('Take every effect off this?')) { list.length = 0; fxChanged(); } });
+    $('fxClear').addEventListener('click', function () {
+      if (fxTarget === 'all') {   // clean slate: nothing on any photo
+        if (!confirm('Take every effect off every photo?')) return;
+        S.fxAll = []; slides.forEach(function (sl) { sl.fx = []; }); fxChanged(); YB.toast('All effects removed from every photo'); return;
+      }
+      var list = fxListNow(); if (list.length && confirm('Take every effect off this photo?')) { list.length = 0; fxChanged(); YB.toast('Effects removed from this photo'); }
+    });
     $('fxCopyAll').addEventListener('click', function () {
       var src = fxListNow().map(function (it) { return { id: it.id, s: it.s }; });
       slides.forEach(function (sl) { sl.fx = src.map(function (it) { return { id: it.id, s: it.s }; }); });
