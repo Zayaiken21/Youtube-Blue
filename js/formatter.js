@@ -232,11 +232,19 @@
     else if (an === 'type') { k.chars = clamp((t - st) / Math.max(0.4, Math.min(1.6, (en - st) * 0.5)), 0, 1); }
     return k;
   }
+  // A video layer shows the part of its video that belongs at time t (its own start / end on the timeline).
+  function layerFrame(o, t) {
+    var v = o._v; if (!v || v.readyState < 2 || !v.videoWidth) return null;
+    var want = clamp((o.in || 0) + (t - (o.start || 0)), 0, Math.max(0, (v.duration || o.dur || 0) - 0.05)), active = pv.playing || !!rec;
+    if (Math.abs(v.currentTime - want) > (active ? 0.3 : 0.04)) { try { v.currentTime = want; } catch (e) { /* not ready */ } }
+    if (active && v.paused) v.play().catch(function () {}); else if (!active && !v.paused) v.pause();
+    return v;
+  }
   function drawOverlays(x, W, H, t, total, forPreview) {
     var base = Math.min(W, H);
     overlays.forEach(function (o) {
       o._b = null;
-      if (o.hidden || !visibleAt(o, t)) return;
+      if (o.hidden || !visibleAt(o, t)) { if (o._v && !o._v.paused) o._v.pause(); return; }
       // paused preview shows every overlay fully, so it can be seen and edited; animations play in playback and the export
       var k = forPreview && !pv.playing ? { a: 1, s: 1, dy: 0, chars: 1 } : animState(o, t, total);
       x.save(); x.globalAlpha = k.a * (o.opacity == null ? 1 : o.opacity);
@@ -249,10 +257,10 @@
       }
       var cx = o.x * W, cy = (o.y + k.dy) * H;
       x.translate(cx, cy); x.scale(k.s, k.s);
-      if (o.type === 'image') {
-        var im = o._img;
-        if (im && im.naturalWidth) {
-          var w = o.w * base, h = w * im.naturalHeight / im.naturalWidth;   // sized by the short side, so it looks the same in every format
+      if (o.type === 'image' || o.type === 'video') {
+        var im = o.type === 'video' ? layerFrame(o, t) : o._img, iw = im && (im.naturalWidth || im.videoWidth), ih = im && (im.naturalHeight || im.videoHeight);
+        if (im && iw) {
+          var w = o.w * base, h = w * ih / iw;   // sized by the short side, so it looks the same in every format
           x.save();
           if (o.shape === 'circle') { x.beginPath(); x.arc(0, 0, Math.min(w, h) / 2, 0, Math.PI * 2); x.clip(); var d = Math.min(w, h), sc = Math.max(d / w, d / h); x.drawImage(im, -w * sc / 2, -h * sc / 2, w * sc, h * sc); w = h = d; }
           else { if (o.shape === 'rounded') { rr(x, -w / 2, -h / 2, w, h, Math.min(w, h) * 0.12); x.clip(); } x.drawImage(im, -w / 2, -h / 2, w, h); }
@@ -435,6 +443,7 @@
   function stopPreview() {
     pv.playing = false; cancelAnimationFrame(pv.raf); setPlayBtn(false);
     clips.forEach(function (c) { if (c._el) c._el.pause(); });
+    overlays.forEach(function (o) { if (o._v) o._v.pause(); });
     if (pv.music) pv.music.pause();
   }
   function setPlayBtn(on) {
@@ -554,7 +563,8 @@
     $('musicVol').value = S.musicVol; $('musicVolVal').textContent = S.musicVol + '%';
   }
   function ovLabel(o) {
-    if (o.type === 'image') return '🖼️ Picture';
+    if (o.type === 'video') return '🎬 Video layer';
+    if (o.type === 'image') return o.sticker ? '💈 Sticker' : '🖼️ Picture';
     if (o.type === 'cta') return '🔔 ' + (o.text || 'Subscribe');
     if (o.type === 'progress') return '▬ Progress bar';
     return (o.kind === 'emoji' ? '' : '🔤 ') + (String(o.text || '').split('\n')[0].slice(0, 40) || 'Text');
@@ -602,7 +612,7 @@
         '<label class="field"><span>Line up</span><select data-o="align">' + opt([['left', 'Left'], ['center', 'Centre'], ['right', 'Right']], o.align || 'center') + '</select></label>' +
         '<label class="field"><span>Width <b>' + Math.round((o.wrap || 0.86) * 100) + '%</b></span><input type="range" data-o="wrap" min="20" max="100" step="2" value="' + Math.round((o.wrap || 0.86) * 100) + '"></label>' +
         '</div>';
-    } else if (o.type === 'image') {
+    } else if (o.type === 'image' || o.type === 'video') {
       h += '<div class="fields">' +
         '<label class="field"><span>Size <b>' + Math.round(o.w * 100) + '%</b></span><input type="range" data-o="w" min="4" max="180" step="1" value="' + Math.round(o.w * 100) + '"></label>' +
         '<label class="field"><span>Shape</span><select data-o="shape">' + opt([['square', 'As it is'], ['rounded', 'Rounded'], ['circle', 'Circle']], o.shape || 'square') + '</select></label>' +
@@ -666,6 +676,11 @@
   }
   function loadOvImage(o) {
     return new Promise(function (res) {
+      if (o.type === 'video') {   // a video layer: a quiet video element kept in step with the timeline
+        var v = document.createElement('video'); v.muted = true; v.playsInline = true; v.setAttribute('playsinline', ''); v.preload = 'auto';
+        var done = false; function fin() { if (done) return; done = true; o._v = v; res(); }
+        v.onloadeddata = fin; v.onerror = fin; setTimeout(fin, 8000); v.src = blobUrl(o.blobId); stash.appendChild(v); return;
+      }
       var im = new Image(); im.onload = function () { o._img = im; res(); }; im.onerror = function () { res(); };
       im.src = o.sticker && window.YBStickers ? window.YBStickers.url(o.sticker) : blobUrl(o.blobId);
     });
@@ -1170,11 +1185,11 @@
       if (data.bgImage) ids.push(data.bgImage.blobId);
       return Promise.all(ids.map(function (id) { return getBlob(id).then(function (b) { if (b) addBlob(id, b); }); })).then(function () {
         clips = (data.clips || []).filter(function (c) { return blobs[c.blobId]; });
-        overlays = (data.overlays || []).filter(function (o) { return o.type !== 'image' || o.sticker || blobs[o.blobId]; });
+        overlays = (data.overlays || []).filter(function (o) { return o.type === 'video' ? !!blobs[o.blobId] : (o.type !== 'image' || o.sticker || blobs[o.blobId]); });
         music = data.music && blobs[data.music.blobId] ? data.music : null;
         if (data.bgImage && blobs[data.bgImage.blobId]) { var im = new Image(); im.onload = function () { drawPreview(); }; im.src = blobUrl(data.bgImage.blobId); bgImage = { blobId: data.bgImage.blobId, img: im }; }
         if (S.bg === 'image' && !bgImage) S.bg = 'blur';
-        return Promise.all(overlays.filter(function (o) { return o.type === 'image'; }).map(loadOvImage)).then(function () {
+        return Promise.all(overlays.filter(function (o) { return o.type === 'image' || o.type === 'video'; }).map(loadOvImage)).then(function () {
           // thumbnails aren't saved — make them again
           clips.forEach(function (c) {
             var v = document.createElement('video'); v.muted = true; v.preload = 'auto'; v.src = blobUrl(c.blobId);
@@ -1196,6 +1211,17 @@
     seek: function (t) { stopPreview(); seekTo(clamp(t, 0, timeline().total)); }, stop: stopPreview,
     addOverlay: function (o) { o.id = YB.uid(); if (o.start == null) o.start = 0; if (o.end === undefined) o.end = null; return loadOvImage(o).then(function () { overlays.push(o); sel = o.id; saveProject(); renderOverlays(); renderSteps(); renderFacts(); drawPreview(); }); },
     removeClip: function (i) { var gone = clips.splice(i, 1)[0]; if (!gone) return; if (gone._el) { gone._el.pause(); gone._el.remove(); } if (!clips.some(function (c) { return c.blobId === gone.blobId; })) delBlob(gone.blobId); saveProject(); renderAll(); seekTo(Math.min(pv.t, timeline().total)); },
+    addVideoLayer: function (file) {
+      return probe(file).then(function (info) {
+        var id = YB.uid(), blobId = 'l' + id, total = timeline().total, st = Math.round(clamp(pv.t, 0, Math.max(0, total - 0.5)) * 10) / 10;
+        addBlob(blobId, file);
+        return putBlob(blobId, file).then(function () {
+          var len = Math.min(info.dur || 3, Math.max(0.5, total - st)), o = { type: 'video', blobId: blobId, name: file.name, dur: info.dur, in: 0, w: 0.42, x: 0.72, y: 0.28, shape: 'rounded', opacity: 1, border: true, anim: 'pop', start: st, end: Math.round((st + len) * 10) / 10 };
+          return window.YBFmt.addOverlay(o);
+        });
+      });
+    },
+    moveClip: function (from, to) { if (from === to || !clips[from]) return; var c = clips.splice(from, 1)[0]; clips.splice(clamp(to, 0, clips.length), 0, c); saveProject(); renderAll(); seekTo(pv.t); },
     dupClip: function (i) { var c = clips[i]; if (!c) return; var b = {}; Object.keys(c).forEach(function (k) { if (k.charAt(0) !== '_') b[k] = c[k]; }); b.id = YB.uid(); b.fx = (c.fx || []).map(function (q) { return { id: q.id, s: q.s }; }); clips.splice(i + 1, 0, b); saveProject(); renderAll(); seekTo(pv.t); }
   };
   window.YBFormatter = {   // used by tests

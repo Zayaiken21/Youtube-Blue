@@ -15,13 +15,14 @@
   <meta name="mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
   <meta name="apple-mobile-web-app-title" content="YT Blue">
-  <link rel="stylesheet" href="css/style.css?v=46">
+  <link rel="stylesheet" href="css/style.css?v=49">
   <script src="js/core.js" defer></script>
   <script src="js/vendor/mp4-muxer.min.js" defer></script>
   <script src="js/fullscreen.js?v=1" defer></script>
+  <script src="js/showcase-fold.js?v=2" defer></script>
   <script src="js/showcase-fx.js?v=5" defer></script>
-  <script src="js/formatter.js?v=4" defer></script>
-  <script src="js/formatter-pro.js?v=2" defer></script>
+  <script src="js/formatter.js?v=5" defer></script>
+  <script src="js/formatter-pro.js?v=4" defer></script>
 </head>
 <body data-page="formatter">
   <header class="topbar">
@@ -135,6 +136,7 @@
             <button class="btn btn-ghost btn-sm" type="button" data-add="lower">＋ Name tag</button>
             <button class="btn btn-ghost btn-sm" type="button" data-add="emoji">＋ Emoji</button>
             <label class="btn btn-ghost btn-sm fm-upload">＋ Logo / picture<input type="file" id="imgFile" accept="image/*" hidden></label>
+            <label class="btn btn-ghost btn-sm fm-upload">🎬 ＋ Video layer<input type="file" id="layerFile" accept="video/*,.mp4,.mov,.m4v,.webm" hidden></label>
             <button class="btn btn-ghost btn-sm" type="button" data-add="cta">＋ Subscribe</button>
             <button class="btn btn-ghost btn-sm" type="button" data-add="progress">＋ Progress bar</button>
           </div>
@@ -170,21 +172,21 @@
           <span class="cx-time" id="timeLabel">0:00 / 0:00</span>
           <button type="button" class="btn btn-ghost btn-icon btn-sm yb-fullbtn" id="fullBtn" aria-label="Watch full screen" title="Full screen">⛶</button>
         </div>
-        <div class="row fm-stage-tools">
-          <button class="btn btn-ghost btn-sm" type="button" id="moveVideoBtn" aria-pressed="false">🖐 Move video</button>
-          <button class="btn btn-ghost btn-sm" type="button" id="splitBtn">✂ Split clip here</button>
-          <button class="btn btn-ghost btn-sm" type="button" id="setInBtn">⇤ Start here</button>
-          <button class="btn btn-ghost btn-sm" type="button" id="setOutBtn">End here ⇥</button>
-        </div>
         <div class="fm-tl" id="tlBox">
-          <div class="row fm-tl-tools">
-            <button class="btn btn-sm" type="button" id="tlSplit">✂ Split</button>
-            <button class="btn btn-ghost btn-sm" type="button" id="tlDup">⧉ Duplicate</button>
-            <button class="btn btn-ghost btn-sm" type="button" id="tlDel">🗑 Delete</button>
-            <span class="fm-tl-zoom"><button class="btn btn-ghost btn-icon btn-sm" type="button" id="tlZoomOut" aria-label="Zoom out the timeline">−</button><button class="btn btn-ghost btn-icon btn-sm" type="button" id="tlZoomIn" aria-label="Zoom in the timeline">＋</button></span>
+          <div class="fm-toolbar" role="toolbar" aria-label="Edit tools">
+            <button type="button" class="fm-tool fm-tool-main" id="tlSplit"><i>✂️</i><span>Split</span></button>
+            <button type="button" class="fm-tool" id="setInBtn"><i>⇤</i><span>Start here</span></button>
+            <button type="button" class="fm-tool" id="setOutBtn"><i>⇥</i><span>End here</span></button>
+            <button type="button" class="fm-tool" id="tlDup"><i>⧉</i><span>Duplicate</span></button>
+            <button type="button" class="fm-tool" id="tlDel"><i>🗑️</i><span>Delete</span></button>
+            <label class="fm-tool"><i>🎬</i><span>+ Layer</span><input type="file" id="tlLayerFile" accept="video/*,.mp4,.mov,.m4v,.webm" hidden></label>
+            <button type="button" class="fm-tool" id="moveVideoBtn" aria-pressed="false"><i>🖐</i><span>Move video</span></button>
+            <button type="button" class="fm-tool" id="tlZoomOut" aria-label="Zoom out the timeline"><i>➖</i><span>Zoom out</span></button>
+            <button type="button" class="fm-tool" id="tlZoomIn" aria-label="Zoom in the timeline"><i>➕</i><span>Zoom in</span></button>
+            <button type="button" id="splitBtn" hidden></button>
           </div>
           <div class="fm-tl-scroll" id="tlScroll"><div class="fm-tl-inner" id="tlInner"></div></div>
-          <p class="muted small" style="margin:6px 0 0">Tap the timeline to move the playhead. Drag a layer to move it, drag its ends to set when it shows. Delete removes the selected layer, or the clip under the playhead.</p>
+          <p class="muted small fm-tl-tip">Tap to move the playhead · drag a clip's ends to trim · drag a clip or layer to move it · 👁 hides a layer</p>
         </div>
         <div class="cx-facts" id="facts"></div>
         <div class="notice warn" id="lenWarn" hidden></div>

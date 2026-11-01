@@ -133,25 +133,28 @@
     var avail = Math.max(240, sc.clientWidth - 4);
     pps = Math.max(8, avail / Math.max(1, total)) * zoomK;
     var W = Math.max(avail, Math.round(total * pps)), cur = F.clipAt(F.pv.t);
-    var ruler = '', step = pps > 60 ? 1 : pps > 25 ? 2 : pps > 12 ? 5 : 10;
-    for (var s = 0; s <= total + 0.001; s += step) ruler += '<span class="fm-tick" style="left:' + (s * pps) + 'px">' + (Math.floor(s / 60) + ':' + String(Math.round(s % 60)).padStart(2, '0')) + '</span>';
+    var ruler = '', step = [0.5, 1, 2, 5, 10, 15, 30, 60, 120].find(function (q) { return q * pps >= 56; }) || 300;
+    for (var s = 0; s <= total + 0.001; s += step) ruler += '<span class="fm-tick" style="left:' + (s * pps) + 'px">' + (Math.floor(s / 60) + ':' + String(Math.floor(s % 60)).padStart(2, '0') + (step < 1 && s % 1 ? '.5' : '')) + '</span>';
     var vids = cl.map(function (c, i) {
       var w = Math.max(6, F.clipLen(c) * pps - 2), nfx = (c.fx || []).length;
-      return '<div class="fm-tclip' + (i === cur ? ' on' : '') + '" data-tclip="' + i + '" style="left:' + (tl.starts[i] * pps) + 'px;width:' + w + 'px' + (c.thumb ? ';background-image:url(' + c.thumb + ')' : '') + '"><span>' + (i + 1) + (nfx ? ' ✨' + nfx : '') + '</span></div>';
+      return '<div class="fm-tclip' + (i === cur ? ' on' : '') + '" data-tclip="' + i + '" style="left:' + (tl.starts[i] * pps) + 'px;width:' + w + 'px' + (c.thumb ? ';background-image:url(' + c.thumb + ')' : '') + '">' +
+        '<i class="fm-th fm-th-l" data-cedge="l" title="Drag to trim the start"></i><span>' + (i + 1) + (nfx ? ' ✨' + nfx : '') + ' · ' + F.clipLen(c).toFixed(1) + ' of ' + (c.dur || 0).toFixed(1) + ' s</span><i class="fm-th fm-th-r" data-cedge="r" title="Drag to trim the end"></i></div>';
     }).join('');
     var rows = ov.slice().reverse().map(function (o) {   // top row = front layer
       var st = o.type === 'progress' ? 0 : (o.start || 0), en = o.type === 'progress' || o.end == null ? total : Math.min(o.end, total);
-      var name = o.type === 'image' ? (o.sticker ? (STICKERS[o.sticker] || [''])[0] : '🖼️ Picture') : o.type === 'progress' ? '▬ Progress bar' : o.type === 'cta' ? '🔔 ' + (o.text || 'Button') : (o.kind === 'emoji' ? o.text : '🅣 ' + (o.text || 'Text'));
-      return '<div class="fm-trow"><button type="button" class="fm-teye" data-teye="' + o.id + '" aria-pressed="' + !o.hidden + '" aria-label="' + (o.hidden ? 'Show' : 'Hide') + ' layer">' + (o.hidden ? '🚫' : '👁') + '</button><div class="fm-tlayer' + (o.id === sel ? ' on' : '') + (o.type === 'progress' ? ' fixed' : '') + (o.hidden ? ' off' : '') + '" data-tov="' + o.id + '" style="left:' + (st * pps) + 'px;width:' + Math.max(14, (en - st) * pps) + 'px">' +
+      var name = o.type === 'video' ? '🎬 ' + (o.name || 'Video layer') : o.type === 'image' ? (o.sticker ? (STICKERS[o.sticker] || [''])[0] : '🖼️ Picture') : o.type === 'progress' ? '▬ Progress bar' : o.type === 'cta' ? '🔔 ' + (o.text || 'Button') : (o.kind === 'emoji' ? o.text : '🅣 ' + (o.text || 'Text'));
+      return '<div class="fm-trow' + (o.type === 'video' ? ' fm-vlayer' : '') + '"><button type="button" class="fm-teye" data-teye="' + o.id + '" aria-pressed="' + !o.hidden + '" aria-label="' + (o.hidden ? 'Show' : 'Hide') + ' layer">' + (o.hidden ? '🚫' : '👁') + '</button><div class="fm-tlayer' + (o.id === sel ? ' on' : '') + (o.type === 'progress' ? ' fixed' : '') + (o.hidden ? ' off' : '') + '" data-tov="' + o.id + '" style="left:' + (st * pps) + 'px;width:' + Math.max(14, (en - st) * pps) + 'px">' +
         (o.type === 'progress' ? '' : '<i class="fm-th fm-th-l" data-edge="l"></i>') + '<span>' + esc(name) + '</span>' + (o.type === 'progress' ? '' : '<i class="fm-th fm-th-r" data-edge="r"></i>') + '</div></div>';
     }).join('');
     box.style.width = W + 'px';
     box.innerHTML = '<div class="fm-ruler" data-seek>' + ruler + '</div>' + (rows ? '<div class="fm-tlabel">Layers (top = in front)</div>' + rows : '') +
       '<div class="fm-tlabel">Video</div><div class="fm-trow fm-vrow" data-seek>' + vids + '</div><div class="fm-playhead" id="tlHead"></div>';
+    lastTotal = total; lastW = sc.clientWidth;
     tick(F.pv.t, total);
     renderFx();
   }
   function tick(t, total) {
+    if (total != null && Math.abs(total - lastTotal) > 0.01 && window.YBFmt && YBFmt.clips().length) { render(); return; }
     var h = $('tlHead'); if (!h || !pps) return;
     h.style.left = (t * pps) + 'px';
     var F = window.YBFmt; if (!F) return;
@@ -176,26 +179,52 @@
         F.sel(o.id); F.renderOverlays(); F.draw();
         if (o.type === 'progress') return;
         var total = F.timeline().total, edge = e.target.getAttribute('data-edge');
-        drag = { o: o, edge: edge, x0: e.clientX, st: o.start || 0, en: o.end == null ? total : o.end, total: total, moved: false, el: e.target.closest('[data-tov]') };
+        drag = { o: o, edge: edge, x0: e.clientX, st: o.start || 0, en: o.end == null ? total : o.end, total: total, moved: false, el: e.target.closest('[data-tov]'), in0: o.in || 0 };
         inner.setPointerCapture(e.pointerId); e.preventDefault(); return;
       }
       var tc = e.target.closest('[data-tclip]');
-      if (tc) { YBFmt.seek(timeAt(e)); }
-      if (tc || e.target.closest('[data-seek]') || e.target === inner) { F.seek(timeAt(e)); drag = { seek: true }; inner.setPointerCapture(e.pointerId); }
+      if (tc) {
+        var ci = +tc.getAttribute('data-tclip'), cc = F.clips()[ci], ce = e.target.getAttribute('data-cedge');
+        drag = ce ? { clip: ci, edge: ce, x0: e.clientX, in0: cc.in, out0: cc.out } : { reorder: ci, x0: e.clientX, moved: false, el: tc, t: timeAt(e) };
+        inner.setPointerCapture(e.pointerId); e.preventDefault(); return;
+      }
+      if (e.target.closest('[data-seek]') || e.target === inner) { F.seek(timeAt(e)); drag = { seek: true }; inner.setPointerCapture(e.pointerId); }
     });
     inner.addEventListener('pointermove', function (e) {
       if (!drag) return; var F = YBFmt;
       if (drag.seek) { F.seek(timeAt(e)); return; }
+      if (drag.clip != null) {   // trim a clip: drag its ends out to its full length, or in
+        var c = F.clips()[drag.clip], dd = (e.clientX - drag.x0) / pps;
+        if (drag.edge === 'l') c.in = Math.round(clamp(drag.in0 + dd, 0, drag.out0 - 0.2) * 100) / 100;
+        else c.out = Math.round(clamp(drag.out0 + dd, drag.in0 + 0.2, c.dur || drag.out0) * 100) / 100;
+        drag.moved = true; var tl2 = F.timeline(); render(); F.seek(drag.edge === 'l' ? tl2.starts[drag.clip] : tl2.starts[drag.clip] + F.clipLen(c) - 0.05); return;
+      }
+      if (drag.reorder != null) {   // drag a clip along the track to put it somewhere else
+        var dx = e.clientX - drag.x0; if (Math.abs(dx) > 6) drag.moved = true;
+        if (drag.moved) { drag.el.style.transform = 'translateX(' + dx + 'px)'; drag.el.style.zIndex = 5; drag.el.classList.add('dragging'); }
+        return;
+      }
       var d = (e.clientX - drag.x0) / pps; if (Math.abs(e.clientX - drag.x0) > 3) drag.moved = true;
-      var o = drag.o, len = drag.en - drag.st, st = drag.st, en = drag.en;
-      if (drag.edge === 'l') st = clamp(drag.st + d, 0, drag.en - 0.2);
-      else if (drag.edge === 'r') en = clamp(drag.en + d, drag.st + 0.2, drag.total);
+      var o = drag.o, len = drag.en - drag.st, st = drag.st, en = drag.en, isV = o.type === 'video', room = isV ? Math.max(0.2, (o.dur || 999) - (drag.in0 || 0)) : 1e9;
+      if (drag.edge === 'l') { st = clamp(drag.st + d, Math.max(0, isV ? drag.st - (drag.in0 || 0) : 0), drag.en - 0.2); if (isV) o.in = Math.round(((drag.in0 || 0) + (st - drag.st)) * 100) / 100; }
+      else if (drag.edge === 'r') en = clamp(drag.en + d, drag.st + 0.2, Math.min(drag.total, drag.st + room));
       else { st = clamp(drag.st + d, 0, Math.max(0, drag.total - len)); en = st + len; }
-      o.start = Math.round(st * 10) / 10; o.end = en >= drag.total - 0.05 ? null : Math.round(en * 10) / 10;
+      o.start = Math.round(st * 10) / 10; o.end = !isV && en >= drag.total - 0.05 ? null : Math.round(en * 10) / 10;
       drag.el.style.left = (o.start * pps) + 'px'; drag.el.style.width = Math.max(14, ((o.end == null ? drag.total : o.end) - o.start) * pps) + 'px';
       F.seek(drag.edge === 'r' ? Math.max(0, (o.end == null ? drag.total : o.end) - 0.05) : o.start);
     });
-    function up() { if (!drag) return; var was = drag; drag = null; if (was.o && was.moved) { YBFmt.save(); YBFmt.renderOverlays(); } }
+    function up(e) {
+      if (!drag) return; var was = drag, F = YBFmt; drag = null;
+      if (was.o && was.moved) { F.save(); F.renderOverlays(); }
+      if (was.clip != null && was.moved) { F.save(); F.renderAll(); }
+      if (was.reorder != null) {
+        if (!was.moved) { F.seek(was.t); return; }
+        var t = timeAt(e), tl = F.timeline(), cl = F.clips(), to = 0;
+        for (var i = 0; i < cl.length; i++) if (t > tl.starts[i] + F.clipLen(cl[i]) / 2) to = i + (i >= was.reorder ? 0 : 1);
+        to = clamp(to, 0, cl.length - 1);
+        if (to !== was.reorder) { F.moveClip(was.reorder, to); YB.toast('Clip moved'); } else render();
+      }
+    }
     inner.addEventListener('pointerup', up); inner.addEventListener('pointercancel', up);
     $('tlSplit').addEventListener('click', function () { $('splitBtn').click(); });
     $('tlDup').addEventListener('click', function () { var F = YBFmt; if (!F.clips().length) return; F.stop(); F.dupClip(F.clipAt(F.pv.t)); YB.toast('Clip duplicated'); });
@@ -225,6 +254,8 @@
       if (e.target.id === 'fmFxClear') { list.length = 0; fxSaved(); }
     });
     var fxT = 0; $('fmFxSearch').addEventListener('input', function () { clearTimeout(fxT); fxT = setTimeout(function () { fxShow = 48; renderFx(); }, 200); });
+    function addLayerFile(f) { if (!f) return; var F = YBFmt; if (!F.clips().length) { YB.toast('Add your main video first'); return; } YB.toast('Adding video layer…'); F.addVideoLayer(f).then(function () { YB.toast('Video layer added — drag it on the preview, set when it shows on the timeline'); }, function () { YB.toast('This browser can\'t play that video'); }); }
+    ['layerFile', 'tlLayerFile'].forEach(function (id) { var el = $(id); if (el) el.addEventListener('change', function () { addLayerFile(this.files[0]); this.value = ''; }); });
     // stickers
     $('stickerRow').innerHTML = YBStickers.list.map(function (s) { return '<button type="button" class="fm-sticker" data-sticker="' + s[0] + '" aria-label="' + esc(s[1]) + '" title="' + esc(s[1]) + '"><img src="' + YBStickers.url(s[0]) + '" alt=""></button>'; }).join('');
     $('stickerRow').addEventListener('click', function (e) {
@@ -234,6 +265,11 @@
       YB.toast('Sticker added — drag it on the preview; set when it shows on the timeline');
     });
   }
+  var lastW = 0, lastTotal = -1;
+  function watchSize() {
+    var sc = $('tlScroll'); if (!sc) return;
+    if (window.ResizeObserver) new ResizeObserver(function () { if (sc.clientWidth && sc.clientWidth !== lastW) { lastW = sc.clientWidth; render(); } }).observe(sc);
+  }
   window.YBFmtPro = { render: render, tick: tick, beats: function () { return beats; }, beatAt: beatAt };
-  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', function () { wire(); render(); }); else { wire(); render(); }
+  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', function () { wire(); watchSize(); render(); }); else { wire(); watchSize(); render(); }
 })();

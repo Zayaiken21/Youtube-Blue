@@ -1430,3 +1430,31 @@ input[type="range"] { min-height: 32px; }            /* finger-friendly */
 .sc-fxsearch { width: 100%; box-sizing: border-box; font: inherit; font-size: 1rem; padding: 11px 14px; border-radius: 12px; border: 1px solid var(--line); background: rgba(0,0,0,.25); color: var(--text); margin: 6px 0 4px; }
 .sc-fxcats.dim { opacity: .55; }
 #fmBeat { margin: 4px 0 2px; }
+
+.fm-tclip .fm-th { background: rgba(255,255,255,.55); width: 10px; z-index: 2; }
+.fm-tclip .fm-th::after { content: ""; position: absolute; left: 4px; top: 30%; bottom: 30%; width: 2px; background: #000; border-radius: 1px; }
+.fm-tclip span { left: 14px !important; white-space: nowrap; }
+.fm-tclip { cursor: grab; touch-action: none; }
+.fm-tclip.dragging { opacity: .85; box-shadow: 0 6px 18px rgba(0,0,0,.5); cursor: grabbing; }
+.fm-vlayer .fm-tlayer { background: rgba(56,189,248,.3); border-color: rgba(125,211,252,.85); }
+.fm-vlayer .fm-tlayer.on { background: rgba(251,191,36,.35); border-color: #fbbf24; }
+
+/* ---- Video Formatter: compact CapCut-style toolbar ---- */
+.fm-toolbar { display: flex; gap: 4px; overflow-x: auto; scrollbar-width: none; -webkit-overflow-scrolling: touch; padding: 2px 0 6px; margin: 4px 0 2px; }
+.fm-toolbar::-webkit-scrollbar { display: none; }
+.fm-tool { flex: 0 0 auto; min-width: 64px; display: flex; flex-direction: column; align-items: center; gap: 3px; padding: 8px 6px; border-radius: 12px; border: 1px solid var(--line-soft); background: rgba(255,255,255,.04); color: var(--text); font: inherit; cursor: pointer; }
+.fm-tool i { font-style: normal; font-size: 1.25rem; line-height: 1; }
+.fm-tool span { font-size: .72rem; font-weight: 600; white-space: nowrap; color: var(--muted); }
+.fm-tool:hover { border-color: var(--primary-2); }
+.fm-tool:active { transform: scale(.96); }
+.fm-tool-main { background: var(--primary); border-color: var(--primary); }
+.fm-tool-main span { color: var(--primary-ink); }
+.fm-tool[aria-pressed=true], .fm-tool.on { border-color: var(--primary-2); background: rgba(255,255,255,.1); }
+.fm-tl { margin-top: 10px; border-top: 0; padding-top: 0; }
+.fm-tl-tip { margin: 6px 0 0; font-size: .78rem; }
+.fm-vrow { height: 56px; }
+.fm-tclip { background-size: auto 100%; background-repeat: repeat-x; }
+.fm-tl-inner { min-height: 96px; }
+.fm-ruler { height: 24px; background: rgba(0,0,0,.25); }
+/* Video Formatter: compact like Photo Showcase */
+body[data-page="formatter"] .page-head > p, body[data-page="formatter"] .cx-steps { display: none; }

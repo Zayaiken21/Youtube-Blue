@@ -2,18 +2,18 @@
    Tap a title to open or close it. Help text hides behind ⓘ. What's open is remembered on this device. */
 (function () {
   'use strict';
-  var KEY = 'scFold';
+  var PAGE = document.body.getAttribute('data-page') || '', KEY = PAGE === 'showcase' ? 'scFold' : 'fold:' + PAGE;
   // open the first time you visit: where you start, and the preview
-  var DEFAULT_OPEN = { phCard: true, showCard: true };
+  var DEFAULT_OPEN = { phCard: true, showCard: true, clipsCard: true, exportCard: true };
   var state = (window.YB && YB.store.get(KEY, null)) || {};
   function isOpen(id) { if (window.YB_FOLD_ALL_OPEN) return true; return id in state ? !!state[id] : !!DEFAULT_OPEN[id]; }
   function save() { try { YB.store.set(KEY, state); } catch (e) {} }
 
   // help paragraphs → behind ⓘ (never live messages)
-  var TIP_SKIP = { zipNote: 1, projNote: 1, acctNote: 1, projSaved: 1, importNote: 1, musicName: 1 };
+  var TIP_SKIP = { zipNote: 1, projNote: 1, acctNote: 1, projSaved: 1, importNote: 1, musicName: 1, lenWarn: 1, fmBeat: 1, resultInfo: 1, exportText: 1 };
   function markTips(card) {
     card.querySelectorAll('p.muted.small, .sc-fxsteps, .sc-hint').forEach(function (p) {
-      if (TIP_SKIP[p.id] || p.closest('.sc-fold-head') || p.closest('#acctPanel, #sharePanel, #inboxBox, #setList, #slideList')) return;
+      if (TIP_SKIP[p.id] || p.closest('.sc-fold-head') || p.closest('#acctPanel, #sharePanel, #inboxBox, #outboxBox, #setList, #slideList, #clipList, #ovList, #ovEditor, #fmFxOn, #result, #exportProg, .fm-tl')) return;
       p.classList.add('sc-tip');
     });
     var tips = card.querySelectorAll('.sc-tip').length;
@@ -67,6 +67,7 @@
   function init() {
     var photos = document.querySelector('section[aria-labelledby="phTitle"]'); if (photos && !photos.id) photos.id = 'phCard';
     var proj = document.querySelector('.sc-projcard'); if (proj && !proj.id) proj.id = 'projCard';
+    var clipsC = document.querySelector('section[aria-labelledby="clipsTitle"]'); if (clipsC && !clipsC.id) clipsC.id = 'clipsCard';
     document.querySelectorAll('.cx-layout .card').forEach(fold);
     if (window.YB_FOLD_ALL_OPEN) document.querySelectorAll('.cx-layout details').forEach(function (d) { d.open = true; });
     // anything the page scrolls to or focuses opens its section first
