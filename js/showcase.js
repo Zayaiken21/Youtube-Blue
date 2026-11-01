@@ -111,19 +111,22 @@
     'introTitle', 'introSub', 'outroTitle', 'outroSub', 'plain', 'showStage', 'showAngle', 'showBrand', 'showTitle', 'showText'];
   var PDEF = { format: 'ig45', trans: 'mix', dur: 2.5, kenBurns: true, intro: true, outro: true, fxAll: [], beatSync: true, musicVol: 85, musicStart: null, capStyle: 'box', capPos: 'bottom', capAnim: 'pop', capSize: 1,
     introTitle: '', introSub: '', outroTitle: '', outroSub: '', plain: false, showStage: true, showAngle: true, showBrand: true, showTitle: true, showText: true };
-  var pid = YB.store.get('scProject', ''), projects = [], pname = '', savedAt = 0;
+  var me_ = YB.store.get('scUser', '');   // who is signed in on this device ('' = nobody, works like before)
+  function PK() { return me_ ? 'projects:' + me_ : 'projects'; }     // that person's list of projects
+  function CK() { return me_ ? 'scProject:' + me_ : 'scProject'; }   // the project they had open
+  var pid = YB.store.get(CK(), ''), projects = [], pname = '', savedAt = 0;
   function projSettings() { var o = {}; PKEYS.forEach(function (k) { o[k] = S[k]; }); return JSON.parse(JSON.stringify(o)); }
   function projData() { return { photos: photos.map(clean), sets: sets.map(clean), slides: slides.map(clean), music: music ? clean(music) : null, logo: logo ? clean(logo) : null, settings: projSettings() }; }
   function projThumb() { var p = photos[0]; return p && p._thumb ? p._thumb : ''; }
   function saveNow() {
     if (!unsaved) return Promise.resolve(); unsaved = false;
-    if (!pid) { pid = 'pr' + YB.uid(); YB.store.set('scProject', pid); }
+    if (!pid) { pid = 'pr' + YB.uid(); YB.store.set(CK(), pid); }
     var data = projData(), me = projects.find(function (q) { return q.id === pid; });
     if (!me && !photos.length && !music) return Promise.resolve();   // don't keep an empty, untouched project
     if (!me) { me = { id: pid, name: pname || defaultName() }; projects.unshift(me); }
-    me.name = pname || me.name; me.updated = Date.now(); me.photos = photos.length; me.clients = sets.length; me.thumb = projThumb() || me.thumb || '';
+    me.name = pname || me.name; pname = me.name; me.updated = Date.now(); me.photos = photos.length; me.clients = sets.length; me.thumb = projThumb() || me.thumb || '';
     savedAt = Date.now(); renderSaved();
-    return kv('readwrite', function (st) { st.put(data, 'project:' + pid); st.put(projects.map(function (q) { return Object.assign({}, q); }), 'projects'); });
+    return kv('readwrite', function (st) { st.put(data, 'project:' + pid); st.put(projects.map(function (q) { return Object.assign({}, q); }), PK()); });
   }
   function defaultName() { var d = new Date(); return 'Photos · ' + d.toLocaleDateString(undefined, { month: 'short', day: 'numeric' }); }
 
@@ -1720,6 +1723,7 @@
     $('exportBtn').addEventListener('click', exportVideo);
     wireFx();
     $('projList').addEventListener('click', function (e) { var b = e.target.closest('[data-proj]'); if (b) openProject(b.getAttribute('data-proj')); });
+    wirePeople();
     $('projNew').addEventListener('click', newProject);
     $('projRename').addEventListener('click', renameProject);
     $('projDelete').addEventListener('click', deleteProject);
@@ -1759,17 +1763,19 @@
   /* ---------- Start ---------- */
   function kvGet(key) { return kv('readonly', function (st, out) { var r = st.get(key); r.onsuccess = function () { out.v = r.result; }; }); }
   function restore() {
-    return kvGet('projects').then(function (list) {
+    pid = YB.store.get(CK(), '');
+    return kvGet(PK()).then(function (list) {
       projects = Array.isArray(list) ? list : [];
+      if (!projects.length && me_) { pid = pid || 'pr' + YB.uid(); YB.store.set(CK(), pid); return null; }
       if (!projects.length) {   // first time with projects: the work already on this device becomes the first project
         return kvGet('project').then(function (old) {
-          pid = pid || 'pr' + YB.uid(); YB.store.set('scProject', pid);
+          pid = pid || 'pr' + YB.uid(); YB.store.set(CK(), pid);
           if (!old) return null;
           projects = [{ id: pid, name: 'My photos', updated: Date.now(), photos: (old.photos || []).length, clients: (old.sets || []).length }];
-          return kv('readwrite', function (st) { st.put(old, 'project:' + pid); st.put(projects, 'projects'); }).then(function () { return old; });
+          return kv('readwrite', function (st) { st.put(old, 'project:' + pid); st.put(projects, PK()); }).then(function () { return old; });
         });
       }
-      if (!projects.some(function (q) { return q.id === pid; })) { pid = projects.slice().sort(function (a, b) { return (b.updated || 0) - (a.updated || 0); })[0].id; YB.store.set('scProject', pid); }
+      if (!projects.some(function (q) { return q.id === pid; })) { pid = projects.slice().sort(function (a, b) { return (b.updated || 0) - (a.updated || 0); })[0].id; YB.store.set(CK(), pid); }
       return kvGet('project:' + pid);
     }).then(function (data) {
       var me = projects.find(function (q) { return q.id === pid; }); pname = me ? me.name : ''; savedAt = me ? me.updated : 0;
@@ -1806,7 +1812,7 @@
     if (id === pid || rec) return Promise.resolve();
     stop(); unsaved = !noSave;
     return (noSave ? Promise.resolve() : saveNow()).then(function () {
-      pid = id; YB.store.set('scProject', pid);
+      pid = id; YB.store.set(CK(), pid);
       var me = projects.find(function (q) { return q.id === id; }); pname = me ? me.name : ''; savedAt = me ? me.updated : 0;
       return kvGet('project:' + id);
     }).then(loadData).then(function () { pv.t = 0; lastVideo = null; $('result').hidden = true; renderAll(); thumbsSoon(); renderProjects(); YB.toast('Opened "' + pname + '"'); window.scrollTo({ top: 0, behavior: 'smooth' }); });
@@ -1816,7 +1822,7 @@
     stop(); unsaved = true;
     saveNow().then(function () {
       var keep = { format: S.format };   // the same size as before; everything else starts fresh
-      pid = 'pr' + YB.uid(); YB.store.set('scProject', pid); pname = String(name).trim() || defaultName();
+      pid = 'pr' + YB.uid(); YB.store.set(CK(), pid); pname = String(name).trim() || defaultName();
       PKEYS.forEach(function (k) { S[k] = JSON.parse(JSON.stringify(PDEF[k])); }); S.format = keep.format;
       var lg = logo;
       return loadData(null).then(function () { logo = lg; projects.unshift({ id: pid, name: pname, updated: Date.now(), photos: 0, clients: 0 }); unsaved = true; return saveNow(); });
@@ -1831,17 +1837,17 @@
     var gone = pid, mine = [];
     kvGet('project:' + gone).then(function (d) {
       if (d) { (d.photos || []).forEach(function (p) { mine.push(p.blobId); }); if (d.music) mine.push(d.music.blobId); }
-      // keep any picture another project still uses
-      return Promise.all(projects.filter(function (q) { return q.id !== gone; }).map(function (q) { return kvGet('project:' + q.id); }));
+      // keep any picture another project (anyone's) or a shared item still uses
+      return allRecords('project:' + gone);
     }).then(function (others) {
       var used = {}; others.forEach(function (d) { if (!d) return; (d.photos || []).forEach(function (p) { used[p.blobId] = 1; }); if (d.music) used[d.music.blobId] = 1; if (d.logo) used[d.logo.blobId] = 1; });
       if (logo) used[logo.blobId] = 1;
       mine.filter(function (b) { return !used[b]; }).forEach(function (b) { delBlob(b); delete blobs[b]; delete imgs[b]; });
       projects = projects.filter(function (q) { return q.id !== gone; });
-      return kv('readwrite', function (st) { st.delete('project:' + gone); st.put(projects, 'projects'); });
+      return kv('readwrite', function (st) { st.delete('project:' + gone); st.put(projects, PK()); });
     }).then(function () {
       if (projects.length) { unsaved = false; var next = projects.slice().sort(function (a, b) { return (b.updated || 0) - (a.updated || 0); })[0].id; pid = ''; return openProject(next, true); }
-      pid = ''; YB.store.remove('scProject'); pname = ''; return loadData(null).then(function () { renderAll(); renderProjects(); });
+      pid = ''; YB.store.remove(CK()); pname = ''; return loadData(null).then(function () { renderAll(); renderProjects(); });
     }).then(function () { YB.toast('Project deleted'); });
   }
 
@@ -1855,22 +1861,29 @@
       var list = all ? projects : projects.filter(function (q) { return q.id === pid; });
       return Promise.all(list.map(function (q) { return kvGet('project:' + q.id).then(function (d) { return { id: q.id, name: q.name, updated: q.updated, thumb: q.thumb || '', data: d }; }); }));
     }).then(function (items) {
+      return packFile(items, {}, $('projNote')).then(function (r) {
+        var name = 'showcase-backup-' + (all ? 'all-projects' : slug(pname) || 'project') + '-' + new Date().toISOString().slice(0, 10) + '.json';
+        savePhoto(r.blob, name);
+        $('projNote').textContent = 'Backup made: ' + items.length + ' project' + (items.length === 1 ? '' : 's') + ', ' + r.files + ' files, ' + (r.blob.size / 1048576).toFixed(1) + ' MB. Keep it in iCloud Drive, Google Drive, Files or email it to yourself.';
+      });
+    }).catch(function (e) { console.error(e); YB.toast('The backup couldn\'t be made'); $('projNote').textContent = ''; }).then(function () { btn.disabled = false; });
+  }
+  // One file with the projects and every photo / song they use. extra = { kind, from, to } for a shared project.
+  function packFile(items, extra, note) {
+    return Promise.resolve().then(function () {
       var ids = {}; items.forEach(function (it) { var d = it.data || {}; (d.photos || []).forEach(function (p) { ids[p.blobId] = 1; }); if (d.music) ids[d.music.blobId] = 1; if (d.logo) ids[d.logo.blobId] = 1; });
       var out = {}, keys = Object.keys(ids), i = 0;
       function next() {
         if (i >= keys.length) return Promise.resolve();
-        var k = keys[i++]; $('projNote').textContent = 'Adding photo ' + i + ' of ' + keys.length + '…';
+        var k = keys[i++]; if (note) note.textContent = 'Adding photo ' + i + ' of ' + keys.length + '…';
         return (blobs[k] ? Promise.resolve(blobs[k]) : getBlob(k)).then(function (b) { return b ? blobToData(b) : null; }).then(function (u) { if (u) out[k] = u; }).then(next);
       }
       return next().then(function () {
         var brand = {}; ['shop', 'handle', 'book', 'color', 'wmPos', 'wmStyle'].forEach(function (k) { brand[k] = S[k]; });
-        var file = { app: 'youtube-blue-photo-showcase', version: 1, made: new Date().toISOString(), brand: brand, projects: items, files: out };
-        var name = 'showcase-backup-' + (all ? 'all-projects' : slug(pname) || 'project') + '-' + new Date().toISOString().slice(0, 10) + '.json';
-        var blob = new Blob([JSON.stringify(file)], { type: 'application/json' });
-        savePhoto(blob, name);
-        $('projNote').textContent = 'Backup made: ' + items.length + ' project' + (items.length === 1 ? '' : 's') + ', ' + keys.length + ' files, ' + (blob.size / 1048576).toFixed(1) + ' MB. Keep it in iCloud Drive, Google Drive, Files or email it to yourself.';
+        var file = Object.assign({ app: 'youtube-blue-photo-showcase', version: 1, made: new Date().toISOString(), brand: brand, projects: items, files: out }, extra || {});
+        return { blob: new Blob([JSON.stringify(file)], { type: 'application/json' }), files: keys.length };
       });
-    }).catch(function (e) { console.error(e); YB.toast('The backup couldn\'t be made'); $('projNote').textContent = ''; }).then(function () { btn.disabled = false; });
+    });
   }
   function restoreBackup(file) {
     if (!file) return;
@@ -1885,22 +1898,217 @@
         return getBlob(k).then(function (have) { if (have) return; var b = dataToBlob(bk.files[k]); if (b) return putBlob(k, b); }).then(next);
       }
       return next().then(function () {
-        var added = [];
+        var added = []; added.share = bk.kind === 'share' ? bk : null;
         bk.projects.forEach(function (it) {
           var id = it.id, name = it.name || 'Restored project';
-          if (projects.some(function (q) { return q.id === id; })) { id = 'pr' + YB.uid(); name += ' (restored)'; }   // never overwrite work on this device
+          if (bk.kind === 'share') { id = 'pr' + YB.uid(); name += ' (from ' + (bk.from || 'someone') + ')'; }
+          else if (projects.some(function (q) { return q.id === id; })) { id = 'pr' + YB.uid(); name += ' (restored)'; }   // never overwrite work on this device
           var d = it.data || {};
           projects.push({ id: id, name: name, updated: it.updated || Date.now(), thumb: it.thumb || '', photos: (d.photos || []).length, clients: (d.sets || []).length });
           added.push({ id: id, data: d });
         });
         if (bk.brand && !S.shop && !S.handle) { Object.keys(bk.brand).forEach(function (k) { S[k] = bk.brand[k]; }); saveSettings(); }
-        return kv('readwrite', function (st) { added.forEach(function (a) { st.put(a.data, 'project:' + a.id); }); st.put(projects, 'projects'); }).then(function () { return added; });
+        return kv('readwrite', function (st) { added.forEach(function (a) { st.put(a.data, 'project:' + a.id); }); st.put(projects, PK()); }).then(function () { return added; });
       });
     }).then(function (added) {
-      $('projNote').textContent = 'Restored ' + added.length + ' project' + (added.length === 1 ? '' : 's') + '. Tap one below to open it.';
-      renderProjects(); YB.toast('Backup restored');
+      var sh = added.share;
+      $('projNote').textContent = sh ? '"' + (sh.projects[0] && sh.projects[0].name) + '" from ' + (sh.from || 'someone') + ' is now in ' + (me_ ? 'your account' : 'your projects') + '. Tap it below to open it.'
+        : 'Restored ' + added.length + ' project' + (added.length === 1 ? '' : 's') + '. Tap one below to open it.';
+      renderProjects(); YB.toast(sh ? 'Shared project added' : 'Backup restored');
     }).catch(function (e) { console.error(e); $('projNote').textContent = 'That file isn\'t a Photo Showcase backup.'; YB.toast('Couldn\'t open that backup'); });
   }
+  /* ---------- People on this device: name + PIN, own projects, share to each other ---------- */
+  var people = [], tries = 0, lockUntil = 0, pickWho = '';
+  function allRecords(skip) {   // every project and shared item stored on this device (for anyone)
+    return kv('readonly', function (st, out) {
+      out.v = []; var r = st.openCursor();
+      r.onsuccess = function () {
+        var c = r.result; if (!c) return; var k = String(c.key);
+        if (k !== skip) { if (k.indexOf('project:') === 0) out.v.push(c.value); else if (k.indexOf('inbox:') === 0) (c.value || []).forEach(function (it) { out.v.push(it.data); }); }
+        c.continue();
+      };
+    });
+  }
+  function hashPin(pin, salt) {
+    var txt = salt + ':' + pin;
+    if (window.crypto && crypto.subtle && window.TextEncoder) return crypto.subtle.digest('SHA-256', new TextEncoder().encode(txt)).then(function (h) { return Array.from(new Uint8Array(h)).map(function (b) { return b.toString(16).padStart(2, '0'); }).join(''); });
+    var h = 5381; for (var i = 0; i < txt.length; i++) h = ((h * 33) ^ txt.charCodeAt(i)) >>> 0; return Promise.resolve('x' + h.toString(16));
+  }
+  function personById(id) { return people.find(function (u) { return u.id === id; }); }
+  function loadPeople() { return kvGet('users').then(function (l) { people = Array.isArray(l) ? l : []; if (me_ && !personById(me_)) { me_ = ''; YB.store.remove('scUser'); } }); }
+  function savePeople() { return kv('readwrite', function (st) { st.put(people, 'users'); }); }
+  function findPeople(q, notMe) {
+    q = String(q || '').trim().toLowerCase();
+    return people.filter(function (u) { return (!notMe || u.id !== me_) && (!q || u.name.toLowerCase().indexOf(q) !== -1); }).sort(function (a, b) { return a.name.localeCompare(b.name); });
+  }
+  function switchPerson(id, noSave) {   // the open project is saved first, then the other person's projects open
+    stop(); unsaved = !noSave;
+    return (noSave ? Promise.resolve() : saveNow()).then(function () {
+      me_ = id; if (id) YB.store.set('scUser', id); else YB.store.remove('scUser');
+      return restore();
+    }).then(function () { lastVideo = null; $('result').hidden = true; renderAll(); thumbsSoon(); renderPerson(); });
+  }
+  function acctPanel(html) { var b = $('acctPanel'); b.innerHTML = html || ''; b.hidden = !html; }
+  function showSignIn() {
+    if (!people.length) return showCreate();
+    acctPanel('<label class="sc-field"><span>Find your name</span><input id="siFind" type="search" autocomplete="off" placeholder="Start typing your name"></label>' +
+      '<div class="sc-people" id="siList"></div>' +
+      '<div id="siPin" hidden><label class="sc-field"><span>PIN for <b id="siWho"></b></span><input id="siPinIn" type="password" inputmode="numeric" autocomplete="current-password" maxlength="8" placeholder="••••"></label>' +
+      '<div class="row"><button class="btn" type="button" id="siGo">🔑 Sign in</button><button class="btn btn-ghost" type="button" data-acct-close>Cancel</button></div></div>' +
+      '<p class="small" id="siMsg" aria-live="polite"></p>');
+    pickWho = ''; listSignIn(''); $('siFind').focus();
+  }
+  function listSignIn(q) {
+    var l = findPeople(q);
+    $('siList').innerHTML = l.length ? l.map(function (u) { return '<button type="button" class="sc-person' + (u.id === pickWho ? ' on' : '') + '" data-si="' + u.id + '">👤 ' + YB.esc(u.name) + '</button>'; }).join('') : '<p class="muted small">No one by that name on this device. Tap <b>Make an account</b>.</p>';
+  }
+  function showCreate() {
+    acctPanel('<label class="sc-field"><span>Your name</span><input id="caName" type="text" autocomplete="name" maxlength="40" placeholder="For example: Isaiah"></label>' +
+      '<label class="sc-field"><span>Make a PIN (4 to 8 numbers)</span><input id="caPin" type="password" inputmode="numeric" autocomplete="new-password" maxlength="8" placeholder="••••"></label>' +
+      '<label class="sc-field"><span>Type the PIN again</span><input id="caPin2" type="password" inputmode="numeric" autocomplete="new-password" maxlength="8" placeholder="••••"></label>' +
+      '<div class="row"><button class="btn" type="button" id="caGo">✅ Make my account</button><button class="btn btn-ghost" type="button" data-acct-close>Cancel</button></div>' +
+      '<p class="small" id="caMsg" aria-live="polite"></p>');
+    $('caName').focus();
+  }
+  function createAccount() {
+    var name = $('caName').value.trim().replace(/\s+/g, ' '), pin = $('caPin').value.trim(), pin2 = $('caPin2').value.trim(), msg = $('caMsg');
+    if (name.length < 2) { msg.textContent = 'Type your name (at least 2 letters).'; return; }
+    if (people.some(function (u) { return u.name.toLowerCase() === name.toLowerCase(); })) { msg.textContent = 'Someone on this device already uses that name — add your last name or a nickname.'; return; }
+    if (!/^\d{4,8}$/.test(pin)) { msg.textContent = 'The PIN must be 4 to 8 numbers.'; return; }
+    if (pin !== pin2) { msg.textContent = 'The two PINs are different — type them again.'; return; }
+    var u = { id: 'u' + YB.uid(), name: name, salt: YB.uid() + YB.uid(), created: Date.now() }, first = !people.length;
+    hashPin(pin, u.salt).then(function (h) {
+      u.pin = h; people.push(u); return savePeople();
+    }).then(function () {
+      // the very first account can take the projects already on this device
+      if (!first || me_) return false;
+      return kvGet('projects').then(function (l) {
+        if (!Array.isArray(l) || !l.length) return false;
+        if (!confirm('Put the ' + l.length + ' project' + (l.length === 1 ? '' : 's') + ' already on this device into ' + name + '\'s account?')) return false;
+        var open = YB.store.get('scProject', '');
+        unsaved = true;
+        return saveNow().then(function () { return kvGet('projects'); }).then(function (l2) {
+          return kv('readwrite', function (st) { st.put(l2 || l, 'projects:' + u.id); st.delete('projects'); });
+        }).then(function () { if (open) YB.store.set('scProject:' + u.id, open); YB.store.remove('scProject'); unsaved = false; return true; });
+      });
+    }).then(function (moved) { acctPanel(''); return switchPerson(u.id, moved === true); }).then(function () { YB.toast('Welcome, ' + name + '!'); });
+  }
+  function signIn() {
+    var u = personById(pickWho), pin = $('siPinIn').value.trim(), msg = $('siMsg');
+    if (!u) return;
+    if (Date.now() < lockUntil) { msg.textContent = 'Too many wrong PINs — wait ' + Math.ceil((lockUntil - Date.now()) / 1000) + ' seconds.'; return; }
+    hashPin(pin, u.salt).then(function (h) {
+      if (h !== u.pin) { tries++; if (tries >= 5) { lockUntil = Date.now() + 30000; tries = 0; } msg.textContent = 'That PIN isn\'t right. Try again.'; $('siPinIn').value = ''; $('siPinIn').focus(); return; }
+      tries = 0; acctPanel(''); return switchPerson(u.id).then(function () { YB.toast('Signed in as ' + u.name); });
+    });
+  }
+  function signOut() { acctPanel(''); switchPerson('').then(function () { YB.toast('Signed out — your projects are safe in your account'); }); }
+  function renderPerson() {
+    var u = personById(me_);
+    $('acctName').textContent = u ? u.name : 'Not signed in';
+    $('acctNote').innerHTML = u ? 'Your projects are saved on this device under your name. Share them with anyone below.' : (people.length ? 'Sign in with your name and PIN to see your own projects. You can also keep working without signing in.' : 'Make an account with your name and a PIN so your projects are yours, and so people can share projects with you.');
+    $('acctSignIn').hidden = !!u; $('acctOut').hidden = !u; $('acctCreate').hidden = !!u;
+    $('projShare').hidden = false;
+    renderInbox();
+  }
+  // Shared with you (from someone on this device)
+  function renderInbox() {
+    var box = $('inboxBox');
+    if (!me_) { box.hidden = true; box.innerHTML = ''; return; }
+    kvGet('inbox:' + me_).then(function (l) {
+      l = Array.isArray(l) ? l : [];
+      box.hidden = !l.length;
+      box.innerHTML = l.length ? '<h3>📥 Shared with you (' + l.length + ')</h3><div class="sc-inbox">' + l.map(function (it) {
+        return '<div class="sc-inb">' + (it.thumb ? '<img src="' + it.thumb + '" alt="">' : '<span class="sc-proj-ph">📁</span>') +
+          '<div><b>' + YB.esc(it.name) + '</b><span class="muted small">from ' + YB.esc(it.fromName) + ' · ' + ago(it.sent) + '</span></div>' +
+          '<div class="row"><button class="btn" type="button" data-inb-take="' + it.id + '">✅ Add to my projects</button><button class="btn btn-ghost" type="button" data-inb-del="' + it.id + '">✕</button></div></div>';
+      }).join('') + '</div>' : '';
+    });
+  }
+  function takeShared(id, keep) {
+    var key = 'inbox:' + me_;
+    return kvGet(key).then(function (l) {
+      l = Array.isArray(l) ? l : []; var it = l.find(function (x) { return x.id === id; }); if (!it) return;
+      var rest = l.filter(function (x) { return x.id !== id; });
+      return kv('readwrite', function (st) {
+        if (keep) {
+          var nid = 'pr' + YB.uid(), d = it.data || {};
+          projects.push({ id: nid, name: it.name + ' (from ' + it.fromName + ')', updated: Date.now(), thumb: it.thumb || '', photos: (d.photos || []).length, clients: (d.sets || []).length });
+          st.put(d, 'project:' + nid); st.put(projects, PK());
+        }
+        st.put(rest, key);
+      }).then(function () {
+        if (!keep) return allRecords('').then(function (all) {   // free its pictures if nobody else uses them
+          var used = {}; all.forEach(function (d) { if (!d) return; (d.photos || []).forEach(function (p) { used[p.blobId] = 1; }); if (d.music) used[d.music.blobId] = 1; if (d.logo) used[d.logo.blobId] = 1; });
+          var d = it.data || {}; (d.photos || []).map(function (p) { return p.blobId; }).concat(d.music ? [d.music.blobId] : []).forEach(function (b) { if (!used[b] && !blobs[b]) delBlob(b); });
+        });
+      }).then(function () { renderInbox(); renderProjects(); YB.toast(keep ? 'Added — tap it in your projects to open it' : 'Removed'); });
+    });
+  }
+  // Share: search people by name; someone on this device gets it in their account, anyone else gets a file
+  function showShare() {
+    var b = $('sharePanel');
+    if (!b.hidden) { b.hidden = true; return; }
+    if (!me_) { b.hidden = false; b.innerHTML = '<p>To share, first <b>sign in</b> or <b>make an account</b> (at the top) so people can see who it\'s from.</p>'; return; }
+    if (!photos.length) { b.hidden = false; b.innerHTML = '<p>Add photos to this project first, then share it.</p>'; return; }
+    b.hidden = false;
+    b.innerHTML = '<h3>📤 Share "' + YB.esc(pname) + '"</h3>' +
+      '<label class="sc-field"><span>Search people by name</span><input id="shFind" type="search" autocomplete="off" placeholder="Type a name"></label>' +
+      '<div class="sc-people" id="shList"></div>' +
+      '<p class="muted small">Not on this phone or computer? Send it as a file — by Messages, email, AirDrop or Drive. They open Photo Showcase, sign in and tap <b>Open backup or shared file</b>, and it goes into their account.</p>' +
+      '<div class="row"><button class="btn" type="button" id="shFile">📨 Send as a file</button><button class="btn btn-ghost" type="button" id="shClose">Close</button></div>' +
+      '<p class="small" id="shMsg" aria-live="polite"></p>';
+    listShare('');
+  }
+  function listShare(q) {
+    var l = findPeople(q, true);
+    $('shList').innerHTML = l.length ? l.map(function (u) { return '<button type="button" class="sc-person" data-sh="' + u.id + '">👤 ' + YB.esc(u.name) + ' <span class="muted small">— send</span></button>'; }).join('')
+      : '<p class="muted small">' + (people.length > 1 ? 'No one by that name on this device.' : 'No one else has an account on this device yet.') + ' Use <b>Send as a file</b> instead.</p>';
+  }
+  function currentItem() {
+    unsaved = true;
+    return saveNow().then(function () { return kvGet('project:' + pid); }).then(function (d) {
+      var q = projects.find(function (x) { return x.id === pid; }) || {};
+      return { id: pid, name: pname || q.name || 'Project', updated: Date.now(), thumb: q.thumb || projThumb() || '', data: d };
+    });
+  }
+  function shareTo(uid2) {
+    var to = personById(uid2), from = personById(me_); if (!to || !from) return;
+    currentItem().then(function (it) {
+      var key = 'inbox:' + to.id;
+      return kvGet(key).then(function (l) {
+        l = Array.isArray(l) ? l : [];
+        l.unshift({ id: 'sh' + YB.uid(), from: from.id, fromName: from.name, name: it.name, sent: Date.now(), thumb: it.thumb, data: it.data });
+        return kv('readwrite', function (st) { st.put(l, key); });
+      });
+    }).then(function () { $('shMsg').textContent = '✓ Sent to ' + to.name + '. They\'ll see it under "Shared with you" when they sign in.'; YB.toast('Sent to ' + to.name); });
+  }
+  function shareFile() {
+    var from = personById(me_), btn = $('shFile'); btn.disabled = true;
+    var to = ($('shFind').value || '').trim();
+    currentItem().then(function (it) { return packFile([it], { kind: 'share', from: from ? from.name : '', to: to }, $('shMsg')); }).then(function (r) {
+      savePhoto(r.blob, 'shared-' + (slug(pname) || 'project') + (to ? '-for-' + slug(to) : '') + '.json');
+      $('shMsg').textContent = '✓ Share file made (' + (r.blob.size / 1048576).toFixed(1) + ' MB). Send it to them — when they open it in Photo Showcase it goes into their account.';
+    }).catch(function (e) { console.error(e); $('shMsg').textContent = 'The share file couldn\'t be made.'; }).then(function () { btn.disabled = false; });
+  }
+  function wirePeople() {
+    $('acctSignIn').addEventListener('click', showSignIn);
+    $('acctCreate').addEventListener('click', showCreate);
+    $('acctOut').addEventListener('click', signOut);
+    $('acctPanel').addEventListener('click', function (e) {
+      if (e.target.closest('[data-acct-close]')) return acctPanel('');
+      var b = e.target.closest('[data-si]'); if (b) { pickWho = b.getAttribute('data-si'); listSignIn($('siFind').value); $('siPin').hidden = false; $('siWho').textContent = personById(pickWho).name; $('siMsg').textContent = ''; $('siPinIn').value = ''; $('siPinIn').focus(); return; }
+      if (e.target.id === 'siGo') signIn();
+      if (e.target.id === 'caGo') createAccount();
+    });
+    $('acctPanel').addEventListener('input', function (e) { if (e.target.id === 'siFind') listSignIn(e.target.value); if (/Pin/.test(e.target.id)) e.target.value = e.target.value.replace(/\D/g, ''); });
+    $('acctPanel').addEventListener('keydown', function (e) { if (e.key !== 'Enter') return; if (e.target.id === 'siPinIn') signIn(); if (/^ca/.test(e.target.id)) createAccount(); });
+    $('inboxBox').addEventListener('click', function (e) { var t = e.target.closest('[data-inb-take]'), d = e.target.closest('[data-inb-del]'); if (t) takeShared(t.getAttribute('data-inb-take'), true); if (d) takeShared(d.getAttribute('data-inb-del'), false); });
+    $('projShare').addEventListener('click', showShare);
+    $('sharePanel').addEventListener('click', function (e) { var b = e.target.closest('[data-sh]'); if (b) shareTo(b.getAttribute('data-sh')); if (e.target.id === 'shFile') shareFile(); if (e.target.id === 'shClose') $('sharePanel').hidden = true; });
+    $('sharePanel').addEventListener('input', function (e) { if (e.target.id === 'shFind') listShare(e.target.value); });
+  }
+
   function ago(t) {
     if (!t) return ''; var s2 = Math.round((Date.now() - t) / 1000);
     if (s2 < 10) return 'just now'; if (s2 < 60) return s2 + ' s ago'; if (s2 < 3600) return Math.round(s2 / 60) + ' min ago'; if (s2 < 86400) return Math.round(s2 / 3600) + ' h ago';
@@ -1924,6 +2132,7 @@
   setInterval(renderSaved, 30000);
   window.YBShowcase = {   // used by tests
     music: function () { return music ? { bpm: music.bpm, first: music.first, start: songStart(), synced: synced() } : null; },
+    person: function () { var u = personById(me_); return { id: me_, name: u ? u.name : '', people: people.map(function (x) { return x.name; }) }; },
     projects: function () { return { pid: pid, name: pname, list: projects.map(function (q) { return { id: q.id, name: q.name, photos: q.photos, clients: q.clients }; }) }; },
     state: function () { return { S: S, photos: photos.map(clean), sets: sets.map(clean), slides: slides.map(clean), cur: cur, total: segments().total }; },
     segments: function () { return segments().segs.map(function (g) { return { key: g.key, start: g.start, dur: g.dur, trans: transFor(g) }; }); },
@@ -1932,5 +2141,5 @@
     setData: function (i, w, h) { var s = sets[i]; return Promise.all(setPhotos(s).map(ensureImg)).then(function () { return renderSet(s, w, h, { brand: true }).toDataURL('image/jpeg', 0.9); }); }
   };
   wire();
-  restore().then(function () { renderAll(); thumbsSoon(); });
+  loadPeople().then(restore).then(function () { renderAll(); thumbsSoon(); renderPerson(); });
 })();
