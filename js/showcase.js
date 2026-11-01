@@ -1924,7 +1924,7 @@
       out.v = []; var r = st.openCursor();
       r.onsuccess = function () {
         var c = r.result; if (!c) return; var k = String(c.key);
-        if (k !== skip) { if (k.indexOf('project:') === 0) out.v.push(c.value); else if (k.indexOf('inbox:') === 0) (c.value || []).forEach(function (it) { out.v.push(it.data); }); }
+        if (k !== skip) { if (k.indexOf('project:') === 0) out.v.push(c.value); else if (k.indexOf('inbox:') === 0 || k.indexOf('outbox:') === 0) (c.value || []).forEach(function (it) { if (it.data) out.v.push(it.data); }); }
         c.continue();
       };
     });
@@ -2009,20 +2009,27 @@
     $('acctNote').innerHTML = u ? 'Your projects are saved on this device under your name. Share them with anyone below.' : (people.length ? 'Sign in with your name and PIN to see your own projects. You can also keep working without signing in.' : 'Make an account with your name and a PIN so your projects are yours, and so people can share projects with you.');
     $('acctSignIn').hidden = !!u; $('acctOut').hidden = !u; $('acctCreate').hidden = !!u;
     $('projShare').hidden = false;
-    renderInbox();
+    renderInbox(); renderOutbox();
     if (window.YBP2P) { if (u) YBP2P.listen(u.name, p2pHandlers); else YBP2P.stop(); }
+    deliverSoon();
   }
   /* ---------- Phone to phone: someone sends you a project by your name ---------- */
   var p2pState = 'off';
   var p2pHandlers = {
-    status: function (st) { p2pState = st; var e = $('acctNet'); if (!e) return; e.textContent = st === 'ready' ? '📲 Ready — people can send you projects by your name while this page is open' : (st === 'offline' ? '📴 No internet — sending by name will work again when you\'re back online' : ''); e.className = 'small sc-net' + (st === 'ready' ? ' on' : ''); },
-    offer: function (m) {
-      var u = personById(me_); if (!u) return false;
-      return confirm(m.from + ' wants to send you "' + m.name + '" (' + m.photos + ' photo' + (m.photos === 1 ? '' : 's') + ').\n\nTap OK to add it to your projects.');
+    status: function (st) {
+      p2pState = st; var e = $('acctNet'); if (!e) return;
+      e.textContent = st === 'ready' ? '📲 Online — people can send you projects by your name, and your Outbox sends by itself' : (st === 'offline' ? '📴 No internet — your Outbox sends when you\'re back online' : '');
+      e.className = 'small sc-net' + (st === 'ready' ? ' on' : '');
+      if (st === 'ready') deliverSoon();
+    },
+    request: function (m) {   // already have this one? (a repeat delivery)
+      if (!me_) return 'have';
+      return kvGet('got:' + me_).then(function (g) { return (g || []).indexOf(m.shareId) !== -1 ? 'have' : 'yes'; });
     },
     progress: function (t) { var e = $('acctNet'); if (e) e.textContent = '📥 ' + t; },
     file: function (id, blob) { var nb = 'p' + YB.uid(); return putBlob(nb, blob).then(function () { return nb; }); },
     done: function (info, d, map) {
+      var who = me_; if (!who) return Promise.reject(new Error('signed out'));
       d = d || {};
       d.photos = (d.photos || []).filter(function (p) { return map[p.blobId]; });   // only photos that arrived
       d.photos.forEach(function (p) { p.blobId = map[p.blobId]; });
@@ -2030,24 +2037,112 @@
       (d.sets || []).forEach(function (st) { st.ids = (st.ids || []).filter(function (id) { return have[id]; }); });
       if (d.music) { if (map[d.music.blobId]) d.music.blobId = map[d.music.blobId]; else d.music = null; }
       if (d.logo) { if (map[d.logo.blobId]) d.logo.blobId = map[d.logo.blobId]; else d.logo = null; }
-      var nid = 'pr' + YB.uid();
-      projects.push({ id: nid, name: info.name + ' (from ' + info.from + ')', updated: Date.now(), thumb: info.thumb || '', photos: (d.photos || []).length, clients: (d.sets || []).length });
-      return kv('readwrite', function (st) { st.put(d, 'project:' + nid); st.put(projects, PK()); }).then(function () {
-        renderProjects(); p2pHandlers.status(p2pState); YB.toast('"' + info.name + '" from ' + info.from + ' is in your projects');
+      return Promise.all([kvGet('inbox:' + who), kvGet('got:' + who)]).then(function (r) {
+        var l = Array.isArray(r[0]) ? r[0] : [], g = Array.isArray(r[1]) ? r[1] : [];
+        l.unshift({ id: 'sh' + YB.uid(), remote: true, shareId: info.shareId, fromName: info.from, name: info.name, sent: info.sent || Date.now(), thumb: info.thumb || '', data: d });
+        g.unshift(info.shareId);
+        return kv('readwrite', function (st) { st.put(l, 'inbox:' + who); st.put(g.slice(0, 300), 'got:' + who); });
+      }).then(function () {
+        p2pHandlers.status(p2pState); renderInbox();
+        if (window.YBFold) YBFold.open('acctCard');
+        YB.toast('📥 ' + info.from + ' sent you "' + info.name + '" — Accept or Decline it at the top');
+      });
+    },
+    receipt: function (m) {   // they accepted or declined something you sent
+      if (!me_) return;
+      return kvGet('outbox:' + me_).then(function (l) {
+        l = Array.isArray(l) ? l : []; var it = l.find(function (x) { return x.shareId === m.shareId; }); if (!it) return;
+        it.status = m.answer === 'accepted' ? 'accepted' : 'declined'; it.answered = Date.now(); delete it.data;
+        return kv('readwrite', function (st) { st.put(l, 'outbox:' + me_); }).then(function () {
+          renderOutbox(); YB.toast((m.from || it.to) + (it.status === 'accepted' ? ' accepted "' : ' declined "') + it.name + '"');
+        });
       });
     }
   };
+
+  /* ---------- Outbox: sends wait here and go by themselves when you're both on ---------- */
+  var delivering = false, deliverTimer = 0;
+  function deliverSoon() { clearTimeout(deliverTimer); deliverTimer = setTimeout(deliverAll, 400); }
+  function deliverAll() {
+    var who = me_, u = personById(who);
+    if (!u || delivering || !window.YBP2P || !YBP2P.supported() || document.hidden) return;
+    delivering = true;
+    var changed = false;
+    Promise.all([kvGet('outbox:' + who), kvGet('receipts:' + who)]).then(function (r) {
+      var out = Array.isArray(r[0]) ? r[0] : [], rec = Array.isArray(r[1]) ? r[1] : [];
+      var todo = out.filter(function (x) { return x.status === 'waiting' && x.data; });
+      if (!todo.length && !rec.length) return;
+      var i = 0;
+      function nextSend() {
+        if (i >= todo.length || me_ !== who) return Promise.resolve();
+        var it = todo[i++], d = it.data, ids = {}, files = [];
+        (d.photos || []).forEach(function (p) { ids[p.blobId] = 1; }); if (d.music) ids[d.music.blobId] = 1; if (d.logo) ids[d.logo.blobId] = 1;
+        return Promise.all(Object.keys(ids).map(function (k) { return (blobs[k] ? Promise.resolve(blobs[k]) : getBlob(k)).then(function (b) { if (b) files.push({ id: k, blob: b }); }); }))
+          .then(function () {
+            it.tries = (it.tries || 0) + 1; it.lastTry = Date.now();
+            return YBP2P.deliver(it.to, { shareId: it.shareId, from: u.name, name: it.name, thumb: it.thumb, data: d, files: files, sent: it.created }, function (t) { var e = $('ob_' + it.id); if (e) e.textContent = t; });
+          })
+          .then(function (res) { if (res) { it.status = 'delivered'; it.delivered = Date.now(); delete it.data; changed = true; YB.toast('Delivered "' + it.name + '" to ' + it.to); } },
+            function (e) { it.note = e.message; changed = true; })
+          .then(nextSend);
+      }
+      var j = 0, keep = [];
+      function nextReceipt() {
+        if (j >= rec.length || me_ !== who) { keep = keep.concat(rec.slice(j)); return Promise.resolve(); }
+        var x = rec[j++];
+        return YBP2P.receipt(x.to, { shareId: x.shareId, answer: x.answer, from: u.name }).then(function (okd) { if (okd) changed = true; else keep.push(x); }, function () { keep.push(x); }).then(nextReceipt);
+      }
+      return nextSend().then(nextReceipt).then(function () {
+        if (me_ !== who) return;
+        return kvGet('outbox:' + who).then(function (cur) {   // keep cancels made while sending
+          cur = Array.isArray(cur) ? cur : [];
+          var byId = {}; out.forEach(function (x) { byId[x.id] = x; });
+          cur = cur.map(function (x) { return byId[x.id] && x.status === 'waiting' ? byId[x.id] : x; });
+          return kv('readwrite', function (st) { st.put(cur, 'outbox:' + who); st.put(keep, 'receipts:' + who); });
+        });
+      });
+    }).catch(function (e) { console.error(e); }).then(function () { delivering = false; if (changed) renderOutbox(); });
+  }
+  setInterval(function () { if (me_) deliverAll(); }, 30000);
+  document.addEventListener('visibilitychange', function () { if (!document.hidden && me_) deliverSoon(); });
+  function renderOutbox() {
+    var box = $('outboxBox'); if (!box) return;
+    if (!me_) { box.hidden = true; box.innerHTML = ''; renderBadge(); return; }
+    kvGet('outbox:' + me_).then(function (l) {
+      l = Array.isArray(l) ? l : []; box.hidden = !l.length; badge.out = l.filter(function (x) { return x.status === 'waiting'; }).length;
+      var words = { waiting: '⏳ Waiting — goes by itself the next time you\'re both on Photo Showcase', delivered: '📬 Delivered — waiting for them to accept', accepted: '✅ Accepted', declined: '✕ Declined' };
+      box.innerHTML = l.length ? '<h3>📤 Outbox (' + l.length + ')</h3><div class="sc-inbox">' + l.map(function (it) {
+        return '<div class="sc-inb sc-out-' + it.status + '">' + (it.thumb ? '<img src="' + it.thumb + '" alt="">' : '<span class="sc-proj-ph">📁</span>') +
+          '<div><b>' + YB.esc(it.name) + '</b><span class="muted small">to ' + YB.esc(it.to) + ' · ' + ago(it.created) + '</span><span class="small" id="ob_' + it.id + '">' + words[it.status] + '</span></div>' +
+          '<div class="row"><button class="btn btn-ghost" type="button" data-ob-del="' + it.id + '">' + (it.status === 'waiting' ? '✕ Cancel' : '✕ Clear') + '</button></div></div>';
+      }).join('') + '</div>' : '';
+      renderBadge();
+    });
+  }
+  function dropOutbox(id) {
+    kvGet('outbox:' + me_).then(function (l) {
+      l = (Array.isArray(l) ? l : []).filter(function (x) { return x.id !== id; });
+      return kv('readwrite', function (st) { st.put(l, 'outbox:' + me_); });
+    }).then(renderOutbox);
+  }
+  var badge = { inbox: 0, out: 0 };
+  function renderBadge() {
+    var e = $('acctBadge'); if (!e) return;
+    var t = (badge.inbox ? '📥 ' + badge.inbox : '') + (badge.inbox && badge.out ? ' · ' : '') + (badge.out ? '📤 ' + badge.out : '');
+    e.textContent = me_ && t ? t : ''; e.hidden = !(me_ && t);
+  }
   // Shared with you (from someone on this device)
   function renderInbox() {
     var box = $('inboxBox');
     if (!me_) { box.hidden = true; box.innerHTML = ''; return; }
     kvGet('inbox:' + me_).then(function (l) {
       l = Array.isArray(l) ? l : [];
-      box.hidden = !l.length;
-      box.innerHTML = l.length ? '<h3>📥 Shared with you (' + l.length + ')</h3><div class="sc-inbox">' + l.map(function (it) {
+      box.hidden = !l.length; badge.inbox = l.length; renderBadge();
+      box.innerHTML = l.length ? '<h3>📥 Requests for you (' + l.length + ')</h3><div class="sc-inbox">' + l.map(function (it) {
+        var n = ((it.data || {}).photos || []).length;
         return '<div class="sc-inb">' + (it.thumb ? '<img src="' + it.thumb + '" alt="">' : '<span class="sc-proj-ph">📁</span>') +
-          '<div><b>' + YB.esc(it.name) + '</b><span class="muted small">from ' + YB.esc(it.fromName) + ' · ' + ago(it.sent) + '</span></div>' +
-          '<div class="row"><button class="btn" type="button" data-inb-take="' + it.id + '">✅ Add to my projects</button><button class="btn btn-ghost" type="button" data-inb-del="' + it.id + '">✕</button></div></div>';
+          '<div><b>' + YB.esc(it.name) + '</b><span class="muted small">' + YB.esc(it.fromName) + ' wants to send you this · ' + n + ' photo' + (n === 1 ? '' : 's') + ' · ' + ago(it.sent) + '</span></div>' +
+          '<div class="row"><button class="btn" type="button" data-inb-take="' + it.id + '">✅ Accept</button><button class="btn btn-ghost" type="button" data-inb-del="' + it.id + '">✕ Decline</button></div></div>';
       }).join('') + '</div>' : '';
     });
   }
@@ -2064,11 +2159,18 @@
         }
         st.put(rest, key);
       }).then(function () {
+        if (it.remote && it.shareId) {   // tell the sender — it goes back by itself like any send
+          return kvGet('receipts:' + me_).then(function (r) {
+            r = Array.isArray(r) ? r : []; r.push({ to: it.fromName, shareId: it.shareId, answer: keep ? 'accepted' : 'declined' });
+            return kv('readwrite', function (st) { st.put(r, 'receipts:' + me_); });
+          }).then(deliverSoon);
+        }
+      }).then(function () {
         if (!keep) return allRecords('').then(function (all) {   // free its pictures if nobody else uses them
           var used = {}; all.forEach(function (d) { if (!d) return; (d.photos || []).forEach(function (p) { used[p.blobId] = 1; }); if (d.music) used[d.music.blobId] = 1; if (d.logo) used[d.logo.blobId] = 1; });
           var d = it.data || {}; (d.photos || []).map(function (p) { return p.blobId; }).concat(d.music ? [d.music.blobId] : []).forEach(function (b) { if (!used[b] && !blobs[b]) delBlob(b); });
         });
-      }).then(function () { renderInbox(); renderProjects(); YB.toast(keep ? 'Added — tap it in your projects to open it' : 'Removed'); });
+      }).then(function () { renderInbox(); renderProjects(); YB.toast(keep ? 'Accepted — it\'s in your projects' : 'Declined'); });
     });
   }
   // Share: search people by name; someone on this device gets it in their account, anyone else gets a file
@@ -2082,7 +2184,7 @@
       '<label class="sc-field"><span>Search people by name</span><input id="shFind" type="search" autocomplete="off" placeholder="Type a name"></label>' +
       '<div class="sc-people" id="shList"></div>' +
       '<div id="shP2P"></div>' +
-      '<p class="muted small">Type their name exactly as they signed in. It goes straight to their phone — they just need Photo Showcase open and signed in, and they tap OK.</p>' +
+      '<p class="muted small">Type their name the way they signed up. You don\'t have to wait — it goes into your Outbox and is delivered by itself the next time you\'re both on Photo Showcase. They\'ll see a request and choose Accept or Decline.</p>' +
       '<p class="muted small">Can\'t reach them? Send it as a file — by Messages, email, AirDrop or Drive. They open Photo Showcase, sign in and tap <b>Open backup or shared file</b>, and it goes into their account.</p>' +
       '<div class="row"><button class="btn" type="button" id="shFile">📨 Send as a file</button><button class="btn btn-ghost" type="button" id="shClose">Close</button></div>' +
       '<p class="small" id="shMsg" aria-live="polite"></p>';
@@ -2091,7 +2193,7 @@
   function listShare(q) {
     var l = findPeople(q, true), typed = String(q || '').trim(), u = personById(me_);
     var p2p = window.YBP2P && YBP2P.supported() && typed.length >= 2 && !(u && typed.toLowerCase() === u.name.toLowerCase());
-    $('shP2P').innerHTML = p2p ? '<button class="btn" type="button" data-p2p="' + YB.esc(typed) + '">📲 Send to “' + YB.esc(typed) + '” on their phone</button>' : '';
+    $('shP2P').innerHTML = p2p ? '<button class="btn" type="button" data-p2p="' + YB.esc(typed) + '">📲 Send to “' + YB.esc(typed) + '”</button>' : '';
     $('shList').innerHTML = l.length ? l.map(function (u) { return '<button type="button" class="sc-person" data-sh="' + u.id + '">👤 ' + YB.esc(u.name) + ' <span class="muted small">— send</span></button>'; }).join('')
       : '<p class="muted small">' + (people.length > 1 ? 'No one by that name on this device.' : 'No one else has an account on this device yet.') + ' Use <b>Send as a file</b> instead.</p>';
   }
@@ -2114,16 +2216,17 @@
     }).then(function () { $('shMsg').textContent = '✓ Sent to ' + to.name + '. They\'ll see it under "Shared with you" when they sign in.'; YB.toast('Sent to ' + to.name); });
   }
   function shareP2P(toName) {
-    var from = personById(me_), msg = $('shMsg'), btn = document.querySelector('[data-p2p]'); if (!from) return;
-    if (btn) btn.disabled = true;
+    var from = personById(me_), msg = $('shMsg'); if (!from) return;
     currentItem().then(function (it) {
-      var d = it.data || {}, ids = {}, files = [];
-      (d.photos || []).forEach(function (p) { ids[p.blobId] = 1; }); if (d.music) ids[d.music.blobId] = 1; if (d.logo) ids[d.logo.blobId] = 1;
-      return Promise.all(Object.keys(ids).map(function (k) { return (blobs[k] ? Promise.resolve(blobs[k]) : getBlob(k)).then(function (b) { if (b) files.push({ id: k, blob: b }); }); }))
-        .then(function () { return YBP2P.send(toName, { from: from.name, name: it.name, thumb: it.thumb, data: d, files: files }, function (t) { if (t) msg.textContent = t; }); });
-    }).then(function () { msg.textContent = '✓ Sent — it\'s in ' + toName + '\'s projects now.'; YB.toast('Sent to ' + toName); },
-      function (e) { msg.textContent = e.code === 'offline' ? toName + ' isn\'t on Photo Showcase right now. Ask them to open it and sign in, then tap Send again — or send a file.' : 'Not sent: ' + e.message; })
-      .then(function () { if (btn) btn.disabled = false; });
+      var item = { id: 'ob' + YB.uid(), shareId: 's' + YB.uid() + YB.uid(), to: toName, name: it.name, thumb: it.thumb, created: Date.now(), status: 'waiting', data: it.data };
+      return kvGet('outbox:' + me_).then(function (l) {
+        l = Array.isArray(l) ? l : []; l.unshift(item);
+        return kv('readwrite', function (st) { st.put(l, 'outbox:' + me_); });
+      });
+    }).then(function () {
+      msg.textContent = '✓ In your Outbox. It goes to ' + toName + ' by itself the next time you\'re both on Photo Showcase — you don\'t need to wait here.';
+      YB.toast('Sending to ' + toName); renderOutbox(); deliverSoon();
+    }, function (e) { msg.textContent = 'Not sent: ' + e.message; });
   }
   function shareFile() {
     var from = personById(me_), btn = $('shFile'); btn.disabled = true;
@@ -2145,6 +2248,7 @@
     });
     $('acctPanel').addEventListener('input', function (e) { if (e.target.id === 'siFind') listSignIn(e.target.value); if (/Pin/.test(e.target.id)) e.target.value = e.target.value.replace(/\D/g, ''); });
     $('acctPanel').addEventListener('keydown', function (e) { if (e.key !== 'Enter') return; if (e.target.id === 'siPinIn') signIn(); if (/^ca/.test(e.target.id)) createAccount(); });
+    $('outboxBox').addEventListener('click', function (e) { var b = e.target.closest('[data-ob-del]'); if (b) dropOutbox(b.getAttribute('data-ob-del')); });
     $('inboxBox').addEventListener('click', function (e) { var t = e.target.closest('[data-inb-take]'), d = e.target.closest('[data-inb-del]'); if (t) takeShared(t.getAttribute('data-inb-take'), true); if (d) takeShared(d.getAttribute('data-inb-del'), false); });
     $('projShare').addEventListener('click', showShare);
     $('sharePanel').addEventListener('click', function (e) { var b = e.target.closest('[data-sh]'); if (b) shareTo(b.getAttribute('data-sh')); var pb = e.target.closest('[data-p2p]'); if (pb) shareP2P(pb.getAttribute('data-p2p')); if (e.target.id === 'shFile') shareFile(); if (e.target.id === 'shClose') $('sharePanel').hidden = true; });
@@ -2174,6 +2278,8 @@
   setInterval(renderSaved, 30000);
   window.YBShowcase = {   // used by tests
     music: function () { return music ? { bpm: music.bpm, first: music.first, start: songStart(), synced: synced() } : null; },
+    outbox: function () { return me_ ? kvGet('outbox:' + me_).then(function (l) { return (l || []).map(function (x) { return { to: x.to, name: x.name, status: x.status }; }); }) : Promise.resolve([]); },
+    deliver: function () { deliverAll(); },
     person: function () { var u = personById(me_); return { id: me_, name: u ? u.name : '', p2p: p2pState, people: people.map(function (x) { return x.name; }) }; },
     projects: function () { return { pid: pid, name: pname, list: projects.map(function (q) { return { id: q.id, name: q.name, photos: q.photos, clients: q.clients }; }) }; },
     state: function () { return { S: S, photos: photos.map(clean), sets: sets.map(clean), slides: slides.map(clean), cur: cur, total: segments().total }; },

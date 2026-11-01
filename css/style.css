@@ -1375,3 +1375,9 @@ input[type="range"] { min-height: 32px; }            /* finger-friendly */
 .sc-net.on{color:#86efac}
 .sc-acct.sc-folded #acctNet{display:none}
 #shP2P{margin:.2rem 0 .6rem}
+
+.sc-badge{font-size:.8rem;font-weight:700;padding:.15rem .5rem;border-radius:999px;background:rgba(59,130,246,.22);color:#bfdbfe;white-space:nowrap}
+.sc-inb>div:nth-child(2) .small{display:block}
+.sc-out-accepted{border-color:rgba(52,211,153,.5)}
+.sc-out-declined{border-color:rgba(248,113,113,.45);opacity:.85}
+.sc-out-waiting{border-color:rgba(251,191,36,.45);background:rgba(251,191,36,.06)}
