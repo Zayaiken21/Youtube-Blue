@@ -15,15 +15,15 @@
   <meta name="mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
   <meta name="apple-mobile-web-app-title" content="YT Blue">
-  <link rel="stylesheet" href="css/style.css?v=51">
+  <link rel="stylesheet" href="css/style.css?v=53">
   <script src="js/core.js" defer></script>
   <script src="js/vendor/mp4-muxer.min.js" defer></script>
   <script src="js/fullscreen.js?v=1" defer></script>
   <script src="js/fx-float.js?v=1" defer></script>
   <script src="js/showcase-fold.js?v=2" defer></script>
   <script src="js/showcase-fx.js?v=5" defer></script>
-  <script src="js/formatter.js?v=7" defer></script>
-  <script src="js/formatter-pro.js?v=6" defer></script>
+  <script src="js/formatter.js?v=9" defer></script>
+  <script src="js/formatter-pro.js?v=10" defer></script>
 </head>
 <body data-page="formatter">
   <header class="topbar">
@@ -180,17 +180,23 @@
               <button type="button" class="fm-tool fm-tool-ly" id="lyUp"><i>⬆️</i><span>Forward</span></button>
               <button type="button" class="fm-tool fm-tool-ly" id="lyDown"><i>⬇️</i><span>Back</span></button>
               <button type="button" class="fm-tool fm-tool-ly" id="lyHide"><i>👁</i><span>Hide</span></button>
+              <button type="button" class="fm-tool fm-tool-ly" id="lyDel"><i>🗑️</i><span>Delete layer</span></button>
             </span>
+            <button type="button" class="fm-tool" id="tlMute"><i>🔇</i><span>Mute</span></button>
+            <button type="button" class="fm-tool" id="tlSpeed"><i>⏩</i><span>Speed</span></button>
             <button type="button" class="fm-tool" id="tlDup"><i>⧉</i><span>Duplicate</span></button>
             <button type="button" class="fm-tool" id="tlDel"><i>🗑️</i><span>Delete</span></button>
             <label class="fm-tool"><i>🎬</i><span>+ Video</span><input type="file" id="tlLayerFile" accept="video/*,.mp4,.mov,.m4v,.webm" hidden></label>
             <label class="fm-tool"><i>🖼️</i><span>+ Photo</span><input type="file" id="tlPhotoFile" accept="image/*" hidden></label>
+            <label class="fm-tool"><i>🎵</i><span>+ Audio</span><input type="file" id="tlAudioFile" accept="audio/*,.mp3,.wav,.m4a,.aac,.ogg" hidden></label>
             <button type="button" class="fm-tool" id="tlToLayer"><i>⤵️</i><span>To layer</span></button>
             <button type="button" class="fm-tool" id="moveVideoBtn" aria-pressed="false"><i>🖐</i><span>Move video</span></button>
+            <button type="button" class="fm-tool" id="tlCenter"><i>🎯</i><span>Center</span></button>
             <button type="button" class="fm-tool" id="tlZoomOut" aria-label="Zoom out the timeline"><i>➖</i><span>Zoom out</span></button>
             <button type="button" class="fm-tool" id="tlZoomIn" aria-label="Zoom in the timeline"><i>➕</i><span>Zoom in</span></button>
             <button type="button" id="splitBtn" hidden></button><button type="button" id="setInBtn" hidden></button><button type="button" id="setOutBtn" hidden></button>
           </div>
+          <div class="fm-speedrow" id="fmSpeedRow" hidden></div>
           <div class="fm-tl-scroll" id="tlScroll"><div class="fm-tl-inner" id="tlInner"></div></div>
           <p class="muted small fm-tl-tip">Swipe a clip's or layer's ends to make it shorter or longer · drag it to move it · tap a layer, then ⬆ / ⬇ to put it in front of or under the main video</p>
         </div>

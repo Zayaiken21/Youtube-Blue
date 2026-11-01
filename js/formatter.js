@@ -87,7 +87,7 @@
     if (!unsaved) return;
     unsaved = false;
     var data = {
-      clips: clips.map(function (c) { return { id: c.id, name: c.name, blobId: c.blobId, dur: c.dur, vw: c.vw, vh: c.vh, in: c.in, out: c.out, vol: c.vol, mute: c.mute, zoom: c.zoom, ox: c.ox, oy: c.oy, audio: c.audio, fx: c.fx || [] }; }),
+      clips: clips.map(function (c) { return { id: c.id, name: c.name, blobId: c.blobId, dur: c.dur, vw: c.vw, vh: c.vh, in: c.in, out: c.out, vol: c.vol, mute: c.mute, zoom: c.zoom, ox: c.ox, oy: c.oy, audio: c.audio, fx: c.fx || [], speed: c.speed || 1 }; }),
       overlays: overlays.map(function (o) { var x = {}; Object.keys(o).forEach(function (k) { if (k.charAt(0) !== '_') x[k] = o[k]; }); return x; }),
       music: music ? { blobId: music.blobId, name: music.name } : null,
       bgImage: bgImage ? { blobId: bgImage.blobId } : null
@@ -96,7 +96,8 @@
   }
 
   /* ---------- Timeline ---------- */
-  function clipLen(c) { return Math.max(0.1, c.out - c.in); }
+  function sp(c) { return clamp(+(c && c.speed) || 1, 0.25, 4); }   // clip speed: 0.25× … 4×
+  function clipLen(c) { return Math.max(0.1, (c.out - c.in) / sp(c)); }
   function timeline() {
     var starts = [], t = 0;
     clips.forEach(function (c) { starts.push(t); t += clipLen(c); });
@@ -235,17 +236,26 @@
   // A video layer shows the part of its video that belongs at time t (its own start / end on the timeline).
   function layerFrame(o, t) {
     var v = o._v; if (!v || v.readyState < 2 || !v.videoWidth) return null;
-    var want = clamp((o.in || 0) + (t - (o.start || 0)), 0, Math.max(0, (v.duration || o.dur || 0) - 0.05)), active = pv.playing || !!rec;
-    if (Math.abs(v.currentTime - want) > (active ? 0.3 : 0.04)) { try { v.currentTime = want; } catch (e) { /* not ready */ } }
-    if (active && v.paused) v.play().catch(function () {}); else if (!active && !v.paused) v.pause();
+    syncMedia(o, v, t);
     return v;
+  }
+  // keep a layer's video / sound in step with the timeline (its own speed, volume and mute)
+  function syncMedia(o, v, t) {
+    var r = clamp(+o.speed || 1, 0.25, 4), want = clamp((o.in || 0) + (t - (o.start || 0)) * r, 0, Math.max(0, (v.duration || o.dur || 0) - 0.05)), active = pv.playing || !!rec;
+    if (v.playbackRate !== r) v.playbackRate = r;
+    var loud = !rec && !o.mute && !o.hidden && (o.vol == null ? (o.type === 'audio') : o.vol > 0);   // the finished video gets its sound from the mix
+    v.muted = !loud; if (loud) v.volume = clamp(o.vol == null ? 1 : o.vol, 0, 1);
+    var drift = v.currentTime - want;
+    if (Math.abs(drift) > (active ? 0.15 : 0.04)) { try { v.currentTime = want; } catch (e) { /* not ready */ } }
+    if (active && v.paused) v.play().catch(function () { v.muted = true; v.play().catch(function () {}); }); else if (!active && !v.paused) v.pause();
   }
   function drawOverlays(x, W, H, t, total, forPreview, under) {
     var base = Math.min(W, H);
     overlays.forEach(function (o) {
       if (!!o.under !== !!under) return;   // layers under the main video are drawn first
       o._b = null;
-      if (o.hidden || !visibleAt(o, t)) { if (o._v && !o._v.paused) o._v.pause(); return; }
+      if (o.hidden || !visibleAt(o, t)) { if (o._v && !o._v.paused) o._v.pause(); if (o._a && !o._a.paused) o._a.pause(); return; }
+      if (o.type === 'audio') { if (o._a && o._a.readyState >= 1) syncMedia(o, o._a, t); return; }   // sound only
       // paused preview shows every overlay fully, so it can be seen and edited; animations play in playback and the export
       var k = forPreview && !pv.playing ? { a: 1, s: 1, dy: 0, chars: 1 } : animState(o, t, total);
       x.save(); x.globalAlpha = k.a * (o.opacity == null ? 1 : o.opacity);
@@ -357,9 +367,19 @@
       v.addEventListener('seeked', function () { if (!pv.playing) drawPreview(); });
       stash.appendChild(v);
       c._el = v;
+      wake(v);
     }
     return c._el;
   }
+  function wake(v) {
+    if (v._woke) return; v._woke = true;
+    var before = v.muted; v.muted = true;
+    var p = v.play();
+    var done = function () { if (!pv.playing) { v.pause(); v.muted = before; drawPreview(); } };
+    if (p && p.then) p.then(done, function () { v._woke = false; v.muted = before; }); else done();
+  }
+  // a tap anywhere also wakes the videos (iPhone only lets a video start after a tap)
+  ['touchend', 'click'].forEach(function (ev) { document.addEventListener(ev, function () { clips.forEach(function (c) { if (c._el && c._el.readyState < 2) { c._el._woke = false; wake(c._el); } }); }, { passive: true }); });
   function previewSize() {
     var d = dims(), maxW = 360, maxH = 640, s = Math.min(maxW / d.W, maxH / d.H);
     if (d.W >= d.H) s = Math.min(640 / d.W, 360 / d.H);
@@ -405,7 +425,7 @@
   function seekTo(t) {
     var tl = timeline(); pv.t = clamp(t, 0, tl.total);
     if (!clips.length) return drawPreview();
-    var ci = clipAt(pv.t, tl), c = clips[ci], v = elFor(c), want = c.in + (pv.t - tl.starts[ci]);
+    var ci = clipAt(pv.t, tl), c = clips[ci], v = elFor(c), want = c.in + (pv.t - tl.starts[ci]) * sp(c);
     if (pv.playing) { stopPreview(); }
     try { if (Math.abs(v.currentTime - want) > 0.01) v.currentTime = want; } catch (e) { /* not ready */ }
     drawPreview();
@@ -416,7 +436,7 @@
     pv.playing = true; setPlayBtn(true);
     pv.ci = clipAt(pv.t, tl);
     var c = clips[pv.ci], v = elFor(c);
-    v.currentTime = c.in + (pv.t - tl.starts[pv.ci]);
+    v.currentTime = c.in + (pv.t - tl.starts[pv.ci]) * sp(c);
     playEl(c, v);
     if (music) {
       pv.music = pv.music || new Audio(); if (pv.music.src !== blobUrl(music.blobId)) pv.music.src = blobUrl(music.blobId);
@@ -428,7 +448,7 @@
       if (!pv.playing) return;
       var tl2 = timeline(), c2 = clips[pv.ci], v2 = elFor(c2);
       if (!c2) { stopPreview(); return; }
-      pv.t = tl2.starts[pv.ci] + Math.max(0, v2.currentTime - c2.in);
+      pv.t = tl2.starts[pv.ci] + Math.max(0, v2.currentTime - c2.in) / sp(c2);
       if (v2.currentTime >= c2.out - 0.03 || v2.ended) {
         v2.pause();
         if (pv.ci >= clips.length - 1) { pv.t = tl2.total; drawPreview(); stopPreview(); return; }
@@ -441,11 +461,11 @@
     };
     pv.raf = requestAnimationFrame(loop);
   }
-  function playEl(c, v) { v.muted = !!c.mute; v.volume = clamp(c.vol == null ? 1 : c.vol, 0, 1); v.play().catch(function () { v.muted = true; v.play().catch(function () {}); }); }
+  function playEl(c, v) { v.muted = !!c.mute; v.volume = clamp(c.vol == null ? 1 : c.vol, 0, 1); v.playbackRate = sp(c); if ('preservesPitch' in v) v.preservesPitch = true; v.play().catch(function () { v.muted = true; v.play().catch(function () {}); }); }
   function stopPreview() {
     pv.playing = false; cancelAnimationFrame(pv.raf); setPlayBtn(false);
     clips.forEach(function (c) { if (c._el) c._el.pause(); });
-    overlays.forEach(function (o) { if (o._v) o._v.pause(); });
+    overlays.forEach(function (o) { if (o._v) o._v.pause(); if (o._a) o._a.pause(); });
     if (pv.music) pv.music.pause();
   }
   function setPlayBtn(on) {
@@ -484,58 +504,6 @@
       };
     });
   }
-  /* ---------- Filmstrips: real frames from every clip for the list and the timeline ----------
-     iPhone Safari won't decode a picture until the video has been told to play, so each video is
-     played (muted) for a moment first; every frame is checked so a black frame is never kept. */
-  var stripQ = [], stripBusy = false;
-  function stripSoon(c) { if (c && stripQ.indexOf(c) === -1) stripQ.push(c); if (!stripBusy) nextStrip(); }
-  function nextStrip() {
-    var c = stripQ.shift(); if (!c) { stripBusy = false; return; }
-    if (!blobs[c.blobId] || clips.indexOf(c) === -1) { nextStrip(); return; }
-    stripBusy = true;
-    filmstrip(blobs[c.blobId].url, c.dur || 1).then(function (r) {
-      if (r) { c.strip = r.strip; c.stripN = r.n; if (r.thumb) c.thumb = r.thumb; c._fw = r.fw; }
-      renderClips(); if (window.YBFmtPro) YBFmtPro.render();
-    }).then(nextStrip, nextStrip);
-  }
-  function waitEv(el, ev, ms) { return new Promise(function (res) { var done = false; function f() { if (done) return; done = true; el.removeEventListener(ev, f); res(); } el.addEventListener(ev, f); setTimeout(f, ms); }); }
-  function filmstrip(url, dur) {
-    var v = document.createElement('video');
-    v.muted = true; v.playsInline = true; v.setAttribute('playsinline', ''); v.setAttribute('muted', ''); v.preload = 'auto'; v.crossOrigin = 'anonymous';
-    v.style.cssText = 'position:fixed;left:-9999px;top:0;width:160px;height:90px;opacity:0;pointer-events:none';
-    document.body.appendChild(v); v.src = url;
-    function shown() { return new Promise(function (res) { if (v.requestVideoFrameCallback) { var d = false; v.requestVideoFrameCallback(function () { if (!d) { d = true; res(); } }); setTimeout(function () { if (!d) { d = true; res(); } }, 400); } else setTimeout(res, 120); }); }
-    function seek(t) { return new Promise(function (res) { var d = false; function f() { if (d) return; d = true; v.removeEventListener('seeked', f); shown().then(res); } v.addEventListener('seeked', f); try { v.currentTime = t; } catch (e) { f(); } setTimeout(f, 2500); }); }
-    var H = 64;
-    return waitEv(v, 'loadedmetadata', 8000).then(function () {
-      // wake the decoder (needed on iPhone), then stop
-      var p = v.play(); return (p && p.then ? p.catch(function () {}) : Promise.resolve()).then(function () { v.pause(); return waitEv(v, 'loadeddata', 3000); });
-    }).then(function () {
-      var w = v.videoWidth || 16, h = v.videoHeight || 9, fw = Math.max(24, Math.round(H * w / h)), n = clamp(Math.round(dur / 1.2), 4, 30);
-      var cv = document.createElement('canvas'); cv.width = fw * n; cv.height = H; var x = cv.getContext('2d', { willReadFrequently: true });
-      x.fillStyle = '#1b2a44'; x.fillRect(0, 0, cv.width, H);
-      var thumb = '', i = 0;
-      function frameAt(k) {
-        var t = Math.min(dur - 0.05, (k + 0.5) * dur / n);
-        return seek(Math.max(0.01, t)).then(function () {
-          try {
-            x.drawImage(v, k * fw, 0, fw, H);
-            var d = x.getImageData(k * fw + (fw >> 1), H >> 1, 1, 1).data;
-            if (d[0] + d[1] + d[2] < 6 && k === 0) {   // black: let it play a moment and draw again
-              return v.play().catch(function () {}).then(function () { return new Promise(function (r) { setTimeout(r, 180); }); }).then(function () { v.pause(); x.drawImage(v, k * fw, 0, fw, H); });
-            }
-          } catch (e) { /* not drawable */ }
-        });
-      }
-      function next() { if (i >= n) return Promise.resolve(); return frameAt(i++).then(next); }
-      return next().then(function () {
-        var tc = document.createElement('canvas'), tk = Math.min(n - 1, Math.round(n * 0.1)); tc.width = Math.round(160 * Math.min(1, w / h)) || 90; tc.height = Math.round(tc.width * h / w);
-        try { tc.getContext('2d').drawImage(cv, tk * fw, 0, fw, H, 0, 0, tc.width, tc.height); thumb = tc.toDataURL('image/jpeg', 0.75); } catch (e) { /* ignore */ }
-        var strip = ''; try { strip = cv.toDataURL('image/jpeg', 0.6); } catch (e) { /* ignore */ }
-        return { strip: strip, thumb: thumb, n: n, fw: fw };
-      });
-    }).catch(function () { return null; }).then(function (r) { try { v.pause(); v.removeAttribute('src'); v.load(); v.remove(); } catch (e) { /* gone */ } return r; });
-  }
   function hasAudio(v) {
     if (typeof v.mozHasAudio === 'boolean') return v.mozHasAudio;
     if (typeof v.webkitAudioDecodedByteCount === 'number' && v.audioTracks === undefined) return null;   // unknown until played
@@ -555,8 +523,7 @@
           var id = YB.uid(), blobId = 'v' + id;
           addBlob(blobId, f);
           return putBlob(blobId, f).then(function () {
-            var nc = { id: id, name: f.name, blobId: blobId, dur: info.dur, vw: info.w, vh: info.h, thumb: info.thumb, in: 0, out: info.dur || 1, vol: 1, mute: false, zoom: 1, ox: 0, oy: 0, audio: info.audio };
-            clips.push(nc); stripSoon(nc);
+            clips.push({ id: id, name: f.name, blobId: blobId, dur: info.dur, vw: info.w, vh: info.h, thumb: info.thumb, in: 0, out: info.dur || 1, vol: 1, mute: false, zoom: 1, ox: 0, oy: 0, audio: info.audio });
           });
         }, function () { bad.push(f.name); });
       });
@@ -588,6 +555,7 @@
         '<label class="field"><span>End (s)</span><input type="number" data-k="out" min="0" max="' + secs(c.dur) + '" step="0.1" value="' + secs(c.out) + '"></label>' +
         '<label class="field"><span>Zoom <b>' + Math.round((c.zoom || 1) * 100) + '%</b></span><input type="range" data-k="zoom" min="50" max="300" step="5" value="' + Math.round((c.zoom || 1) * 100) + '"></label>' +
         '<label class="field"><span>Volume <b>' + (c.mute ? 'muted' : Math.round((c.vol == null ? 1 : c.vol) * 100) + '%') + '</b></span><input type="range" data-k="vol" min="0" max="100" step="5" value="' + Math.round((c.vol == null ? 1 : c.vol) * 100) + '"' + (c.mute ? ' disabled' : '') + '></label>' +
+        '<label class="field"><span>Speed</span><select data-k="speed">' + [0.25, 0.5, 0.75, 1, 1.25, 1.5, 2, 3, 4].map(function (q) { return '<option value="' + q + '"' + (Math.abs(sp(c) - q) < 0.001 ? ' selected' : '') + '>' + q + '×</option>'; }).join('') + '</select></label>' +
         '<label class="fm-check"><input type="checkbox" data-k="mute"' + (c.mute ? ' checked' : '') + '> Mute</label>' +
         ((c.ox || c.oy || (c.zoom && c.zoom !== 1)) ? '<button type="button" class="btn btn-ghost btn-sm" data-reset>↺ Re-centre</button>' : '') +
         '</div></li>';
@@ -618,6 +586,7 @@
     $('musicVol').value = S.musicVol; $('musicVolVal').textContent = S.musicVol + '%';
   }
   function ovLabel(o) {
+    if (o.type === 'audio') return '🎵 ' + (o.name || 'Audio');
     if (o.type === 'video') return '🎬 Video layer';
     if (o.type === 'image') return o.sticker ? '💈 Sticker' : '🖼️ Picture';
     if (o.type === 'cta') return '🔔 ' + (o.text || 'Subscribe');
@@ -667,6 +636,15 @@
         '<label class="field"><span>Line up</span><select data-o="align">' + opt([['left', 'Left'], ['center', 'Centre'], ['right', 'Right']], o.align || 'center') + '</select></label>' +
         '<label class="field"><span>Width <b>' + Math.round((o.wrap || 0.86) * 100) + '%</b></span><input type="range" data-o="wrap" min="20" max="100" step="2" value="' + Math.round((o.wrap || 0.86) * 100) + '"></label>' +
         '</div>';
+    }
+    if (o.type === 'video' || o.type === 'audio') {
+      h += '<div class="fields">' +
+        '<label class="field"><span>Volume <b>' + (o.mute ? 'muted' : Math.round((o.vol == null ? (o.type === 'audio' ? 1 : 0) : o.vol) * 100) + '%') + '</b></span><input type="range" data-o="vol" min="0" max="100" step="5" value="' + Math.round((o.vol == null ? (o.type === 'audio' ? 1 : 0) : o.vol) * 100) + '"></label>' +
+        '<label class="field"><span>Speed</span><select data-o="speed">' + [0.25, 0.5, 0.75, 1, 1.25, 1.5, 2, 3, 4].map(function (q) { return '<option value="' + q + '"' + (Math.abs((+o.speed || 1) - q) < 0.001 ? ' selected' : '') + '>' + q + '×</option>'; }).join('') + '</select></label>' +
+        '<label class="fm-check"><input type="checkbox" data-o="mute"' + (o.mute ? ' checked' : '') + '> Mute</label></div>';
+    }
+    if (o.type === 'audio') {
+      /* sound only: nothing to place on the picture */
     } else if (o.type === 'image' || o.type === 'video') {
       h += '<div class="fields">' +
         '<label class="field"><span>Size <b>' + Math.round(o.w * 100) + '%</b></span><input type="range" data-o="w" min="4" max="180" step="1" value="' + Math.round(o.w * 100) + '"></label>' +
@@ -731,7 +709,8 @@
   }
   function loadOvImage(o) {
     return new Promise(function (res) {
-      if (o.type === 'video') {   // a video layer: a quiet video element kept in step with the timeline
+      if (o.type === 'audio') { var a = new Audio(); a.preload = 'auto'; var dn = false; function fa() { if (dn) return; dn = true; o._a = a; res(); } a.onloadedmetadata = fa; a.onerror = fa; setTimeout(fa, 6000); a.src = blobUrl(o.blobId); return; }
+      if (o.type === 'video') {   // a video layer: a video element kept in step with the timeline
         var v = document.createElement('video'); v.muted = true; v.playsInline = true; v.setAttribute('playsinline', ''); v.preload = 'auto';
         var done = false; function fin() { if (done) return; done = true; o._v = v; res(); }
         v.onloadeddata = fin; v.onerror = fin; setTimeout(fin, 8000); v.src = blobUrl(o.blobId); stash.appendChild(v); return;
@@ -747,6 +726,8 @@
     else if (k === 'opacity') o.opacity = clamp(+v / 100, 0.05, 1);
     else if (k === 'wrap') o.wrap = clamp(+v / 100, 0.1, 1);
     else if (k === 'thick') o.thick = clamp(+v / 100, 0.002, 0.04);
+    else if (k === 'vol') { o.vol = clamp(+v / 100, 0, 1); var lb = el.previousElementSibling && el.previousElementSibling.querySelector('b'); if (lb) lb.textContent = Math.round(o.vol * 100) + '%'; }
+    else if (k === 'speed') o.speed = clamp(+v || 1, 0.25, 4);
     else if (k === 'start') o.start = clamp(+v || 0, 0, 1e5);
     else if (k === 'end') o.end = v === '' ? null : Math.max(+v || 0, (o.start || 0) + 0.1);
     else o[k] = v;
@@ -839,7 +820,8 @@
   }
   // All the sound of the finished video, mixed on the device: each clip's own sound at its place, plus music.
   function mixAudio(T) {
-    var needs = clips.some(function (c) { return !c.mute && (c.vol == null || c.vol > 0) && c.audio !== false; }) || !!music;
+    var loudLayers = overlays.filter(function (o) { return (o.type === 'audio' || o.type === 'video') && !o.mute && !o.hidden && (o.vol == null ? o.type === 'audio' : o.vol > 0) && blobs[o.blobId]; });
+    var needs = clips.some(function (c) { return !c.mute && (c.vol == null || c.vol > 0) && c.audio !== false; }) || !!music || loudLayers.length > 0;
     if (!needs) return Promise.resolve(null);
     var Off = window.OfflineAudioContext || window.webkitOfflineAudioContext, AC = window.AudioContext || window.webkitAudioContext;
     if (!Off || !AC) return Promise.resolve(null);
@@ -857,8 +839,20 @@
         // short fades at the joins so cuts never click
         g.gain.setValueAtTime(0, st); g.gain.linearRampToValueAtTime(g.gain.value || 1, st + 0.012);
         g.gain.setValueAtTime(c.vol == null ? 1 : c.vol, Math.max(st + 0.013, st + L - 0.012)); g.gain.linearRampToValueAtTime(0, st + L);
-        src.start(st, c.in, L);
+        src.playbackRate.value = sp(c); src.start(st, c.in, c.out - c.in);
       });
+    });
+    loudLayers.forEach(function (o) {   // layers with sound: at their place on the timeline, at their speed and volume
+      cache[o.blobId] = cache[o.blobId] || decodeAudio(dec, blobs[o.blobId].blob);
+      jobs.push(cache[o.blobId].then(function (b) {
+        if (!b) return;
+        var st = o.start || 0, en = Math.min(T, o.end == null ? T : o.end), r = clamp(+o.speed || 1, 0.25, 4), vol = o.vol == null ? 1 : o.vol;
+        if (en - st < 0.05) return;
+        any = true;
+        var src = off.createBufferSource(), g = off.createGain(); src.buffer = b; src.playbackRate.value = r; src.connect(g); g.connect(off.destination);
+        g.gain.setValueAtTime(0, st); g.gain.linearRampToValueAtTime(vol, st + 0.02); g.gain.setValueAtTime(vol, Math.max(st + 0.021, en - 0.03)); g.gain.linearRampToValueAtTime(0, en);
+        src.start(st, Math.min(b.duration - 0.01, o.in || 0), (en - st) * r);
+      }));
     });
     if (music) jobs.push(decodeAudio(dec, blobs[music.blobId].blob).then(function (b) {
       if (!b) return;
@@ -979,7 +973,7 @@
     function drain() { return vEnc.encodeQueueSize > 8 ? new Promise(function (r) { setTimeout(r, 15); }).then(drain) : Promise.resolve(); }
     function captureClip(i) {
       var c = clips[i], st = tl.starts[i], len = clipLen(c), v = exportEl(c);
-      return once(v, 'loadeddata', 20000).catch(function () {}).then(function () { return seekEl(v, c.in); }).then(function () {
+      return once(v, 'loadeddata', 20000).catch(function () {}).then(function () { v.playbackRate = sp(c); return seekEl(v, c.in); }).then(function () {
         drawFrame(ctx, W, H, st, v, i, false);
         return new Promise(function (resolve, reject) {
           var finished = false, lastCb = performance.now(), busy = false;
@@ -995,7 +989,7 @@
             if (rec.cancelled) { finished = true; clearInterval(watch); v.pause(); reject(new Error('cancelled')); return; }
             if (failed) { finished = true; clearInterval(watch); v.pause(); reject(failed); return; }
             var mt = md && typeof md.mediaTime === 'number' ? md.mediaTime : v.currentTime;
-            var t = st + clamp(mt - c.in, 0, len);
+            var t = st + clamp((mt - c.in) / sp(c), 0, len);
             emitUntil(t);                                   // frames before this one keep the previous picture
             if (mt >= c.out - 0.5 / FPS) { finish(); return; }
             drawFrame(ctx, W, H, t, v, i, false);
@@ -1062,7 +1056,7 @@
           if (stopped) return;
           var t = clock();
           if (rec.cancelled || t >= T) { stopped = true; try { src && src.stop(); } catch (e) { /* stopped */ } els.forEach(function (v) { v.pause(); }); setTimeout(function () { mr.stop(); }, 150); return; }
-          var i = clipAt(t, tl), c = clips[i], v = els[i], want = c.in + (t - tl.starts[i]);
+          var i = clipAt(t, tl), c = clips[i], v = els[i], want = c.in + (t - tl.starts[i]) * sp(c); v.playbackRate = sp(c);
           if (i !== cur) { if (cur >= 0) els[cur].pause(); cur = i; try { v.currentTime = want; } catch (e) { /* ignore */ } v.play().catch(function () {}); }
           else if (Math.abs(v.currentTime - want) > 0.2) { try { v.currentTime = want; } catch (e) { /* ignore */ } }   // keep the picture on the sound's clock
           if (i + 1 < clips.length && tl.starts[i + 1] - t < 1 && Math.abs(els[i + 1].currentTime - clips[i + 1].in) > 0.05) { try { els[i + 1].currentTime = clips[i + 1].in; } catch (e) { /* ignore */ } }
@@ -1127,6 +1121,7 @@
       if (k === 'in') c.in = clamp(+e.target.value || 0, 0, Math.max(0, c.out - 0.1));
       else if (k === 'out') c.out = clamp(+e.target.value || c.dur, c.in + 0.1, c.dur || 1e5);
       else if (k === 'mute') c.mute = e.target.checked;
+      else if (k === 'speed') c.speed = clamp(+e.target.value || 1, 0.25, 4);
       else if (k === 'zoom' || k === 'vol') { renderClips(); return; }
       stopPreview(); saveProject(); renderAll(); seekTo(Math.min(pv.t, timeline().total));
     });
@@ -1206,7 +1201,7 @@
     $('splitBtn').addEventListener('click', function () {
       if (window.YBFmtPro && YBFmtPro.splitLayer && YBFmtPro.splitLayer()) return;   // a selected layer is cut instead
       if (!clips.length) return;
-      var tl = timeline(), i = clipAt(pv.t, tl), c = clips[i], at = c.in + (pv.t - tl.starts[i]);
+      var tl = timeline(), i = clipAt(pv.t, tl), c = clips[i], at = c.in + (pv.t - tl.starts[i]) * sp(c);
       if (at - c.in < 0.2 || c.out - at < 0.2) { YB.toast('Move the playhead inside a clip to split it'); return; }
       stopPreview();
       var b = Object.assign({}, c, { id: YB.uid(), in: at, _el: null }); delete b._el;
@@ -1215,11 +1210,11 @@
       saveProject(); renderAll(); seekTo(pv.t); YB.toast('Split into two clips');
     });
     $('setInBtn').addEventListener('click', function () {
-      if (!clips.length) return; var tl = timeline(), i = clipAt(pv.t, tl), c = clips[i], at = c.in + (pv.t - tl.starts[i]);
+      if (!clips.length) return; var tl = timeline(), i = clipAt(pv.t, tl), c = clips[i], at = c.in + (pv.t - tl.starts[i]) * sp(c);
       if (c.out - at < 0.1) return; stopPreview(); c.in = at; saveProject(); renderAll(); seekTo(tl.starts[i]);
     });
     $('setOutBtn').addEventListener('click', function () {
-      if (!clips.length) return; var tl = timeline(), i = clipAt(pv.t, tl), c = clips[i], at = c.in + (pv.t - tl.starts[i]);
+      if (!clips.length) return; var tl = timeline(), i = clipAt(pv.t, tl), c = clips[i], at = c.in + (pv.t - tl.starts[i]) * sp(c);
       if (at - c.in < 0.1) return; stopPreview(); c.out = at; saveProject(); renderAll(); seekTo(pv.t);
     });
     $('exportBtn').addEventListener('click', exportVideo);
@@ -1241,13 +1236,17 @@
       if (data.bgImage) ids.push(data.bgImage.blobId);
       return Promise.all(ids.map(function (id) { return getBlob(id).then(function (b) { if (b) addBlob(id, b); }); })).then(function () {
         clips = (data.clips || []).filter(function (c) { return blobs[c.blobId]; });
-        overlays = (data.overlays || []).filter(function (o) { return o.type === 'video' ? !!blobs[o.blobId] : (o.type !== 'image' || o.sticker || blobs[o.blobId]); });
+        overlays = (data.overlays || []).filter(function (o) { return o.type === 'video' || o.type === 'audio' ? !!blobs[o.blobId] : (o.type !== 'image' || o.sticker || blobs[o.blobId]); });
         music = data.music && blobs[data.music.blobId] ? data.music : null;
         if (data.bgImage && blobs[data.bgImage.blobId]) { var im = new Image(); im.onload = function () { drawPreview(); }; im.src = blobUrl(data.bgImage.blobId); bgImage = { blobId: data.bgImage.blobId, img: im }; }
         if (S.bg === 'image' && !bgImage) S.bg = 'blur';
-        return Promise.all(overlays.filter(function (o) { return o.type === 'image' || o.type === 'video'; }).map(loadOvImage)).then(function () {
-          // thumbnails and filmstrips aren't saved — make them again, one clip at a time
-          var seen = {}; clips.forEach(function (c) { if (seen[c.blobId]) { c._stripOf = seen[c.blobId]; return; } seen[c.blobId] = c; stripSoon(c); });
+        return Promise.all(overlays.filter(function (o) { return o.type === 'image' || o.type === 'video' || o.type === 'audio'; }).map(loadOvImage)).then(function () {
+          // thumbnails aren't saved — make them again
+          clips.forEach(function (c) {
+            var v = document.createElement('video'); v.muted = true; v.preload = 'auto'; v.src = blobUrl(c.blobId);
+            v.onloadeddata = function () { try { v.currentTime = Math.min(c.in + 0.5, c.out); } catch (e) { /* ignore */ } };
+            v.onseeked = function () { var cv = document.createElement('canvas'), s = 160 / Math.max(v.videoWidth || 160, v.videoHeight || 90); cv.width = Math.round((v.videoWidth || 160) * s); cv.height = Math.round((v.videoHeight || 90) * s); try { cv.getContext('2d').drawImage(v, 0, 0, cv.width, cv.height); c.thumb = cv.toDataURL('image/jpeg', 0.7); } catch (e) { /* ignore */ } v.onseeked = null; v.removeAttribute('src'); v.load(); renderClips(); };
+          });
         });
       });
     });
@@ -1273,10 +1272,22 @@
       try { drawFrame(cv.getContext('2d'), W, H, pv.t, elFor(c), ci, false); } finally { window.YBFmtFxT = null; }
     },
     addImage: function (file) { addImage(file); },
-    stripOf: function (c) { return c.strip ? c : (c._stripOf && c._stripOf.strip ? c._stripOf : (clips.find(function (k) { return k.blobId === c.blobId && k.strip; }) || null)); },
+    addAudioLayer: function (file) {
+      return new Promise(function (res, rej) {
+        var a = new Audio(), url = URL.createObjectURL(file); a.preload = 'metadata';
+        a.onloadedmetadata = function () { var d = a.duration; URL.revokeObjectURL(url); res(isFinite(d) && d ? d : 30); }; a.onerror = function () { URL.revokeObjectURL(url); rej(new Error('cannot-play')); }; a.src = url;
+      }).then(function (dur) {
+        var id = YB.uid(), blobId = 'a' + id, total = timeline().total, st = Math.round(clamp(pv.t, 0, Math.max(0, total - 0.5)) * 10) / 10;
+        addBlob(blobId, file);
+        return putBlob(blobId, file).then(function () {
+          return window.YBFmt.addOverlay({ type: 'audio', blobId: blobId, name: file.name.replace(/\.[a-z0-9]+$/i, ''), dur: dur, in: 0, vol: 1, speed: 1, start: st, end: Math.round(Math.min(total, st + dur) * 10) / 10 });
+        });
+      });
+    },
+    sp: sp,
     clipToLayer: function (i) {
       var c = clips[i]; if (!c) return Promise.resolve();
-      var tl = timeline(), o = { type: 'video', blobId: c.blobId, name: c.name, dur: c.dur, in: c.in, w: 1, x: 0.5, y: 0.5, shape: 'square', opacity: 1, anim: 'none', start: Math.round(tl.starts[i] * 10) / 10, end: Math.round((tl.starts[i] + clipLen(c)) * 10) / 10 };
+      var tl = timeline(), o = { type: 'video', blobId: c.blobId, name: c.name, dur: c.dur, in: c.in, vol: 0, speed: sp(c), w: 1, x: 0.5, y: 0.5, shape: 'square', opacity: 1, anim: 'none', start: Math.round(tl.starts[i] * 10) / 10, end: Math.round((tl.starts[i] + clipLen(c)) * 10) / 10 };
       return window.YBFmt.addOverlay(o);
     },
     addVideoLayer: function (file) {
@@ -1284,7 +1295,7 @@
         var id = YB.uid(), blobId = 'l' + id, total = timeline().total, st = Math.round(clamp(pv.t, 0, Math.max(0, total - 0.5)) * 10) / 10;
         addBlob(blobId, file);
         return putBlob(blobId, file).then(function () {
-          var len = Math.min(info.dur || 3, Math.max(0.5, total - st)), o = { type: 'video', blobId: blobId, name: file.name, dur: info.dur, in: 0, w: 0.42, x: 0.72, y: 0.28, shape: 'rounded', opacity: 1, border: true, anim: 'pop', start: st, end: Math.round((st + len) * 10) / 10 };
+          var len = Math.min(info.dur || 3, Math.max(0.5, total - st)), o = { type: 'video', blobId: blobId, name: file.name, dur: info.dur, in: 0, vol: 1, speed: 1, w: 0.42, x: 0.72, y: 0.28, shape: 'rounded', opacity: 1, border: true, anim: 'pop', start: st, end: Math.round((st + len) * 10) / 10 };
           return window.YBFmt.addOverlay(o);
         });
       });
