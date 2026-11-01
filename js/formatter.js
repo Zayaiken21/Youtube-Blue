@@ -242,7 +242,7 @@
   // keep a layer's video / sound in step with the timeline (its own speed, volume and mute)
   function syncMedia(o, v, t) {
     var r = clamp(+o.speed || 1, 0.25, 4), want = clamp((o.in || 0) + (t - (o.start || 0)) * r, 0, Math.max(0, (v.duration || o.dur || 0) - 0.05)), active = pv.playing || !!rec;
-    if (v.playbackRate !== r) v.playbackRate = r;
+    if (v.playbackRate !== r) { v.playbackRate = r; if ('preservesPitch' in v) v.preservesPitch = true; if ('webkitPreservesPitch' in v) v.webkitPreservesPitch = true; }
     var loud = !rec && !o.mute && !o.hidden && (o.vol == null ? (o.type === 'audio') : o.vol > 0);   // the finished video gets its sound from the mix
     v.muted = !loud; if (loud) v.volume = clamp(o.vol == null ? 1 : o.vol, 0, 1);
     var drift = v.currentTime - want;
@@ -461,7 +461,7 @@
     };
     pv.raf = requestAnimationFrame(loop);
   }
-  function playEl(c, v) { v.muted = !!c.mute; v.volume = clamp(c.vol == null ? 1 : c.vol, 0, 1); v.playbackRate = sp(c); if ('preservesPitch' in v) v.preservesPitch = true; v.play().catch(function () { v.muted = true; v.play().catch(function () {}); }); }
+  function playEl(c, v) { v.muted = !!c.mute; v.volume = clamp(c.vol == null ? 1 : c.vol, 0, 1); v.playbackRate = sp(c); if ('preservesPitch' in v) v.preservesPitch = true; if ('webkitPreservesPitch' in v) v.webkitPreservesPitch = true; v.play().catch(function () { v.muted = true; v.play().catch(function () {}); }); }
   function stopPreview() {
     pv.playing = false; cancelAnimationFrame(pv.raf); setPlayBtn(false);
     clips.forEach(function (c) { if (c._el) c._el.pause(); });
@@ -818,6 +818,38 @@
       return new Promise(function (res) { var p = ac.decodeAudioData(buf, res, function () { res(null); }); if (p && p.then) p.then(res, function () { res(null); }); });
     }).catch(function () { return null; });
   }
+  /* Change the speed of sound without changing its pitch (WSOLA: overlapping slices of the sound are
+     re-spaced, each one lined up with the last so the waves join smoothly). `from` and `len` are in
+     seconds of the original; the result is len / rate seconds long, at the same pitch. */
+  function stretch(ctx, buf, from, len, rate) {
+    var sr = buf.sampleRate, ch = buf.numberOfChannels, a = Math.max(0, Math.floor(from * sr)), n = Math.max(1, Math.min(buf.length - a, Math.floor(len * sr)));
+    var outLen = Math.max(1, Math.round(n / rate)), out = ctx.createBuffer(ch, outLen, sr);
+    var N = Math.max(256, Math.round(sr * 0.042)) & ~1, Hs = N >> 1, Ha = Hs * rate, tol = Math.round(sr * 0.012);
+    var win = new Float32Array(N); for (var i = 0; i < N; i++) win[i] = 0.5 - 0.5 * Math.cos(2 * Math.PI * i / N);
+    var src = [], dst = []; for (var c = 0; c < ch; c++) { src.push(buf.getChannelData(c)); dst.push(out.getChannelData(c)); }
+    var mono = new Float32Array(n); for (c = 0; c < ch; c++) { var sc = src[c]; for (i = 0; i < n; i++) mono[i] += sc[a + i] / ch; }
+    var norm = new Float32Array(outLen + N), prev = 0, frames = Math.ceil(outLen / Hs) + 1;
+    for (var k = 0; k < frames; k++) {
+      var ideal = Math.round(k * Ha), pos = ideal;
+      if (k > 0) {   // pick the slice near the ideal spot whose start matches how the last slice carries on
+        var nat = prev + Hs, best = -1e30, lo = Math.max(0, ideal - tol), hi = Math.min(n - N, ideal + tol);
+        for (var cand = lo; cand <= hi; cand += 2) {
+          var sum = 0; for (var j = 0; j < N; j += 8) { var q = nat + j; if (q >= n) break; sum += mono[q] * mono[cand + j]; }
+          if (sum > best) { best = sum; pos = cand; }
+        }
+      }
+      if (pos > n - 1) break;
+      var o0 = k * Hs;
+      for (c = 0; c < ch; c++) {
+        var s0 = src[c], d0 = dst[c];
+        for (j = 0; j < N; j++) { var oi = o0 + j, si = pos + j; if (oi >= outLen) break; if (si < n) d0[oi] += s0[a + si] * win[j]; }
+      }
+      for (j = 0; j < N && o0 + j < outLen; j++) norm[o0 + j] += win[j];
+      prev = pos;
+    }
+    for (c = 0; c < ch; c++) { var d1 = dst[c]; for (i = 0; i < outLen; i++) if (norm[i] > 1e-3) d1[i] /= norm[i]; }
+    return out;
+  }
   // All the sound of the finished video, mixed on the device: each clip's own sound at its place, plus music.
   function mixAudio(T) {
     var loudLayers = overlays.filter(function (o) { return (o.type === 'audio' || o.type === 'video') && !o.mute && !o.hidden && (o.vol == null ? o.type === 'audio' : o.vol > 0) && blobs[o.blobId]; });
@@ -833,13 +865,14 @@
       return cache[c.blobId].then(function (b) {
         if (!b) return;
         any = true;
-        var src = off.createBufferSource(), g = off.createGain(); src.buffer = b; g.gain.value = c.vol == null ? 1 : c.vol;
+        var src = off.createBufferSource(), g = off.createGain(), r0 = sp(c);
+        src.buffer = r0 === 1 ? b : stretch(off, b, c.in, c.out - c.in, r0); g.gain.value = c.vol == null ? 1 : c.vol;
         src.connect(g); g.connect(off.destination);
         var L = clipLen(c), st = tl.starts[i];
         // short fades at the joins so cuts never click
         g.gain.setValueAtTime(0, st); g.gain.linearRampToValueAtTime(g.gain.value || 1, st + 0.012);
         g.gain.setValueAtTime(c.vol == null ? 1 : c.vol, Math.max(st + 0.013, st + L - 0.012)); g.gain.linearRampToValueAtTime(0, st + L);
-        src.playbackRate.value = sp(c); src.start(st, c.in, c.out - c.in);
+        if (r0 === 1) src.start(st, c.in, c.out - c.in); else src.start(st, 0, L);   // sped up / slowed down sound keeps its pitch
       });
     });
     loudLayers.forEach(function (o) {   // layers with sound: at their place on the timeline, at their speed and volume
@@ -849,9 +882,10 @@
         var st = o.start || 0, en = Math.min(T, o.end == null ? T : o.end), r = clamp(+o.speed || 1, 0.25, 4), vol = o.vol == null ? 1 : o.vol;
         if (en - st < 0.05) return;
         any = true;
-        var src = off.createBufferSource(), g = off.createGain(); src.buffer = b; src.playbackRate.value = r; src.connect(g); g.connect(off.destination);
+        var from = Math.min(b.duration - 0.01, o.in || 0), src = off.createBufferSource(), g = off.createGain();
+        src.buffer = r === 1 ? b : stretch(off, b, from, Math.min(b.duration - from, (en - st) * r), r); src.connect(g); g.connect(off.destination);
         g.gain.setValueAtTime(0, st); g.gain.linearRampToValueAtTime(vol, st + 0.02); g.gain.setValueAtTime(vol, Math.max(st + 0.021, en - 0.03)); g.gain.linearRampToValueAtTime(0, en);
-        src.start(st, Math.min(b.duration - 0.01, o.in || 0), (en - st) * r);
+        if (r === 1) src.start(st, from, en - st); else src.start(st, 0, en - st);
       }));
     });
     if (music) jobs.push(decodeAudio(dec, blobs[music.blobId].blob).then(function (b) {
