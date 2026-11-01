@@ -1,7 +1,7 @@
 /* Youtube Blue — service worker
    Network first (so your edits show up right away), cache as offline backup.
    Bump CACHE when you want installed copies to drop old files. */
-const CACHE = 'yt-blue-v41';
+const CACHE = 'yt-blue-v42';
 const ASSETS = [
   './', 'index.html', 'design.html', 'analytics.html', 'scheduler.html', 'stories.html', 'voice.html', 'comic.html', 'prompts.html', 'formatter.html', 'showcase.html',
   'css/style.css',
@@ -21,7 +21,7 @@ self.addEventListener('install', (e) => {
 self.addEventListener('activate', (e) => {
   e.waitUntil(
     caches.keys()
-      .then((keys) => Promise.all(keys.filter((k) => k !== CACHE).map((k) => caches.delete(k))))
+      .then((keys) => Promise.all(keys.filter((k) => k.indexOf('yt-blue-') === 0 && k !== CACHE).map((k) => caches.delete(k))))   // only our own old copies — other sites on this address keep theirs
       .then(() => self.clients.claim())
   );
 });
