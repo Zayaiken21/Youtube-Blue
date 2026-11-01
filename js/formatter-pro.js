@@ -97,6 +97,7 @@
     if (!window.YBFX || !window.YBFmt) return;
     var F = YBFmt, items = (F.S.fxAll || []).concat(c.fx || []);
     if (!items.length) return;
+    if (window.YBFmtFxT != null) t = window.YBFmtFxT;   // the floating live preview animates the effects
     YBFX.apply(x, W, H, items, { t: t, u: t - tl.starts[ci], dur: F.clipLen(c), beat: beatAt(t), color: F.S.fxColor || brandColor(), idx: ci, count: F.clips().length || 1 });
   };
   var fxTarget = 'clip', fxCat = 'popular', fxShow = 48;
@@ -137,18 +138,25 @@
     for (var s = 0; s <= total + 0.001; s += step) ruler += '<span class="fm-tick" style="left:' + (s * pps) + 'px">' + (Math.floor(s / 60) + ':' + String(Math.floor(s % 60)).padStart(2, '0') + (step < 1 && s % 1 ? '.5' : '')) + '</span>';
     var vids = cl.map(function (c, i) {
       var w = Math.max(6, F.clipLen(c) * pps - 2), nfx = (c.fx || []).length;
-      return '<div class="fm-tclip' + (i === cur ? ' on' : '') + '" data-tclip="' + i + '" style="left:' + (tl.starts[i] * pps) + 'px;width:' + w + 'px' + (c.thumb ? ';background-image:url(' + c.thumb + ')' : '') + '">' +
+      var sr = F.stripOf(c), bg = sr ? ';background-image:url(' + sr.strip + ');background-size:' + ((c.dur || 1) * pps) + 'px 100%;background-position:' + (-(c.in || 0) * pps) + 'px 0;background-repeat:no-repeat' : (c.thumb ? ';background-image:url(' + c.thumb + ')' : '');
+      return '<div class="fm-tclip' + (i === cur ? ' on' : '') + '" data-tclip="' + i + '" style="left:' + (tl.starts[i] * pps) + 'px;width:' + w + 'px' + bg + '">' +
         '<i class="fm-th fm-th-l" data-cedge="l" title="Drag to trim the start"></i><span>' + (i + 1) + (nfx ? ' ✨' + nfx : '') + ' · ' + F.clipLen(c).toFixed(1) + ' of ' + (c.dur || 0).toFixed(1) + ' s</span><i class="fm-th fm-th-r" data-cedge="r" title="Drag to trim the end"></i></div>';
     }).join('');
-    var rows = ov.slice().reverse().map(function (o) {   // top row = front layer
+    function row(o) {
       var st = o.type === 'progress' ? 0 : (o.start || 0), en = o.type === 'progress' || o.end == null ? total : Math.min(o.end, total);
-      var name = o.type === 'video' ? '🎬 ' + (o.name || 'Video layer') : o.type === 'image' ? (o.sticker ? (STICKERS[o.sticker] || [''])[0] : '🖼️ Picture') : o.type === 'progress' ? '▬ Progress bar' : o.type === 'cta' ? '🔔 ' + (o.text || 'Button') : (o.kind === 'emoji' ? o.text : '🅣 ' + (o.text || 'Text'));
-      return '<div class="fm-trow' + (o.type === 'video' ? ' fm-vlayer' : '') + '"><button type="button" class="fm-teye" data-teye="' + o.id + '" aria-pressed="' + !o.hidden + '" aria-label="' + (o.hidden ? 'Show' : 'Hide') + ' layer">' + (o.hidden ? '🚫' : '👁') + '</button><div class="fm-tlayer' + (o.id === sel ? ' on' : '') + (o.type === 'progress' ? ' fixed' : '') + (o.hidden ? ' off' : '') + '" data-tov="' + o.id + '" style="left:' + (st * pps) + 'px;width:' + Math.max(14, (en - st) * pps) + 'px">' +
-        (o.type === 'progress' ? '' : '<i class="fm-th fm-th-l" data-edge="l"></i>') + '<span>' + esc(name) + '</span>' + (o.type === 'progress' ? '' : '<i class="fm-th fm-th-r" data-edge="r"></i>') + '</div></div>';
-    }).join('');
+      var name = o.type === 'video' ? '🎬 ' + (o.name || 'Video layer') : o.type === 'image' ? (o.sticker ? (STICKERS[o.sticker] || [''])[0] : '🖼️ Photo') : o.type === 'progress' ? '▬ Progress bar' : o.type === 'cta' ? '🔔 ' + (o.text || 'Button') : (o.kind === 'emoji' ? o.text : '🅣 ' + (o.text || 'Text'));
+      var src = o.type === 'video' ? F.clips().find(function (k) { return k.blobId === o.blobId && k.strip; }) : null, bg = '';
+      if (src && src.strip) bg = ';background-image:url(' + src.strip + ');background-size:' + ((src.dur || o.dur || 1) * pps) + 'px 100%;background-position:' + (-(o.in || 0) * pps) + 'px 0;background-repeat:no-repeat';
+      else if (o.type === 'image' && o._img && o._img.src && o._img.src.length < 400000) bg = ';background-image:url(' + o._img.src + ');background-size:auto 100%;background-repeat:repeat-x';
+      return '<div class="fm-trow' + (o.type === 'video' ? ' fm-vlayer' : o.type === 'image' ? ' fm-plater' : '') + '"><div class="fm-tlayer' + (o.id === sel ? ' on' : '') + (o.type === 'progress' ? ' fixed' : '') + (o.hidden ? ' off' : '') + (bg ? ' pic' : '') + '" data-tov="' + o.id + '" style="left:' + (st * pps) + 'px;width:' + Math.max(14, (en - st) * pps) + 'px' + bg + '">' +
+        (o.type === 'progress' ? '' : '<i class="fm-th fm-th-l" data-edge="l"></i>') + '<span>' + (o.hidden ? '🚫 ' : '') + esc(name) + '</span>' + (o.type === 'progress' ? '' : '<i class="fm-th fm-th-r" data-edge="r"></i>') + '</div></div>';
+    }
+    var over = ov.filter(function (o) { return !o.under; }).reverse().map(row).join(''), under = ov.filter(function (o) { return o.under; }).reverse().map(row).join('');
     box.style.width = W + 'px';
-    box.innerHTML = '<div class="fm-ruler" data-seek>' + ruler + '</div>' + (rows ? '<div class="fm-tlabel">Layers (top = in front)</div>' + rows : '') +
-      '<div class="fm-tlabel">Video</div><div class="fm-trow fm-vrow" data-seek>' + vids + '</div><div class="fm-playhead" id="tlHead"></div>';
+    box.innerHTML = '<div class="fm-ruler" data-seek>' + ruler + '</div>' + (over ? '<div class="fm-tlabel">Layers on top (top row = in front)</div>' + over : '') +
+      '<div class="fm-tlabel">Main video</div><div class="fm-trow fm-vrow" data-seek>' + vids + '</div>' +
+      (under ? '<div class="fm-tlabel">Layers under the main video</div>' + under : '') + '<div class="fm-playhead" id="tlHead"></div>';
+    renderLayerTools();
     lastTotal = total; lastW = sc.clientWidth;
     tick(F.pv.t, total);
     renderFx();
@@ -167,12 +175,7 @@
   function wire() {
     var inner = $('tlInner'); if (!inner) return;
     inner.addEventListener('pointerdown', function (e) {
-      var F = YBFmt, eye = e.target.closest('[data-teye]');
-      if (eye) {   // show / hide a layer
-        var oh = F.overlays().find(function (k) { return k.id === eye.getAttribute('data-teye'); });
-        if (oh) { oh.hidden = !oh.hidden; F.save(); F.draw(); render(); }
-        e.preventDefault(); return;
-      }
+      var F = YBFmt;
       var lay = e.target.closest('[data-tov]');
       if (lay) {
         var o = F.overlays().find(function (k) { return k.id === lay.getAttribute('data-tov'); }); if (!o) return;
@@ -185,6 +188,7 @@
       var tc = e.target.closest('[data-tclip]');
       if (tc) {
         var ci = +tc.getAttribute('data-tclip'), cc = F.clips()[ci], ce = e.target.getAttribute('data-cedge');
+        if (F.sel()) { F.sel(''); F.renderOverlays(); F.draw(); }
         drag = ce ? { clip: ci, edge: ce, x0: e.clientX, in0: cc.in, out0: cc.out } : { reorder: ci, x0: e.clientX, moved: false, el: tc, t: timeAt(e) };
         inner.setPointerCapture(e.pointerId); e.preventDefault(); return;
       }
@@ -255,6 +259,11 @@
     });
     var fxT = 0; $('fmFxSearch').addEventListener('input', function () { clearTimeout(fxT); fxT = setTimeout(function () { fxShow = 48; renderFx(); }, 200); });
     function addLayerFile(f) { if (!f) return; var F = YBFmt; if (!F.clips().length) { YB.toast('Add your main video first'); return; } YB.toast('Adding video layer…'); F.addVideoLayer(f).then(function () { YB.toast('Video layer added — drag it on the preview, set when it shows on the timeline'); }, function () { YB.toast('This browser can\'t play that video'); }); }
+    $('lyUp').addEventListener('click', function () { moveLayer(-1); });
+    $('lyDown').addEventListener('click', function () { moveLayer(1); });
+    $('lyHide').addEventListener('click', function () { var o = selLayer(); if (!o) return; o.hidden = !o.hidden; YBFmt.save(); YBFmt.draw(); render(); });
+    $('tlPhotoFile').addEventListener('change', function () { var f = this.files[0]; this.value = ''; if (!f) return; if (!YBFmt.clips().length) { YB.toast('Add your main video first'); return; } YBFmt.addImage(f); YB.toast('Photo layer added'); });
+    $('tlToLayer').addEventListener('click', function () { var F = YBFmt; if (!F.clips().length) return; F.stop(); F.clipToLayer(F.clipAt(F.pv.t)).then(function () { YB.toast('Copied to a layer — move it under or over the main video with ⬆ / ⬇'); }); });
     ['layerFile', 'tlLayerFile'].forEach(function (id) { var el = $(id); if (el) el.addEventListener('change', function () { addLayerFile(this.files[0]); this.value = ''; }); });
     // stickers
     $('stickerRow').innerHTML = YBStickers.list.map(function (s) { return '<button type="button" class="fm-sticker" data-sticker="' + s[0] + '" aria-label="' + esc(s[1]) + '" title="' + esc(s[1]) + '"><img src="' + YBStickers.url(s[0]) + '" alt=""></button>'; }).join('');
@@ -265,11 +274,40 @@
       YB.toast('Sticker added — drag it on the preview; set when it shows on the timeline');
     });
   }
+  function selLayer() { var F = YBFmt, id = F.sel(); return id ? F.overlays().find(function (k) { return k.id === id; }) : null; }
+  function renderLayerTools() {
+    var o = selLayer(), g = $('fmLayerTools'); if (!g) return;
+    g.hidden = !o || o.type === 'progress';
+    if (o) { $('lyHide').querySelector('span').textContent = o.hidden ? 'Show' : 'Hide'; $('lyHide').querySelector('i').textContent = o.hidden ? '🚫' : '👁'; }
+  }
+  // move the selected layer one step up or down the stack — past the main video it goes under it
+  function moveLayer(dir) {
+    var F = YBFmt, o = selLayer(); if (!o) return;
+    var ov = F.overlays(), vis = ov.filter(function (k) { return !k.under; }).reverse().concat(['MAIN']).concat(ov.filter(function (k) { return k.under; }).reverse());
+    var i = vis.indexOf(o), j = i + dir; if (i < 0 || j < 0 || j >= vis.length) return;
+    vis[i] = vis[j]; vis[j] = o;
+    var m = vis.indexOf('MAIN'), overs = vis.slice(0, m).reverse(), unders = vis.slice(m + 1).reverse();
+    overs.forEach(function (k) { k.under = false; }); unders.forEach(function (k) { k.under = true; });
+    ov.length = 0; unders.concat(overs).forEach(function (k) { ov.push(k); });
+    F.save(); F.renderOverlays(); F.draw();
+    YB.toast(o.under ? 'Layer is now under the main video' : 'Layer moved ' + (dir < 0 ? 'forward' : 'back'));
+  }
+  function splitLayer() {
+    var F = YBFmt, o = selLayer(); if (!o || o.type === 'progress') return false;
+    var t = F.pv.t, total = F.timeline().total, st = o.start || 0, en = o.end == null ? total : o.end;
+    if (t - st < 0.15 || en - t < 0.15) { YB.toast('Move the playhead inside the layer to cut it'); return true; }
+    var b = {}; Object.keys(o).forEach(function (k) { if (k.charAt(0) !== '_') b[k] = o[k]; });
+    b.start = Math.round(t * 10) / 10; if (o.type === 'video') b.in = Math.round(((o.in || 0) + (b.start - st)) * 100) / 100;
+    o.end = b.start; delete b.id;
+    F.addOverlay(b).then(function () { YB.toast('Layer cut in two'); });
+    return true;
+  }
   var lastW = 0, lastTotal = -1;
   function watchSize() {
     var sc = $('tlScroll'); if (!sc) return;
     if (window.ResizeObserver) new ResizeObserver(function () { if (sc.clientWidth && sc.clientWidth !== lastW) { lastW = sc.clientWidth; render(); } }).observe(sc);
   }
-  window.YBFmtPro = { render: render, tick: tick, beats: function () { return beats; }, beatAt: beatAt };
+  if (window.YBFloat) YBFloat({ list: function () { return $('fmFxTiles'); }, main: function () { return $('screen'); }, ready: function () { return window.YBFmt && YBFmt.clips().length > 0; }, draw: function (cv, t) { YBFmt.drawAt(cv, t); } });
+  window.YBFmtPro = { splitLayer: splitLayer, render: render, tick: tick, beats: function () { return beats; }, beatAt: beatAt };
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', function () { wire(); watchSize(); render(); }); else { wire(); watchSize(); render(); }
 })();

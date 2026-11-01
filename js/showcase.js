@@ -2281,6 +2281,9 @@
     }).join('');
   }
   setInterval(renderSaved, 30000);
+  // floating live preview while scrolling the effects: a copy of the effects preview above
+  if (window.YBFloat) YBFloat({ list: function () { return $('fxTiles'); }, main: function () { return $('fxPreview'); }, ready: function () { return photos.length > 0; },
+    draw: function (cv) { var src = $('fxPreview'); if (!src || !src.width) return; if (cv.width !== src.width) cv.width = src.width; if (cv.height !== src.height) cv.height = src.height; cv.getContext('2d').drawImage(src, 0, 0); } });
   window.YBShowcase = {   // used by tests
     music: function () { return music ? { bpm: music.bpm, first: music.first, start: songStart(), synced: synced() } : null; },
     outbox: function () { return me_ ? kvGet('outbox:' + me_).then(function (l) { return (l || []).map(function (x) { return { to: x.to, name: x.name, status: x.status }; }); }) : Promise.resolve([]); },

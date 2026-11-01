@@ -240,9 +240,10 @@
     if (active && v.paused) v.play().catch(function () {}); else if (!active && !v.paused) v.pause();
     return v;
   }
-  function drawOverlays(x, W, H, t, total, forPreview) {
+  function drawOverlays(x, W, H, t, total, forPreview, under) {
     var base = Math.min(W, H);
     overlays.forEach(function (o) {
+      if (!!o.under !== !!under) return;   // layers under the main video are drawn first
       o._b = null;
       if (o.hidden || !visibleAt(o, t)) { if (o._v && !o._v.paused) o._v.pause(); return; }
       // paused preview shows every overlay fully, so it can be seen and edited; animations play in playback and the export
@@ -328,6 +329,7 @@
     x.fillStyle = '#000'; x.fillRect(0, 0, W, H);
     if (c) {
       drawBackground(x, W, H, v, c);
+      drawOverlays(x, W, H, t, tl.total, preview, true);
       drawVideo(x, W, H, v, c);
       if (S.transition === 'fade' && clips.length > 1) {
         var st = tl.starts[ci], en = st + clipLen(c), a = 0;
@@ -482,6 +484,58 @@
       };
     });
   }
+  /* ---------- Filmstrips: real frames from every clip for the list and the timeline ----------
+     iPhone Safari won't decode a picture until the video has been told to play, so each video is
+     played (muted) for a moment first; every frame is checked so a black frame is never kept. */
+  var stripQ = [], stripBusy = false;
+  function stripSoon(c) { if (c && stripQ.indexOf(c) === -1) stripQ.push(c); if (!stripBusy) nextStrip(); }
+  function nextStrip() {
+    var c = stripQ.shift(); if (!c) { stripBusy = false; return; }
+    if (!blobs[c.blobId] || clips.indexOf(c) === -1) { nextStrip(); return; }
+    stripBusy = true;
+    filmstrip(blobs[c.blobId].url, c.dur || 1).then(function (r) {
+      if (r) { c.strip = r.strip; c.stripN = r.n; if (r.thumb) c.thumb = r.thumb; c._fw = r.fw; }
+      renderClips(); if (window.YBFmtPro) YBFmtPro.render();
+    }).then(nextStrip, nextStrip);
+  }
+  function waitEv(el, ev, ms) { return new Promise(function (res) { var done = false; function f() { if (done) return; done = true; el.removeEventListener(ev, f); res(); } el.addEventListener(ev, f); setTimeout(f, ms); }); }
+  function filmstrip(url, dur) {
+    var v = document.createElement('video');
+    v.muted = true; v.playsInline = true; v.setAttribute('playsinline', ''); v.setAttribute('muted', ''); v.preload = 'auto'; v.crossOrigin = 'anonymous';
+    v.style.cssText = 'position:fixed;left:-9999px;top:0;width:160px;height:90px;opacity:0;pointer-events:none';
+    document.body.appendChild(v); v.src = url;
+    function shown() { return new Promise(function (res) { if (v.requestVideoFrameCallback) { var d = false; v.requestVideoFrameCallback(function () { if (!d) { d = true; res(); } }); setTimeout(function () { if (!d) { d = true; res(); } }, 400); } else setTimeout(res, 120); }); }
+    function seek(t) { return new Promise(function (res) { var d = false; function f() { if (d) return; d = true; v.removeEventListener('seeked', f); shown().then(res); } v.addEventListener('seeked', f); try { v.currentTime = t; } catch (e) { f(); } setTimeout(f, 2500); }); }
+    var H = 64;
+    return waitEv(v, 'loadedmetadata', 8000).then(function () {
+      // wake the decoder (needed on iPhone), then stop
+      var p = v.play(); return (p && p.then ? p.catch(function () {}) : Promise.resolve()).then(function () { v.pause(); return waitEv(v, 'loadeddata', 3000); });
+    }).then(function () {
+      var w = v.videoWidth || 16, h = v.videoHeight || 9, fw = Math.max(24, Math.round(H * w / h)), n = clamp(Math.round(dur / 1.2), 4, 30);
+      var cv = document.createElement('canvas'); cv.width = fw * n; cv.height = H; var x = cv.getContext('2d', { willReadFrequently: true });
+      x.fillStyle = '#1b2a44'; x.fillRect(0, 0, cv.width, H);
+      var thumb = '', i = 0;
+      function frameAt(k) {
+        var t = Math.min(dur - 0.05, (k + 0.5) * dur / n);
+        return seek(Math.max(0.01, t)).then(function () {
+          try {
+            x.drawImage(v, k * fw, 0, fw, H);
+            var d = x.getImageData(k * fw + (fw >> 1), H >> 1, 1, 1).data;
+            if (d[0] + d[1] + d[2] < 6 && k === 0) {   // black: let it play a moment and draw again
+              return v.play().catch(function () {}).then(function () { return new Promise(function (r) { setTimeout(r, 180); }); }).then(function () { v.pause(); x.drawImage(v, k * fw, 0, fw, H); });
+            }
+          } catch (e) { /* not drawable */ }
+        });
+      }
+      function next() { if (i >= n) return Promise.resolve(); return frameAt(i++).then(next); }
+      return next().then(function () {
+        var tc = document.createElement('canvas'), tk = Math.min(n - 1, Math.round(n * 0.1)); tc.width = Math.round(160 * Math.min(1, w / h)) || 90; tc.height = Math.round(tc.width * h / w);
+        try { tc.getContext('2d').drawImage(cv, tk * fw, 0, fw, H, 0, 0, tc.width, tc.height); thumb = tc.toDataURL('image/jpeg', 0.75); } catch (e) { /* ignore */ }
+        var strip = ''; try { strip = cv.toDataURL('image/jpeg', 0.6); } catch (e) { /* ignore */ }
+        return { strip: strip, thumb: thumb, n: n, fw: fw };
+      });
+    }).catch(function () { return null; }).then(function (r) { try { v.pause(); v.removeAttribute('src'); v.load(); v.remove(); } catch (e) { /* gone */ } return r; });
+  }
   function hasAudio(v) {
     if (typeof v.mozHasAudio === 'boolean') return v.mozHasAudio;
     if (typeof v.webkitAudioDecodedByteCount === 'number' && v.audioTracks === undefined) return null;   // unknown until played
@@ -501,7 +555,8 @@
           var id = YB.uid(), blobId = 'v' + id;
           addBlob(blobId, f);
           return putBlob(blobId, f).then(function () {
-            clips.push({ id: id, name: f.name, blobId: blobId, dur: info.dur, vw: info.w, vh: info.h, thumb: info.thumb, in: 0, out: info.dur || 1, vol: 1, mute: false, zoom: 1, ox: 0, oy: 0, audio: info.audio });
+            var nc = { id: id, name: f.name, blobId: blobId, dur: info.dur, vw: info.w, vh: info.h, thumb: info.thumb, in: 0, out: info.dur || 1, vol: 1, mute: false, zoom: 1, ox: 0, oy: 0, audio: info.audio };
+            clips.push(nc); stripSoon(nc);
           });
         }, function () { bad.push(f.name); });
       });
@@ -1054,7 +1109,7 @@
         if (!confirm('Remove "' + clips[i].name + '"?')) return;
         var gone = clips.splice(i, 1)[0];
         if (gone._el) { gone._el.pause(); gone._el.remove(); }
-        if (!clips.some(function (c) { return c.blobId === gone.blobId; })) { delBlob(gone.blobId); }
+        if (!clips.some(function (c) { return c.blobId === gone.blobId; }) && !overlays.some(function (o) { return o.blobId === gone.blobId; })) { delBlob(gone.blobId); }
       } else if (e.target.closest('[data-reset]')) { clips[i].zoom = 1; clips[i].ox = 0; clips[i].oy = 0; }
       else if (!e.target.closest('input,label,button')) { stopPreview(); seekTo(timeline().starts[i] + 0.01); return; }
       else return;
@@ -1149,6 +1204,7 @@
     $('scrub').addEventListener('input', function () { stopPreview(); seekTo(+this.value / 1000 * timeline().total); });
     $('moveVideoBtn').addEventListener('click', function () { moveVideo = !moveVideo; this.setAttribute('aria-pressed', moveVideo); this.classList.toggle('on', moveVideo); if (moveVideo) { sel = ''; renderOverlays(); } drawPreview(); });
     $('splitBtn').addEventListener('click', function () {
+      if (window.YBFmtPro && YBFmtPro.splitLayer && YBFmtPro.splitLayer()) return;   // a selected layer is cut instead
       if (!clips.length) return;
       var tl = timeline(), i = clipAt(pv.t, tl), c = clips[i], at = c.in + (pv.t - tl.starts[i]);
       if (at - c.in < 0.2 || c.out - at < 0.2) { YB.toast('Move the playhead inside a clip to split it'); return; }
@@ -1190,12 +1246,8 @@
         if (data.bgImage && blobs[data.bgImage.blobId]) { var im = new Image(); im.onload = function () { drawPreview(); }; im.src = blobUrl(data.bgImage.blobId); bgImage = { blobId: data.bgImage.blobId, img: im }; }
         if (S.bg === 'image' && !bgImage) S.bg = 'blur';
         return Promise.all(overlays.filter(function (o) { return o.type === 'image' || o.type === 'video'; }).map(loadOvImage)).then(function () {
-          // thumbnails aren't saved — make them again
-          clips.forEach(function (c) {
-            var v = document.createElement('video'); v.muted = true; v.preload = 'auto'; v.src = blobUrl(c.blobId);
-            v.onloadeddata = function () { try { v.currentTime = Math.min(c.in + 0.5, c.out); } catch (e) { /* ignore */ } };
-            v.onseeked = function () { var cv = document.createElement('canvas'), s = 160 / Math.max(v.videoWidth || 160, v.videoHeight || 90); cv.width = Math.round((v.videoWidth || 160) * s); cv.height = Math.round((v.videoHeight || 90) * s); try { cv.getContext('2d').drawImage(v, 0, 0, cv.width, cv.height); c.thumb = cv.toDataURL('image/jpeg', 0.7); } catch (e) { /* ignore */ } v.onseeked = null; v.removeAttribute('src'); v.load(); renderClips(); };
-          });
+          // thumbnails and filmstrips aren't saved — make them again, one clip at a time
+          var seen = {}; clips.forEach(function (c) { if (seen[c.blobId]) { c._stripOf = seen[c.blobId]; return; } seen[c.blobId] = c; stripSoon(c); });
         });
       });
     });
@@ -1210,7 +1262,23 @@
     save: saveProject, saveSettings: saveSettings, renderAll: renderAll, renderOverlays: renderOverlays, renderClips: renderClips, renderFacts: renderFacts, draw: drawPreview,
     seek: function (t) { stopPreview(); seekTo(clamp(t, 0, timeline().total)); }, stop: stopPreview,
     addOverlay: function (o) { o.id = YB.uid(); if (o.start == null) o.start = 0; if (o.end === undefined) o.end = null; return loadOvImage(o).then(function () { overlays.push(o); sel = o.id; saveProject(); renderOverlays(); renderSteps(); renderFacts(); drawPreview(); }); },
-    removeClip: function (i) { var gone = clips.splice(i, 1)[0]; if (!gone) return; if (gone._el) { gone._el.pause(); gone._el.remove(); } if (!clips.some(function (c) { return c.blobId === gone.blobId; })) delBlob(gone.blobId); saveProject(); renderAll(); seekTo(Math.min(pv.t, timeline().total)); },
+    removeClip: function (i) { var gone = clips.splice(i, 1)[0]; if (!gone) return; if (gone._el) { gone._el.pause(); gone._el.remove(); } if (!clips.some(function (c) { return c.blobId === gone.blobId; }) && !overlays.some(function (o) { return o.blobId === gone.blobId; })) delBlob(gone.blobId); saveProject(); renderAll(); seekTo(Math.min(pv.t, timeline().total)); },
+    // a small live picture for the floating preview: the frame at the playhead with its effects moving
+    drawAt: function (cv, loopT) {
+      if (!clips.length) return;
+      var tl = timeline(), ci = clipAt(pv.t, tl), c = clips[ci], d = dims(), sc = 300 / Math.max(d.W, d.H);
+      var W = Math.round(d.W * sc), H = Math.round(d.H * sc); if (cv.width !== W) cv.width = W; if (cv.height !== H) cv.height = H;
+      var room = Math.max(0.6, Math.min(3, tl.starts[ci] + clipLen(c) - pv.t));
+      window.YBFmtFxT = pv.t + (loopT % room);
+      try { drawFrame(cv.getContext('2d'), W, H, pv.t, elFor(c), ci, false); } finally { window.YBFmtFxT = null; }
+    },
+    addImage: function (file) { addImage(file); },
+    stripOf: function (c) { return c.strip ? c : (c._stripOf && c._stripOf.strip ? c._stripOf : (clips.find(function (k) { return k.blobId === c.blobId && k.strip; }) || null)); },
+    clipToLayer: function (i) {
+      var c = clips[i]; if (!c) return Promise.resolve();
+      var tl = timeline(), o = { type: 'video', blobId: c.blobId, name: c.name, dur: c.dur, in: c.in, w: 1, x: 0.5, y: 0.5, shape: 'square', opacity: 1, anim: 'none', start: Math.round(tl.starts[i] * 10) / 10, end: Math.round((tl.starts[i] + clipLen(c)) * 10) / 10 };
+      return window.YBFmt.addOverlay(o);
+    },
     addVideoLayer: function (file) {
       return probe(file).then(function (info) {
         var id = YB.uid(), blobId = 'l' + id, total = timeline().total, st = Math.round(clamp(pv.t, 0, Math.max(0, total - 0.5)) * 10) / 10;
