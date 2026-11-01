@@ -1381,3 +1381,6 @@ input[type="range"] { min-height: 32px; }            /* finger-friendly */
 .sc-out-accepted{border-color:rgba(52,211,153,.5)}
 .sc-out-declined{border-color:rgba(248,113,113,.45);opacity:.85}
 .sc-out-waiting{border-color:rgba(251,191,36,.45);background:rgba(251,191,36,.06)}
+/* Video Formatter: Fit / Fill side by side on every screen */
+#fitSeg { display: grid; grid-template-columns: 1fr 1fr; width: 100%; box-sizing: border-box; }
+#fitSeg button { white-space: normal; line-height: 1.25; min-height: 48px; text-align: center; justify-content: center; }
