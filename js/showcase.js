@@ -627,8 +627,8 @@
   // how strongly the picture "hits" at time t (1 right on a beat, fading over ~0.18 s)
   function hit(t, g) {
     var bi = beatInfo();
-    if (bi) { var since = ((t - bi.phase) % bi.len + bi.len) % bi.len, n = Math.round((t - bi.phase - since) / bi.len); return { k: Math.exp(-since / 0.16), down: ((n % 4) + 4) % 4 === 0, since: since }; }
-    var u = t - g.start; return { k: Math.exp(-u / 0.2), down: true, since: u };   // no music: a hit on every cut
+    if (bi) { var since = ((t - bi.phase) % bi.len + bi.len) % bi.len, n = Math.round((t - bi.phase - since) / bi.len); return { k: Math.exp(-since / 0.16), down: ((n % 4) + 4) % 4 === 0, since: since, i: n }; }
+    var u = t - g.start; return { k: Math.exp(-u / 0.2), down: true, since: u, i: Math.round(g.start * 10) };   // no music: a hit on every cut
   }
   // Effects on this part: the photo's own effects plus the ones chosen for every photo.
   function fxFor(g) {
@@ -1138,7 +1138,7 @@
   function renderAll() { renderProjects(); renderFx(); renderFormats(); renderGrid(); renderEditor(); renderSets(); renderSlides(); renderBrand(); renderSteps(); renderFacts(); sizePreview(); if (!pv.playing) drawPreview(); }
 
   /* ---------- Effects card (big, simple, for anyone) ---------- */
-  var fxTarget = 'all', fxCat = 'popular', fxLoop = { raf: 0, on: false, t0: 0, last: 0 }, tileBase = null, tileBaseKey = '';
+  var fxShow = 48, fxTarget = 'all', fxCat = 'popular', fxLoop = { raf: 0, on: false, t0: 0, last: 0 }, tileBase = null, tileBaseKey = '';
   var STRENGTH = [[0.6, 'Light'], [1, 'Medium'], [1.5, 'Strong']];
   function fxSlide() { return fxTarget === 'all' ? null : slides.find(function (sl) { return sl.id === fxTarget; }); }
   function fxListNow() { var sl = fxSlide(); return sl ? (sl.fx = sl.fx || []) : (S.fxAll = S.fxAll || []); }
@@ -1166,11 +1166,14 @@
     $('fxClear').textContent = fxTarget === 'all' ? '🗑 Remove all effects from every photo' : '🗑 Remove all from this photo';
     $('fxSurprise').textContent = fxTarget === 'all' ? '🎲 Surprise me — one matching style for every photo' : '🎲 Surprise me (keeps the matching frame)';
     // categories + tiles
-    $('fxCats').innerHTML = YBFX.cats.map(function (c) { var n = c[0] === 'popular' ? YBFX.list.filter(function (e) { return e.pop; }).length : YBFX.list.filter(function (e) { return e.cat === c[0]; }).length; return '<button type="button" class="' + (fxCat === c[0] ? 'on' : '') + '" data-fxc="' + c[0] + '" aria-pressed="' + (fxCat === c[0]) + '">' + c[1] + ' <span>' + n + '</span></button>'; }).join('');
+    $('fxCats').innerHTML = YBFX.cats.map(function (c) { var n = YBFX.shown(c[0]).length; return '<button type="button" class="' + (fxCat === c[0] ? 'on' : '') + '" data-fxc="' + c[0] + '" aria-pressed="' + (fxCat === c[0]) + '">' + c[1] + ' <span>' + n + '</span></button>'; }).join('');
     var on = {}; list.forEach(function (it) { on[it.id] = 1; });
-    var items = YBFX.list.filter(function (e) { return fxCat === 'popular' ? e.pop : e.cat === fxCat; });
+    var q = ($('fxSearch') && $('fxSearch').value || '').trim(), all = q ? YBFX.search(q, 400) : YBFX.shown(fxCat), items = all.slice(0, fxShow);
+    $('fxMore').hidden = all.length <= items.length; $('fxMore').textContent = 'Show more (' + (all.length - items.length) + ' more' + (q && all.length >= 400 ? '+' : '') + ')';
+    $('fxCats').classList.toggle('dim', !!q);
     $('fxTiles').innerHTML = items.map(function (e) { return '<button type="button" class="sc-fxtile' + (on[e.id] ? ' on' : '') + '" data-fx="' + e.id + '" aria-pressed="' + !!on[e.id] + '"><canvas width="120" height="120" data-fxprev="' + e.id + '"></canvas><span>' + YB.esc(e.name) + '</span>' + (on[e.id] ? '<i>✓ Added</i>' : '') + '</button>'; }).join('');
-    $('fxTotal').textContent = YBFX.list.length + ' effects';
+    $('fxTotal').textContent = YBFX.count.toLocaleString() + ' effects';
+    if (!items.length) $('fxTiles').innerHTML = '<p class="muted small">No effects match "' + YB.esc(q) + '" — try "gold", "confetti", "beat", "fast" or "glow".</p>';
     tileBaseKey = ''; startFxLoop();
     drawTilesOnce();
   }
@@ -1241,7 +1244,9 @@
   function fxChanged() { fxSave(); renderFx(); renderSlides(); renderFacts(); if (!pv.playing) drawPreview(); }
   function wireFx() {
     $('fxTargets').addEventListener('click', function (e) { var b = e.target.closest('[data-fxt]'); if (!b) return; fxTarget = b.getAttribute('data-fxt'); renderFx(); });
-    $('fxCats').addEventListener('click', function (e) { var b = e.target.closest('[data-fxc]'); if (!b) return; fxCat = b.getAttribute('data-fxc'); renderFx(); });
+    $('fxCats').addEventListener('click', function (e) { var b = e.target.closest('[data-fxc]'); if (!b) return; fxCat = b.getAttribute('data-fxc'); fxShow = 48; if ($('fxSearch').value) $('fxSearch').value = ''; renderFx(); });
+    var fxSearchT = 0; $('fxSearch').addEventListener('input', function () { clearTimeout(fxSearchT); fxSearchT = setTimeout(function () { fxShow = 48; renderFx(); }, 200); });
+    $('fxMore').addEventListener('click', function () { fxShow += 48; renderFx(); });
     $('fxTiles').addEventListener('click', function (e) {
       var b = e.target.closest('[data-fx]'); if (!b) return;
       var id = b.getAttribute('data-fx'), list = fxListNow(), i = list.findIndex(function (it) { return it.id === id; });

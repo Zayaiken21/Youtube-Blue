@@ -15,15 +15,15 @@
   <meta name="mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
   <meta name="apple-mobile-web-app-title" content="YT Blue">
-  <link rel="stylesheet" href="css/style.css?v=45">
+  <link rel="stylesheet" href="css/style.css?v=46">
   <script src="js/core.js" defer></script>
   <script src="js/vendor/mp4-muxer.min.js" defer></script>
   <script src="js/fullscreen.js?v=1" defer></script>
-  <script src="js/showcase-fx.js?v=4" defer></script>
+  <script src="js/showcase-fx.js?v=5" defer></script>
   <script src="js/vendor/peerjs.min.js?v=1.5.4" defer></script>
   <script src="js/showcase-p2p.js?v=2" defer></script>
   <script src="js/showcase-fold.js?v=1" defer></script>
-  <script src="js/showcase.js?v=17" defer></script>
+  <script src="js/showcase.js?v=18" defer></script>
 </head>
 <body data-page="showcase">
   <header class="topbar">
@@ -223,8 +223,10 @@
             </div>
           </div>
           <div class="label" style="margin-top:14px">2 · Tap an effect</div>
+          <input type="search" id="fxSearch" class="sc-fxsearch" autocomplete="off" placeholder="Search all effects — try “gold confetti”, “beat”, “fast glow”" aria-label="Search effects">
           <div class="sc-fxcats" id="fxCats" role="group" aria-label="Kinds of effects"></div>
           <div class="sc-fxtiles" id="fxTiles"></div>
+          <button class="btn btn-ghost" type="button" id="fxMore" hidden style="width:100%;margin-top:10px">Show more</button>
         </section>
 
         <!-- ===== Brand ===== -->

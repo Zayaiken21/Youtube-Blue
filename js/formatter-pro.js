@@ -46,7 +46,51 @@
   };
 
   /* ---------- Effects on the picture ---------- */
-  function beatAt(t) { var bp = 0.5, k = Math.exp(-((t % bp)) / 0.12); return { k: k, down: Math.floor(t / bp) % 4 === 0 }; }
+  /* ---------- Rhythm: the beat is found by itself from the sound of the video (music, or the clips' own sound) ---------- */
+  var beats = null, beatSig = '', beatBusy = false, beatTimer = 0;
+  function findBeats(buf) {   // same method as Photo Showcase: kick-weighted onsets, best tempo and phase
+    var sr = buf.sampleRate, n = Math.min(buf.length, Math.floor(sr * 120)), hop = 1024, ch = buf.numberOfChannels;
+    var a = buf.getChannelData(0), b2 = ch > 1 ? buf.getChannelData(1) : a, frames = Math.floor(n / hop), env = new Float32Array(frames), lp = 0, k = Math.exp(-2 * Math.PI * 160 / sr), loud = 0;
+    for (var f = 0; f < frames; f++) {
+      var e = 0, el = 0;
+      for (var i = f * hop, end = i + hop; i < end; i++) { var v = (a[i] + b2[i]) * 0.5; lp = lp * k + v * (1 - k); e += v * v; el += lp * lp; }
+      env[f] = Math.log(1 + 1000 * (e / hop)) + 1.5 * Math.log(1 + 1000 * (el / hop)); loud += e / hop;
+    }
+    if (loud / Math.max(1, frames) < 1e-6) return null;   // silent: no beat to follow
+    var on = new Float32Array(frames);
+    for (f = 1; f < frames; f++) on[f] = Math.max(0, env[f] - env[f - 1]);
+    var fps = sr / hop, best = { score: -1, bpm: 120, phase: 0 };
+    for (var bpm = 70; bpm <= 180; bpm += 0.5) {
+      var P = fps * 60 / bpm, w = Math.exp(-Math.pow(Math.log2(bpm / 115), 2) / 0.6);
+      for (var ph = 0; ph < P; ph += 1) {
+        var sc = 0, cnt = 0;
+        for (var t = ph; t < frames; t += P) { sc += on[Math.round(t)] || 0; cnt++; }
+        sc = sc / Math.max(1, cnt) * w;
+        if (sc > best.score) best = { score: sc, bpm: bpm, phase: ph };
+      }
+    }
+    var len = 60 / best.bpm, first = best.phase / fps, P2 = fps * len, sums = [0, 0, 0, 0], j = 0;
+    for (var g = best.phase; g < frames; g += P2, j++) sums[j % 4] += Math.max(on[Math.round(g) - 1] || 0, on[Math.round(g)] || 0, on[Math.round(g) + 1] || 0);
+    var down = sums.indexOf(Math.max.apply(null, sums));   // the "1" of the bar is the strongest of every four beats
+    return { bpm: best.bpm, len: len, first: first, down: down };
+  }
+  function analyseSoon() { clearTimeout(beatTimer); beatTimer = setTimeout(analyse, 1200); }
+  function analyse() {
+    var F = window.YBFmt; if (!F || beatBusy) return;
+    var cl = F.clips(), m = F.music(), sig = cl.map(function (c) { return c.blobId + ':' + c.in.toFixed(2) + ':' + c.out.toFixed(2) + ':' + (c.mute ? 0 : 1); }).join('|') + '#' + (m ? m.blobId + ':' + F.S.musicVol : '');
+    if (sig === beatSig) return;
+    if (!cl.length) { beats = null; beatSig = sig; renderBeat(); return; }
+    beatBusy = true;
+    F.mix(Math.max(1, F.timeline().total)).then(function (buf) { beats = buf ? findBeats(buf) : null; }, function () { beats = null; })
+      .then(function () { beatSig = sig; beatBusy = false; renderBeat(); F.draw(); if (sig !== currentSig()) analyseSoon(); });
+  }
+  function currentSig() { var F = YBFmt, m = F.music(); return F.clips().map(function (c) { return c.blobId + ':' + c.in.toFixed(2) + ':' + c.out.toFixed(2) + ':' + (c.mute ? 0 : 1); }).join('|') + '#' + (m ? m.blobId + ':' + F.S.musicVol : ''); }
+  function renderBeat() { var e = $('fmBeat'); if (e) e.textContent = beats ? '🥁 Following the beat — ' + Math.round(beats.bpm) + ' BPM, found by itself' : '🥁 No beat in the sound yet — effects keep a steady 120 BPM rhythm. Add music and they follow it by themselves.'; }
+  function beatAt(t) {
+    var len = beats ? beats.len : 0.5, first = beats ? beats.first % len : 0;
+    var since = ((t - first) % len + len) % len, i = Math.round((t - first - since) / len), d = beats ? beats.down : 0;
+    return { k: Math.exp(-since / 0.14), down: (((i - d) % 4) + 4) % 4 === 0, since: since, i: i };
+  }
   var brand = '';
   function brandColor() { if (!brand) { brand = (getComputedStyle(document.documentElement).getPropertyValue('--primary') || '').trim() || '#e0aa3e'; } return brand; }
   window.YBFmtFx = function (x, W, H, t, ci, c, tl) {
@@ -55,7 +99,7 @@
     if (!items.length) return;
     YBFX.apply(x, W, H, items, { t: t, u: t - tl.starts[ci], dur: F.clipLen(c), beat: beatAt(t), color: F.S.fxColor || brandColor(), idx: ci, count: F.clips().length || 1 });
   };
-  var fxTarget = 'clip', fxCat = 'popular';
+  var fxTarget = 'clip', fxCat = 'popular', fxShow = 48;
   function curClip() { var F = YBFmt, cl = F.clips(); if (!cl.length) return null; return cl[F.clipAt(F.pv.t)]; }
   function fxList() { var F = YBFmt; if (fxTarget === 'all') return F.S.fxAll || (F.S.fxAll = []); var c = curClip(); if (!c) return null; return c.fx || (c.fx = []); }
   function fxSaved() { var F = YBFmt; if (fxTarget === 'all') F.saveSettings(); F.save(); F.draw(); renderFx(); render(); }
@@ -69,15 +113,20 @@
         [[0.6, 'Light'], [1, 'Medium'], [1.5, 'Strong']].map(function (p) { return '<button type="button" data-fxs="' + p[0] + '" data-fxi="' + i + '" class="' + (Math.abs((q.s || 1) - p[0]) < 0.01 ? 'on' : '') + '">' + p[1] + '</button>'; }).join('') +
         '</span><button type="button" class="btn btn-ghost btn-sm" data-fxdel="' + i + '" aria-label="Remove">✕</button></li>';
     }).join('') : '<li class="muted small">No effects on ' + (fxTarget === 'all' ? 'the whole video' : 'this clip') + ' yet — tap one below. Move the playhead to pick another clip.</li>';
-    $('fmFxCats').innerHTML = YBFX.cats.map(function (k) { return '<button type="button" data-fxc="' + k[0] + '" class="' + (k[0] === fxCat ? 'on' : '') + '">' + k[1] + '</button>'; }).join('');
-    var on = {}; list.forEach(function (q) { on[q.id] = 1; });
-    var show = YBFX.list.filter(function (e) { return fxCat === 'popular' ? e.pop : e.cat === fxCat; });
-    $('fmFxTiles').innerHTML = show.map(function (e) { return '<button type="button" class="fm-fxtile' + (on[e.id] ? ' on' : '') + '" data-fx="' + e.id + '" aria-pressed="' + !!on[e.id] + '">' + esc(e.name) + '</button>'; }).join('');
+    var q = ($('fmFxSearch').value || '').trim();
+    $('fmFxCats').innerHTML = YBFX.cats.map(function (k) { return '<button type="button" data-fxc="' + k[0] + '" class="' + (!q && k[0] === fxCat ? 'on' : '') + '">' + k[1] + '</button>'; }).join('');
+    var on = {}; list.forEach(function (it) { on[it.id] = 1; });
+    var all = q ? YBFX.search(q, 400) : YBFX.shown(fxCat), show = all.slice(0, fxShow);
+    $('fmFxMore').hidden = all.length <= show.length; $('fmFxMore').textContent = 'Show more (' + (all.length - show.length) + (q && all.length >= 400 ? '+' : '') + ' more)';
+    $('fmFxSearch').placeholder = 'Search ' + YBFX.count.toLocaleString() + ' effects — try “gold confetti”, “beat”, “clippings fast”';
+    renderBeat();
+    $('fmFxTiles').innerHTML = !show.length ? '<p class="muted small">No effects match "' + esc(q) + '".</p>' : show.map(function (e) { return '<button type="button" class="fm-fxtile' + (on[e.id] ? ' on' : '') + '" data-fx="' + e.id + '" aria-pressed="' + !!on[e.id] + '">' + esc(e.name) + '</button>'; }).join('');
   }
 
   /* ---------- Timeline ---------- */
   var pps = 0, zoomK = 1, drag = null;
   function render() {
+    if (window.YBFmt && YBFmt.clips().length && currentSig() !== beatSig) analyseSoon();
     var box = $('tlInner'), sc = $('tlScroll'); if (!box || !window.YBFmt) return;
     var F = YBFmt, tl = F.timeline(), total = tl.total, cl = F.clips(), ov = F.overlays(), sel = F.sel();
     if (!cl.length) { box.innerHTML = ''; return; }
@@ -163,7 +212,8 @@
     $('fmFx').addEventListener('click', function (e) {
       var b; var list = fxList();
       if ((b = e.target.closest('[data-fxt]'))) { fxTarget = b.getAttribute('data-fxt'); renderFx(); return; }
-      if ((b = e.target.closest('[data-fxc]'))) { fxCat = b.getAttribute('data-fxc'); renderFx(); return; }
+      if ((b = e.target.closest('[data-fxc]'))) { fxCat = b.getAttribute('data-fxc'); fxShow = 48; $('fmFxSearch').value = ''; renderFx(); return; }
+      if (e.target.id === 'fmFxMore') { fxShow += 48; renderFx(); return; }
       if (!list) { YB.toast('Add a video first'); return; }
       if ((b = e.target.closest('[data-fx]'))) {
         var id = b.getAttribute('data-fx'), k = list.findIndex(function (q) { return q.id === id; });
@@ -174,6 +224,7 @@
       if ((b = e.target.closest('[data-fxdel]'))) { list.splice(+b.getAttribute('data-fxdel'), 1); fxSaved(); return; }
       if (e.target.id === 'fmFxClear') { list.length = 0; fxSaved(); }
     });
+    var fxT = 0; $('fmFxSearch').addEventListener('input', function () { clearTimeout(fxT); fxT = setTimeout(function () { fxShow = 48; renderFx(); }, 200); });
     // stickers
     $('stickerRow').innerHTML = YBStickers.list.map(function (s) { return '<button type="button" class="fm-sticker" data-sticker="' + s[0] + '" aria-label="' + esc(s[1]) + '" title="' + esc(s[1]) + '"><img src="' + YBStickers.url(s[0]) + '" alt=""></button>'; }).join('');
     $('stickerRow').addEventListener('click', function (e) {
@@ -183,6 +234,6 @@
       YB.toast('Sticker added — drag it on the preview; set when it shows on the timeline');
     });
   }
-  window.YBFmtPro = { render: render, tick: tick };
+  window.YBFmtPro = { render: render, tick: tick, beats: function () { return beats; }, beatAt: beatAt };
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', function () { wire(); render(); }); else { wire(); render(); }
 })();

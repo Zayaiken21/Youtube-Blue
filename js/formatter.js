@@ -1191,6 +1191,7 @@
     clips: function () { return clips; }, overlays: function () { return overlays; }, S: S, pv: pv,
     timeline: timeline, clipAt: clipAt, clipLen: clipLen, dims: dims,
     sel: function (v) { if (v !== undefined) sel = v; return sel; },
+    mix: mixAudio, music: function () { return music; },
     save: saveProject, saveSettings: saveSettings, renderAll: renderAll, renderOverlays: renderOverlays, renderClips: renderClips, renderFacts: renderFacts, draw: drawPreview,
     seek: function (t) { stopPreview(); seekTo(clamp(t, 0, timeline().total)); }, stop: stopPreview,
     addOverlay: function (o) { o.id = YB.uid(); if (o.start == null) o.start = 0; if (o.end === undefined) o.end = null; return loadOvImage(o).then(function () { overlays.push(o); sel = o.id; saveProject(); renderOverlays(); renderSteps(); renderFacts(); drawPreview(); }); },

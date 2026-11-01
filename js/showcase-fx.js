@@ -244,11 +244,13 @@
       else if (p.motion === 'twinkle') { px = p.area ? p.area[0] + r1 * p.area[2] : r1; py = p.area ? p.area[1] + r2 * p.area[3] : r2; alpha = Math.pow(Math.max(0, Math.sin(t * (2 + r4 * 3) + r5 * 6)), 3); rot = 0; }
       else if (p.motion === 'rain') { py = ((r2 + t * sp * 4) % 1.2) - 0.1; px = r1 + py * 0.15; }
       else if (p.motion === 'burst') {
-        var per = p.period || 1.6, k = Math.floor((c.u + r6 * 0.15) / per), uu = (c.u + r6 * 0.15) - k * per, ang = rnd(i, seed + k * 7) * Math.PI * 2, v = (0.25 + 0.5 * rnd(i, seed + 9 + k)) * (p.power || 1);
+        var per = p.period || 1.6, k = Math.floor((c.u + r6 * 0.15) / per), uu = (c.u + r6 * 0.15) - k * per;
+        if (p.onBeat && c.beat && c.beat.since != null) { k = c.beat.i || 0; uu = c.beat.since + r6 * 0.04; }
+        var ang = rnd(i, seed + k * 7) * Math.PI * 2, v = (0.25 + 0.5 * rnd(i, seed + 9 + k)) * (p.power || 1);
         var bx = p.cx != null ? p.cx : 0.2 + 0.6 * rnd(k, seed + 20), by = p.cy != null ? p.cy : 0.25 + 0.3 * rnd(k, seed + 21);
         px = bx + Math.cos(ang) * v * uu * 0.6; py = by + Math.sin(ang) * v * uu * 0.6 + (p.gravity == null ? 0.25 : p.gravity) * uu * uu; alpha = clamp(1 - uu / (per * 0.9), 0, 1);
       } else { px = r1; py = r2; }
-      var X = px * W, Y = py * H, col = (p.colors || CONF)[Math.floor(r6 * (p.colors || CONF).length)];
+      var X = px * W, Y = py * H, col = (p.colors || CONF)[Math.floor(r6 * (p.colors || CONF).length)]; if (col === 'brand') col = c.color;
       if (X < -size * 2 || X > W + size * 2 || Y < -size * 2 || Y > H + size * 2 || alpha <= 0.01) continue;
       x.globalAlpha = alpha * (p.alpha || 1);
       drawShape(x, p.shape, X, Y, size, rot, col, p, t, i);
@@ -555,11 +557,52 @@
   add('f-torn', 'frame', 'Torn paper edge', 'frame', { fn: 'torn' });
   add('f-viewfinder', 'frame', 'Camera viewfinder', 'frame', { fn: 'viewfinder' });
 
+  /* ---------- Variations: colour palettes × speed × rhythm (5,000+ in all) ----------
+     Built from the effects above, never random: a palette swaps the colours of a light or particle effect,
+     speed changes how fast it moves, and the rhythm modes tie it to the real beat of the music — it
+     pulses with every beat, hits on every beat, or hits on the downbeat (the "1" of each bar). */
+  var PAL = [['gold', 'Gold', ['#fde68a', '#fbbf24', '#f59e0b']], ['ice', 'Ice', ['#e0f2fe', '#7dd3fc', '#ffffff']], ['rose', 'Rose', ['#fb7185', '#f43f5e', '#fda4af']],
+    ['neon', 'Neon', ['#22d3ee', '#a855f7', '#f472b6']], ['emerald', 'Emerald', ['#34d399', '#10b981', '#a7f3d0']], ['fire', 'Fire', ['#f97316', '#ef4444', '#fbbf24']],
+    ['royal', 'Royal', ['#6366f1', '#a78bfa', '#fde68a']], ['silver', 'Silver', ['#ffffff', '#d4d4d8', '#a1a1aa']], ['sunset', 'Sunset', ['#fb923c', '#f472b6', '#fde047']],
+    ['ocean', 'Ocean', ['#0ea5e9', '#22d3ee', '#a5f3fc']], ['lime', 'Lime', ['#a3e635', '#facc15', '#ffffff']], ['candy', 'Candy', ['#f9a8d4', '#c4b5fd', '#99f6e4']],
+    ['blackgold', 'Black & gold', ['#111111', '#e0aa3e', '#ffe7a3']], ['brand', 'Brand colour', ['brand', '#ffffff']]];
+  var SPEEDS = [['slow', 'Slow', 0.55], ['fast', 'Fast', 1.7]];
+  var RHY = [['pulse', 'pulses with the beat'], ['beat', 'hits on every beat'], ['down', 'hits on the downbeat']];
+  var base = L.slice();
+  function vary(e, id, name, p, extra) { var v = { id: id, cat: e.cat, name: name, kind: e.kind, p: p, pop: false, of: e.id, v: 1 }; Object.keys(extra || {}).forEach(function (k) { v[k] = extra[k]; }); L.push(v); return v; }
+  base.forEach(function (e) {
+    var p = e.p, colourable = (e.kind === 'particles' && p.shape !== 'emoji' && p.shape !== 'balloon') || (e.kind === 'light' && (p.color || p.colors || p.tint));
+    var looks = [[null, null, null]];
+    if (colourable) PAL.forEach(function (c) { looks.push(c); });
+    looks.forEach(function (lk) {
+      var spd = (e.kind === 'particles' || e.kind === 'light') ? [[null, null, 1]].concat(SPEEDS) : [[null, null, 1]];
+      spd.forEach(function (sp) {
+        if (!lk[0] && !sp[0]) return;   // that's the effect itself
+        var q = JSON.parse(JSON.stringify(p));
+        if (lk[0]) { if (q.colors) q.colors = lk[2].slice(); if (q.color) q.color = lk[2][lk[2].length > 1 && lk[2][0] === 'brand' ? 0 : 1]; if (q.tint) q.tint = lk[2][0]; }
+        vary(e, e.id + '~' + (lk[0] || 'orig') + (sp[0] ? '~' + sp[0] : ''), e.name + (lk[0] ? ' · ' + lk[1] : '') + (sp[0] ? ' · ' + sp[1] : ''), q, { spd: sp[2] });
+      });
+    });
+  });
+  // every effect (and every colour / speed version of it) in three rhythm modes — frames stay steady
+  L.slice().forEach(function (e) {
+    if (e.kind === 'frame') return;
+    RHY.forEach(function (r) {
+      var q = e.p;
+      if (e.kind === 'particles' && q.motion === 'burst') { q = JSON.parse(JSON.stringify(q)); q.onBeat = true; }
+      var v = vary(e, e.id + '@' + r[0], e.name + ' · ' + r[1], q, { r: r[0], spd: e.spd || 1, of: e.of || e.id });
+      v.v = 2; v.src = e.id;
+    });
+  });
+  base.forEach(function (e) { e.v = 0; });
+  CATS.splice(1, 0, ['rhythm', '🥁 On the beat']);
+
   var BY = {}; L.forEach(function (e) { BY[e.id] = e; });
   var ORDER = { motion: 0, grade: 1, glitch: 2, retro: 3, light: 4, particles: 5, sticker: 6, frame: 7 };
 
   function applyOne(x, W, H, e, c, s) {
     var p = e.p;
+    if (e.spd && e.spd !== 1) c = Object.assign({}, c, { t: c.t * e.spd, u: c.u * e.spd });
     if (e.kind === 'motion') return MOTION[p.fn] && MOTION[p.fn](x, W, H, c, s);
     if (e.kind === 'grade') return grade(x, W, H, GRADES[p.g] || [], s);
     if (e.kind === 'light') return LIGHT[p.fn] && LIGHT[p.fn](x, W, H, c, s, p);
@@ -584,7 +627,17 @@
           x.translate(acc.l, acc.t); x.beginPath(); x.rect(0, 0, w, h); x.clip();
           applyOne(x, w, h, q.e, ctx, q.s);
           var o = insetOne(q.e, q.s, w, h); acc.l += o.l; acc.r += o.r; acc.t += o.t; acc.b += o.b;
-        } else applyOne(x, W, H, q.e, ctx, q.s);
+        } else {
+          var s1 = q.s, r = q.e.r;
+          if (r) {   // follow the music: how strongly this beat drives the effect right now
+            var b = ctx.beat || { k: 0 }, m = r === 'pulse' ? 0.3 + 0.7 * b.k : r === 'beat' ? Math.pow(b.k, 0.6) : (b.down ? Math.pow(b.k, 0.6) : 0);
+            if (q.e.kind === 'particles' && q.e.p.onBeat) m = r === 'down' && !b.down ? 0 : 1;
+            if (m < (r === 'pulse' ? 0.02 : 0.06)) { x.restore(); return; }
+            if (/^(particles|light|sticker)$/.test(q.e.kind) && !q.e.p.onBeat) x.globalAlpha = Math.min(1, m * 1.15);
+            else s1 = q.s * (r === 'pulse' ? 0.5 + m : Math.min(1.5, m * 1.5));
+          }
+          applyOne(x, W, H, q.e, ctx, s1);
+        }
       } catch (err) { if (window.console) console.warn('[effects] ' + q.e.id, err); }
       x.restore();
     });
@@ -616,5 +669,17 @@
     });
     return acc;
   }
-  window.YBFX = { cats: CATS, list: L, byId: BY, apply: apply, inset: inset };
+  // the list of effects to show for a category (the originals; the On-the-beat tab shows their beat versions)
+  function shown(cat) {
+    if (cat === 'popular') return L.filter(function (e) { return e.pop; });
+    if (cat === 'rhythm') return L.filter(function (e) { var src = BY[e.src]; return e.v === 2 && src && src.v === 0 && (src.pop || e.r === 'beat'); });
+    return L.filter(function (e) { return e.v === 0 && e.cat === cat; });
+  }
+  function search(q, limit) {
+    var words = String(q || '').toLowerCase().split(/\s+/).filter(Boolean); if (!words.length) return [];
+    var out = []; for (var i = 0; i < L.length && out.length < (limit || 120); i++) { var n = (L[i].name + ' ' + L[i].cat).toLowerCase(); if (words.every(function (w) { return n.indexOf(w) !== -1; })) out.push(L[i]); }
+    return out;
+  }
+  function styles(id, limit) { var e = BY[id]; if (!e) return []; var root = e.of || e.id; return L.filter(function (x) { return x.id !== id && (x.of === root || x.id === root); }).slice(0, limit || 60); }
+  window.YBFX = { cats: CATS, list: L, byId: BY, apply: apply, inset: inset, shown: shown, search: search, styles: styles, count: L.length };
 })();
