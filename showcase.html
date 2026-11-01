@@ -15,13 +15,15 @@
   <meta name="mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
   <meta name="apple-mobile-web-app-title" content="YT Blue">
-  <link rel="stylesheet" href="css/style.css?v=41">
+  <link rel="stylesheet" href="css/style.css?v=42">
   <script src="js/core.js" defer></script>
   <script src="js/vendor/mp4-muxer.min.js" defer></script>
   <script src="js/fullscreen.js?v=1" defer></script>
   <script src="js/showcase-fx.js?v=4" defer></script>
+  <script src="js/vendor/peerjs.min.js?v=1.5.4" defer></script>
+  <script src="js/showcase-p2p.js?v=1" defer></script>
   <script src="js/showcase-fold.js?v=1" defer></script>
-  <script src="js/showcase.js?v=15" defer></script>
+  <script src="js/showcase.js?v=16" defer></script>
 </head>
 <body data-page="showcase">
   <header class="topbar">
@@ -64,7 +66,7 @@
         <section class="card sc-acct" aria-labelledby="acctTitle" id="acctCard">
           <div class="sc-projhead">
             <div><h2 id="acctTitle">👤 <span id="acctName">Not signed in</span></h2>
-              <p class="muted small" id="acctNote"></p></div>
+              <p class="muted small" id="acctNote"></p><p class="small sc-net" id="acctNet" aria-live="polite"></p></div>
             <div class="row sc-projbtns">
               <button class="btn" type="button" id="acctSignIn">🔑 Sign in</button>
               <button class="btn btn-ghost" type="button" id="acctCreate">➕ Make an account</button>

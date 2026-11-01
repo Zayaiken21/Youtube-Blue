@@ -1370,3 +1370,8 @@ input[type="range"] { min-height: 32px; }            /* finger-friendly */
 #bulkBox:has(#bulkRow[hidden]){display:none}
 .sc-fold-head>h2,.sc-fold-head h2{flex-wrap:nowrap;font-size:clamp(1.05rem,4.6vw,1.35rem);line-height:1.2}
 .sc-fold-head h2>.muted{white-space:nowrap;overflow:hidden;text-overflow:ellipsis;min-width:0}
+
+.sc-net{margin:.25rem 0 0;color:var(--muted)}
+.sc-net.on{color:#86efac}
+.sc-acct.sc-folded #acctNet{display:none}
+#shP2P{margin:.2rem 0 .6rem}

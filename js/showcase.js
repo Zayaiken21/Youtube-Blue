@@ -2010,7 +2010,33 @@
     $('acctSignIn').hidden = !!u; $('acctOut').hidden = !u; $('acctCreate').hidden = !!u;
     $('projShare').hidden = false;
     renderInbox();
+    if (window.YBP2P) { if (u) YBP2P.listen(u.name, p2pHandlers); else YBP2P.stop(); }
   }
+  /* ---------- Phone to phone: someone sends you a project by your name ---------- */
+  var p2pState = 'off';
+  var p2pHandlers = {
+    status: function (st) { p2pState = st; var e = $('acctNet'); if (!e) return; e.textContent = st === 'ready' ? '📲 Ready — people can send you projects by your name while this page is open' : (st === 'offline' ? '📴 No internet — sending by name will work again when you\'re back online' : ''); e.className = 'small sc-net' + (st === 'ready' ? ' on' : ''); },
+    offer: function (m) {
+      var u = personById(me_); if (!u) return false;
+      return confirm(m.from + ' wants to send you "' + m.name + '" (' + m.photos + ' photo' + (m.photos === 1 ? '' : 's') + ').\n\nTap OK to add it to your projects.');
+    },
+    progress: function (t) { var e = $('acctNet'); if (e) e.textContent = '📥 ' + t; },
+    file: function (id, blob) { var nb = 'p' + YB.uid(); return putBlob(nb, blob).then(function () { return nb; }); },
+    done: function (info, d, map) {
+      d = d || {};
+      d.photos = (d.photos || []).filter(function (p) { return map[p.blobId]; });   // only photos that arrived
+      d.photos.forEach(function (p) { p.blobId = map[p.blobId]; });
+      var have = {}; d.photos.forEach(function (p) { have[p.id] = 1; });
+      (d.sets || []).forEach(function (st) { st.ids = (st.ids || []).filter(function (id) { return have[id]; }); });
+      if (d.music) { if (map[d.music.blobId]) d.music.blobId = map[d.music.blobId]; else d.music = null; }
+      if (d.logo) { if (map[d.logo.blobId]) d.logo.blobId = map[d.logo.blobId]; else d.logo = null; }
+      var nid = 'pr' + YB.uid();
+      projects.push({ id: nid, name: info.name + ' (from ' + info.from + ')', updated: Date.now(), thumb: info.thumb || '', photos: (d.photos || []).length, clients: (d.sets || []).length });
+      return kv('readwrite', function (st) { st.put(d, 'project:' + nid); st.put(projects, PK()); }).then(function () {
+        renderProjects(); p2pHandlers.status(p2pState); YB.toast('"' + info.name + '" from ' + info.from + ' is in your projects');
+      });
+    }
+  };
   // Shared with you (from someone on this device)
   function renderInbox() {
     var box = $('inboxBox');
@@ -2055,13 +2081,17 @@
     b.innerHTML = '<h3>📤 Share "' + YB.esc(pname) + '"</h3>' +
       '<label class="sc-field"><span>Search people by name</span><input id="shFind" type="search" autocomplete="off" placeholder="Type a name"></label>' +
       '<div class="sc-people" id="shList"></div>' +
-      '<p class="muted small">Not on this phone or computer? Send it as a file — by Messages, email, AirDrop or Drive. They open Photo Showcase, sign in and tap <b>Open backup or shared file</b>, and it goes into their account.</p>' +
+      '<div id="shP2P"></div>' +
+      '<p class="muted small">Type their name exactly as they signed in. It goes straight to their phone — they just need Photo Showcase open and signed in, and they tap OK.</p>' +
+      '<p class="muted small">Can\'t reach them? Send it as a file — by Messages, email, AirDrop or Drive. They open Photo Showcase, sign in and tap <b>Open backup or shared file</b>, and it goes into their account.</p>' +
       '<div class="row"><button class="btn" type="button" id="shFile">📨 Send as a file</button><button class="btn btn-ghost" type="button" id="shClose">Close</button></div>' +
       '<p class="small" id="shMsg" aria-live="polite"></p>';
     listShare('');
   }
   function listShare(q) {
-    var l = findPeople(q, true);
+    var l = findPeople(q, true), typed = String(q || '').trim(), u = personById(me_);
+    var p2p = window.YBP2P && YBP2P.supported() && typed.length >= 2 && !(u && typed.toLowerCase() === u.name.toLowerCase());
+    $('shP2P').innerHTML = p2p ? '<button class="btn" type="button" data-p2p="' + YB.esc(typed) + '">📲 Send to “' + YB.esc(typed) + '” on their phone</button>' : '';
     $('shList').innerHTML = l.length ? l.map(function (u) { return '<button type="button" class="sc-person" data-sh="' + u.id + '">👤 ' + YB.esc(u.name) + ' <span class="muted small">— send</span></button>'; }).join('')
       : '<p class="muted small">' + (people.length > 1 ? 'No one by that name on this device.' : 'No one else has an account on this device yet.') + ' Use <b>Send as a file</b> instead.</p>';
   }
@@ -2082,6 +2112,18 @@
         return kv('readwrite', function (st) { st.put(l, key); });
       });
     }).then(function () { $('shMsg').textContent = '✓ Sent to ' + to.name + '. They\'ll see it under "Shared with you" when they sign in.'; YB.toast('Sent to ' + to.name); });
+  }
+  function shareP2P(toName) {
+    var from = personById(me_), msg = $('shMsg'), btn = document.querySelector('[data-p2p]'); if (!from) return;
+    if (btn) btn.disabled = true;
+    currentItem().then(function (it) {
+      var d = it.data || {}, ids = {}, files = [];
+      (d.photos || []).forEach(function (p) { ids[p.blobId] = 1; }); if (d.music) ids[d.music.blobId] = 1; if (d.logo) ids[d.logo.blobId] = 1;
+      return Promise.all(Object.keys(ids).map(function (k) { return (blobs[k] ? Promise.resolve(blobs[k]) : getBlob(k)).then(function (b) { if (b) files.push({ id: k, blob: b }); }); }))
+        .then(function () { return YBP2P.send(toName, { from: from.name, name: it.name, thumb: it.thumb, data: d, files: files }, function (t) { if (t) msg.textContent = t; }); });
+    }).then(function () { msg.textContent = '✓ Sent — it\'s in ' + toName + '\'s projects now.'; YB.toast('Sent to ' + toName); },
+      function (e) { msg.textContent = e.code === 'offline' ? toName + ' isn\'t on Photo Showcase right now. Ask them to open it and sign in, then tap Send again — or send a file.' : 'Not sent: ' + e.message; })
+      .then(function () { if (btn) btn.disabled = false; });
   }
   function shareFile() {
     var from = personById(me_), btn = $('shFile'); btn.disabled = true;
@@ -2105,7 +2147,7 @@
     $('acctPanel').addEventListener('keydown', function (e) { if (e.key !== 'Enter') return; if (e.target.id === 'siPinIn') signIn(); if (/^ca/.test(e.target.id)) createAccount(); });
     $('inboxBox').addEventListener('click', function (e) { var t = e.target.closest('[data-inb-take]'), d = e.target.closest('[data-inb-del]'); if (t) takeShared(t.getAttribute('data-inb-take'), true); if (d) takeShared(d.getAttribute('data-inb-del'), false); });
     $('projShare').addEventListener('click', showShare);
-    $('sharePanel').addEventListener('click', function (e) { var b = e.target.closest('[data-sh]'); if (b) shareTo(b.getAttribute('data-sh')); if (e.target.id === 'shFile') shareFile(); if (e.target.id === 'shClose') $('sharePanel').hidden = true; });
+    $('sharePanel').addEventListener('click', function (e) { var b = e.target.closest('[data-sh]'); if (b) shareTo(b.getAttribute('data-sh')); var pb = e.target.closest('[data-p2p]'); if (pb) shareP2P(pb.getAttribute('data-p2p')); if (e.target.id === 'shFile') shareFile(); if (e.target.id === 'shClose') $('sharePanel').hidden = true; });
     $('sharePanel').addEventListener('input', function (e) { if (e.target.id === 'shFind') listShare(e.target.value); });
   }
 
@@ -2132,7 +2174,7 @@
   setInterval(renderSaved, 30000);
   window.YBShowcase = {   // used by tests
     music: function () { return music ? { bpm: music.bpm, first: music.first, start: songStart(), synced: synced() } : null; },
-    person: function () { var u = personById(me_); return { id: me_, name: u ? u.name : '', people: people.map(function (x) { return x.name; }) }; },
+    person: function () { var u = personById(me_); return { id: me_, name: u ? u.name : '', p2p: p2pState, people: people.map(function (x) { return x.name; }) }; },
     projects: function () { return { pid: pid, name: pname, list: projects.map(function (q) { return { id: q.id, name: q.name, photos: q.photos, clients: q.clients }; }) }; },
     state: function () { return { S: S, photos: photos.map(clean), sets: sets.map(clean), slides: slides.map(clean), cur: cur, total: segments().total }; },
     segments: function () { return segments().segs.map(function (g) { return { key: g.key, start: g.start, dur: g.dur, trans: transFor(g) }; }); },
