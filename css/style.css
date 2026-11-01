@@ -1480,3 +1480,9 @@ body[data-page="formatter"] .page-head > p, body[data-page="formatter"] .cx-step
 .fm-speedrow button.on { background: var(--primary); color: var(--primary-ink); border-color: var(--primary); }
 .fm-alayer .fm-tlayer { background: rgba(168,85,247,.28); border-color: rgba(216,180,254,.85); }
 .fm-tl-inner { padding-right: 18px; box-sizing: content-box; }
+
+.fm-tool-add { border-color: rgba(255,255,255,.22); }
+.fm-tool-add span { color: var(--text); }
+.fm-tclip.to-layer { outline: 2px dashed var(--primary-2); opacity: .9; }
+.fm-tclip[data-hint]:not([data-hint=""])::after { content: attr(data-hint); position: absolute; left: 50%; top: -24px; transform: translateX(-50%); white-space: nowrap; font-size: .72rem; font-weight: 700; background: #000; color: #fff; padding: 2px 8px; border-radius: 999px; }
+.fm-tclip { overflow: visible; }

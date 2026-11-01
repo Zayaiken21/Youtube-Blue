@@ -188,7 +188,7 @@
       if (tc) {
         var ci = +tc.getAttribute('data-tclip'), cc = F.clips()[ci], ce = e.target.getAttribute('data-cedge');
         if (F.sel()) { F.sel(''); F.renderOverlays(); F.draw(); }
-        drag = ce ? { clip: ci, edge: ce, x0: e.clientX, in0: cc.in, out0: cc.out } : { reorder: ci, x0: e.clientX, moved: false, el: tc, t: timeAt(e) };
+        drag = ce ? { clip: ci, edge: ce, x0: e.clientX, in0: cc.in, out0: cc.out } : { reorder: ci, x0: e.clientX, y0: e.clientY, moved: false, el: tc, t: timeAt(e), st: F.timeline().starts[ci] };
         inner.setPointerCapture(e.pointerId); e.preventDefault(); return;
       }
       if (e.target.closest('[data-seek]') || e.target === inner) { F.seek(timeAt(e)); drag = { seek: true }; inner.setPointerCapture(e.pointerId); }
@@ -204,8 +204,12 @@
         drag.moved = true; var tl2 = F.timeline(); render(); F.seek(drag.edge === 'l' ? tl2.starts[drag.clip] : tl2.starts[drag.clip] + F.clipLen(c) - 0.05); return;
       }
       if (drag.reorder != null) {   // drag a clip along the track to put it somewhere else
-        var dx = e.clientX - drag.x0; if (Math.abs(dx) > 6) drag.moved = true;
-        if (drag.moved) { drag.el.style.transform = 'translateX(' + dx + 'px)'; drag.el.style.zIndex = 5; drag.el.classList.add('dragging'); }
+        var dx = e.clientX - drag.x0, dy = e.clientY - drag.y0; if (Math.abs(dx) > 6 || Math.abs(dy) > 6) drag.moved = true;
+        if (drag.moved) {
+          drag.el.style.transform = 'translate(' + dx + 'px,' + dy + 'px)'; drag.el.style.zIndex = 5; drag.el.classList.add('dragging');
+          var off = Math.abs(dy) > 38; drag.el.classList.toggle('to-layer', off);
+          drag.el.setAttribute('data-hint', off ? (dy > 0 ? '⬇ Drop to make a layer under the video' : '⬆ Drop to make a layer on top') : '');
+        }
         return;
       }
       var d = (e.clientX - drag.x0) / pps; if (Math.abs(e.clientX - drag.x0) > 3) drag.moved = true;
@@ -223,6 +227,12 @@
       if (was.clip != null && was.moved) { F.save(); F.renderAll(); }
       if (was.reorder != null) {
         if (!was.moved) { F.seek(was.t); return; }
+        var dyy = e.clientY - was.y0;
+        if (Math.abs(dyy) > 38) {   // dragged off the main track: it becomes its own layer
+          var st0 = Math.max(0, was.st + (e.clientX - was.x0) / pps);
+          F.clipMoveToLayer(was.reorder, dyy > 0, st0).then(function (done) { if (done) YB.toast(dyy > 0 ? 'Now a layer under the main video' : 'Now a layer on top of the main video'); });
+          return;
+        }
         var t = timeAt(e), tl = F.timeline(), cl = F.clips(), to = 0;
         for (var i = 0; i < cl.length; i++) if (t > tl.starts[i] + F.clipLen(cl[i]) / 2) to = i + (i >= was.reorder ? 0 : 1);
         to = clamp(to, 0, cl.length - 1);
@@ -296,7 +306,6 @@
     });
     $('lyHide').addEventListener('click', function () { var o = selLayer(); if (!o) return; o.hidden = !o.hidden; YBFmt.save(); YBFmt.draw(); render(); });
     $('tlPhotoFile').addEventListener('change', function () { var f = this.files[0]; this.value = ''; if (!f) return; if (!YBFmt.clips().length) { YB.toast('Add your main video first'); return; } YBFmt.addImage(f); YB.toast('Photo layer added'); });
-    $('tlToLayer').addEventListener('click', function () { var F = YBFmt; if (!F.clips().length) return; F.stop(); F.clipToLayer(F.clipAt(F.pv.t)).then(function () { YB.toast('Copied to a layer — move it under or over the main video with ⬆ / ⬇'); }); });
     ['layerFile', 'tlLayerFile'].forEach(function (id) { var el = $(id); if (el) el.addEventListener('change', function () { addLayerFile(this.files[0]); this.value = ''; }); });
     // stickers
     $('stickerRow').innerHTML = YBStickers.list.map(function (s) { return '<button type="button" class="fm-sticker" data-sticker="' + s[0] + '" aria-label="' + esc(s[1]) + '" title="' + esc(s[1]) + '"><img src="' + YBStickers.url(s[0]) + '" alt=""></button>'; }).join('');

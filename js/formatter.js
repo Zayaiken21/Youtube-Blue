@@ -1319,10 +1319,16 @@
       });
     },
     sp: sp,
-    clipToLayer: function (i) {
-      var c = clips[i]; if (!c) return Promise.resolve();
-      var tl = timeline(), o = { type: 'video', blobId: c.blobId, name: c.name, dur: c.dur, in: c.in, vol: 0, speed: sp(c), w: 1, x: 0.5, y: 0.5, shape: 'square', opacity: 1, anim: 'none', start: Math.round(tl.starts[i] * 10) / 10, end: Math.round((tl.starts[i] + clipLen(c)) * 10) / 10 };
-      return window.YBFmt.addOverlay(o);
+    // drag a clip off the main video track: it becomes a layer (on top, or under the main video) — moved, not copied
+    clipMoveToLayer: function (i, under, start) {
+      var c = clips[i]; if (!c) return Promise.resolve(false);
+      if (clips.length < 2) { YB.toast('The main video needs at least one clip — add another video first'); renderAll(); return Promise.resolve(false); }
+      stopPreview();
+      var len = clipLen(c);
+      clips.splice(i, 1); if (c._el) { c._el.pause(); c._el.remove(); }
+      var total = timeline().total, st = Math.round(clamp(start == null ? 0 : start, 0, Math.max(0, total - Math.min(len, total))) * 10) / 10;
+      var o = { type: 'video', blobId: c.blobId, name: c.name, dur: c.dur, in: c.in, vol: c.mute ? 0 : (c.vol == null ? 1 : c.vol), speed: sp(c), w: under ? 1 : 0.5, x: 0.5, y: 0.5, shape: under ? 'square' : 'rounded', opacity: 1, anim: 'none', under: !!under, start: st, end: Math.round(Math.min(total, st + len) * 10) / 10 };
+      return window.YBFmt.addOverlay(o).then(function () { renderAll(); seekTo(Math.min(pv.t, timeline().total)); return true; });
     },
     addVideoLayer: function (file) {
       return probe(file).then(function (info) {
