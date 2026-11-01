@@ -80,6 +80,8 @@ Turn any videos you have into a YouTube-ready video (`formatter.html`).
 
 Clips, overlays, music and settings are saved on the device (IndexedDB `youtube-blue-formatter`).
 
+**Pro editing tools** (`js/formatter-pro.js`): a **timeline** under the preview with a video track and one **layer** per overlay (top layer = in front). Tap to move the playhead; **✂ Split** cuts the clip at the playhead, **⧉ Duplicate** and **🗑 Delete** (the selected layer, or the clip under the playhead), zoom − / ＋. Drag a layer to move it in time, drag its ends to set when it shows, tap it to edit it, **👁** hides / shows it. **✨ Effects**: the 168-effect library (colour looks, lights, party & sparkle, barber — falling hair clippings, clipper buzz, razor shine, scissors pop, hot-towel steam —, emoji, film & retro, glitch, movement, frames) on the clip under the playhead or on the whole video, stacked, Light / Medium / Strong. **💈 Barber stickers**: clippers, straight razor, scissors, comb, barber pole, crown, spray bottle, fade brush and a "Fresh cut" badge — drawn in, no files needed. **Fit / Fill** sit side by side on phones.
+
 ## Photo Showcase
 
 Pro photos and slideshows from your cuts (`showcase.html`) — made for barbers posting to Instagram, theCut, TikTok or a portfolio.

@@ -15,11 +15,13 @@
   <meta name="mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
   <meta name="apple-mobile-web-app-title" content="YT Blue">
-  <link rel="stylesheet" href="css/style.css?v=44">
+  <link rel="stylesheet" href="css/style.css?v=45">
   <script src="js/core.js" defer></script>
   <script src="js/vendor/mp4-muxer.min.js" defer></script>
   <script src="js/fullscreen.js?v=1" defer></script>
-  <script src="js/formatter.js?v=2" defer></script>
+  <script src="js/showcase-fx.js?v=4" defer></script>
+  <script src="js/formatter.js?v=3" defer></script>
+  <script src="js/formatter-pro.js?v=1" defer></script>
 </head>
 <body data-page="formatter">
   <header class="topbar">
@@ -136,8 +138,22 @@
             <button class="btn btn-ghost btn-sm" type="button" data-add="cta">＋ Subscribe</button>
             <button class="btn btn-ghost btn-sm" type="button" data-add="progress">＋ Progress bar</button>
           </div>
+          <div class="label" style="margin-top:12px">💈 Barber stickers <span class="muted small">— tap one to add it where the playhead is</span></div>
+          <div class="fm-stickers" id="stickerRow" role="group" aria-label="Barber stickers"></div>
           <ul class="fm-ovlist" id="ovList" aria-label="Overlays"></ul>
           <div class="fm-editor" id="ovEditor" hidden></div>
+        </section>
+
+        <!-- ===== Effects ===== -->
+        <section class="card" aria-labelledby="fmFxTitle" id="fmFxCard" hidden>
+          <h2 id="fmFxTitle"><span class="cx-num">✨</span>Effects</h2>
+          <p class="muted small" style="margin:0 0 10px">Lights, sparkle, barber effects, film looks, glitch, movement and frames. Put them on the clip under the playhead or on the whole video, stack as many as you like, and choose Light, Medium or Strong.</p>
+          <div id="fmFx">
+            <div class="seg fm-fxtarget" id="fmFxTarget" role="group" aria-label="Apply to"></div>
+            <ul class="fm-fxonlist" id="fmFxOn"></ul>
+            <div class="fm-fxcats" id="fmFxCats" role="group" aria-label="Kinds of effects"></div>
+            <div class="fm-fxtiles" id="fmFxTiles"></div>
+          </div>
         </section>
       </div>
 
@@ -156,6 +172,16 @@
           <button class="btn btn-ghost btn-sm" type="button" id="splitBtn">✂ Split clip here</button>
           <button class="btn btn-ghost btn-sm" type="button" id="setInBtn">⇤ Start here</button>
           <button class="btn btn-ghost btn-sm" type="button" id="setOutBtn">End here ⇥</button>
+        </div>
+        <div class="fm-tl" id="tlBox">
+          <div class="row fm-tl-tools">
+            <button class="btn btn-sm" type="button" id="tlSplit">✂ Split</button>
+            <button class="btn btn-ghost btn-sm" type="button" id="tlDup">⧉ Duplicate</button>
+            <button class="btn btn-ghost btn-sm" type="button" id="tlDel">🗑 Delete</button>
+            <span class="fm-tl-zoom"><button class="btn btn-ghost btn-icon btn-sm" type="button" id="tlZoomOut" aria-label="Zoom out the timeline">−</button><button class="btn btn-ghost btn-icon btn-sm" type="button" id="tlZoomIn" aria-label="Zoom in the timeline">＋</button></span>
+          </div>
+          <div class="fm-tl-scroll" id="tlScroll"><div class="fm-tl-inner" id="tlInner"></div></div>
+          <p class="muted small" style="margin:6px 0 0">Tap the timeline to move the playhead. Drag a layer to move it, drag its ends to set when it shows. Delete removes the selected layer, or the clip under the playhead.</p>
         </div>
         <div class="cx-facts" id="facts"></div>
         <div class="notice warn" id="lenWarn" hidden></div>

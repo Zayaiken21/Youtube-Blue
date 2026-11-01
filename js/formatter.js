@@ -87,7 +87,7 @@
     if (!unsaved) return;
     unsaved = false;
     var data = {
-      clips: clips.map(function (c) { return { id: c.id, name: c.name, blobId: c.blobId, dur: c.dur, vw: c.vw, vh: c.vh, in: c.in, out: c.out, vol: c.vol, mute: c.mute, zoom: c.zoom, ox: c.ox, oy: c.oy, audio: c.audio }; }),
+      clips: clips.map(function (c) { return { id: c.id, name: c.name, blobId: c.blobId, dur: c.dur, vw: c.vw, vh: c.vh, in: c.in, out: c.out, vol: c.vol, mute: c.mute, zoom: c.zoom, ox: c.ox, oy: c.oy, audio: c.audio, fx: c.fx || [] }; }),
       overlays: overlays.map(function (o) { var x = {}; Object.keys(o).forEach(function (k) { if (k.charAt(0) !== '_') x[k] = o[k]; }); return x; }),
       music: music ? { blobId: music.blobId, name: music.name } : null,
       bgImage: bgImage ? { blobId: bgImage.blobId } : null
@@ -236,7 +236,7 @@
     var base = Math.min(W, H);
     overlays.forEach(function (o) {
       o._b = null;
-      if (!visibleAt(o, t)) return;
+      if (o.hidden || !visibleAt(o, t)) return;
       // paused preview shows every overlay fully, so it can be seen and edited; animations play in playback and the export
       var k = forPreview && !pv.playing ? { a: 1, s: 1, dy: 0, chars: 1 } : animState(o, t, total);
       x.save(); x.globalAlpha = k.a * (o.opacity == null ? 1 : o.opacity);
@@ -328,6 +328,7 @@
         if (a > 0) { x.fillStyle = 'rgba(0,0,0,' + clamp(a, 0, 1) + ')'; x.fillRect(0, 0, W, H); }
       }
     }
+    if (c && window.YBFmtFx) window.YBFmtFx(x, W, H, t, ci, c, tl);
     drawOverlays(x, W, H, t, tl.total, preview);
     x.restore();
   }
@@ -389,6 +390,7 @@
     var total = tl.total;
     $('scrub').value = total ? Math.round(pv.t / total * 1000) : 0;
     $('timeLabel').textContent = mmss(pv.t) + ' / ' + mmss(total);
+    if (window.YBFmtPro) YBFmtPro.tick(pv.t, total);
   }
   function seekTo(t) {
     var tl = timeline(); pv.t = clamp(t, 0, tl.total);
@@ -564,6 +566,7 @@
       return '<li class="fm-ov' + (o.id === sel ? ' on' : '') + '" data-ov="' + o.id + '"><span class="fm-ov-name">' + YB.esc(ovLabel(o)) + '</span><span class="muted small">' + (o.type === 'progress' ? 'whole video' : secs(o.start || 0) + '–' + secs(en) + ' s') + '</span></li>';
     }).join('') : '<li class="muted small fm-empty">No overlays yet — add one above.</li>';
     renderEditor();
+    if (window.YBFmtPro) YBFmtPro.render();
   }
   function markSelected() {   // highlight in the list without rebuilding anything (safe mid-drag)
     $('ovList').querySelectorAll('[data-ov]').forEach(function (li) { li.classList.toggle('on', li.getAttribute('data-ov') === sel); });
@@ -623,7 +626,7 @@
   }
   function renderSteps() {
     var has = clips.length > 0;
-    ['formatCard', 'overlayCard', 'exportCard'].forEach(function (id) { $(id).hidden = !has; });
+    ['formatCard', 'overlayCard', 'fmFxCard', 'exportCard'].forEach(function (id) { $(id).hidden = !has; });
     var steps = document.querySelectorAll('.cx-steps li');
     if (steps[0]) steps[0].classList.toggle('done', has);
     if (steps[1]) steps[1].classList.toggle('done', has);
@@ -638,7 +641,7 @@
     else w.hidden = true;
     $('exportBtn').disabled = !clips.length || !!rec;
   }
-  function renderAll() { renderClips(); renderFormats(); renderOverlays(); renderSteps(); renderFacts(); sizePreview(); drawPreview(); }
+  function renderAll() { renderClips(); renderFormats(); renderOverlays(); renderSteps(); renderFacts(); sizePreview(); drawPreview(); if (window.YBFmtPro) YBFmtPro.render(); }
 
   /* ---------- Overlays: add / edit ---------- */
   function addOverlay(kind) {
@@ -663,7 +666,8 @@
   }
   function loadOvImage(o) {
     return new Promise(function (res) {
-      var im = new Image(); im.onload = function () { o._img = im; res(); }; im.onerror = function () { res(); }; im.src = blobUrl(o.blobId);
+      var im = new Image(); im.onload = function () { o._img = im; res(); }; im.onerror = function () { res(); };
+      im.src = o.sticker && window.YBStickers ? window.YBStickers.url(o.sticker) : blobUrl(o.blobId);
     });
   }
   function setOv(o, k, el) {
@@ -1136,6 +1140,7 @@
       stopPreview();
       var b = Object.assign({}, c, { id: YB.uid(), in: at, _el: null }); delete b._el;
       c.out = at; clips.splice(i + 1, 0, b);
+      b.fx = (c.fx || []).map(function (q) { return { id: q.id, s: q.s }; });
       saveProject(); renderAll(); seekTo(pv.t); YB.toast('Split into two clips');
     });
     $('setInBtn').addEventListener('click', function () {
@@ -1165,7 +1170,7 @@
       if (data.bgImage) ids.push(data.bgImage.blobId);
       return Promise.all(ids.map(function (id) { return getBlob(id).then(function (b) { if (b) addBlob(id, b); }); })).then(function () {
         clips = (data.clips || []).filter(function (c) { return blobs[c.blobId]; });
-        overlays = (data.overlays || []).filter(function (o) { return o.type !== 'image' || blobs[o.blobId]; });
+        overlays = (data.overlays || []).filter(function (o) { return o.type !== 'image' || o.sticker || blobs[o.blobId]; });
         music = data.music && blobs[data.music.blobId] ? data.music : null;
         if (data.bgImage && blobs[data.bgImage.blobId]) { var im = new Image(); im.onload = function () { drawPreview(); }; im.src = blobUrl(data.bgImage.blobId); bgImage = { blobId: data.bgImage.blobId, img: im }; }
         if (S.bg === 'image' && !bgImage) S.bg = 'blur';
@@ -1181,6 +1186,17 @@
     });
   }
 
+  // for the timeline, effects and stickers (js/formatter-pro.js)
+  window.YBFmt = {
+    clips: function () { return clips; }, overlays: function () { return overlays; }, S: S, pv: pv,
+    timeline: timeline, clipAt: clipAt, clipLen: clipLen, dims: dims,
+    sel: function (v) { if (v !== undefined) sel = v; return sel; },
+    save: saveProject, saveSettings: saveSettings, renderAll: renderAll, renderOverlays: renderOverlays, renderClips: renderClips, renderFacts: renderFacts, draw: drawPreview,
+    seek: function (t) { stopPreview(); seekTo(clamp(t, 0, timeline().total)); }, stop: stopPreview,
+    addOverlay: function (o) { o.id = YB.uid(); if (o.start == null) o.start = 0; if (o.end === undefined) o.end = null; return loadOvImage(o).then(function () { overlays.push(o); sel = o.id; saveProject(); renderOverlays(); renderSteps(); renderFacts(); drawPreview(); }); },
+    removeClip: function (i) { var gone = clips.splice(i, 1)[0]; if (!gone) return; if (gone._el) { gone._el.pause(); gone._el.remove(); } if (!clips.some(function (c) { return c.blobId === gone.blobId; })) delBlob(gone.blobId); saveProject(); renderAll(); seekTo(Math.min(pv.t, timeline().total)); },
+    dupClip: function (i) { var c = clips[i]; if (!c) return; var b = {}; Object.keys(c).forEach(function (k) { if (k.charAt(0) !== '_') b[k] = c[k]; }); b.id = YB.uid(); b.fx = (c.fx || []).map(function (q) { return { id: q.id, s: q.s }; }); clips.splice(i + 1, 0, b); saveProject(); renderAll(); seekTo(pv.t); }
+  };
   window.YBFormatter = {   // used by tests
     timeline: timeline, frame: function (x, W, H, t) { var ci = clipAt(t); drawFrame(x, W, H, t, clips[ci] ? elFor(clips[ci]) : null, ci, false); },
     state: function () { return { S: S, clips: clips.map(function (c) { return { in: c.in, out: c.out, dur: c.dur, vw: c.vw, vh: c.vh, zoom: c.zoom, ox: c.ox, oy: c.oy, mute: c.mute }; }), overlays: overlays.map(function (o) { return { type: o.type, x: o.x, y: o.y, size: o.size, w: o.w, text: o.text, start: o.start, end: o.end, b: o._b }; }) }; },
