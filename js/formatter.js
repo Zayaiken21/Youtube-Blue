@@ -41,6 +41,8 @@
   var S = Object.assign({ format: 'short', fit: 'fit', bg: 'black', bgColor: '#0b1530', frame: 'none', frameColor: '#ffffff', transition: 'cut', pad: 0, musicVol: 25 },
     (window.YB && YB.store.get('fmSettings', {})) || {});
   // the blurred copy of the video behind it used to be on by default and looked like an extra layer: turn it off once
+  // the whole video stays inside the frame: Fit for everyone once (Fill only when picked again)
+  if (window.YB && !YB.store.get('fmFitKeep', false)) { S.fit = 'fit'; YB.store.set('fmFitKeep', true); YB.store.set('fmSettings', S); }
   if (window.YB && !YB.store.get('fmBgPlain', false)) { if (S.bg === 'blur') S.bg = 'black'; YB.store.set('fmBgPlain', true); YB.store.set('fmSettings', S); }
   var clips = [], overlays = [], blobs = {}, music = null, bgImage = null;
   var sel = '', moveVideo = false, rec = null, lastVideo = null;
