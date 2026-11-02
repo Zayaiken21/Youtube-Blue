@@ -234,7 +234,7 @@
   function ready(v) { return v && v.readyState >= 2 && v.videoWidth > 0; }
 
   function drawVideo(x, W, H, v, c) {
-    var R = contentRect(W, H), vr = videoRect(c, W, H), vis = visibleRect(c, W, H), base = Math.min(W, H), fc = S.frameColor;
+    var R = contentRect(W, H), vr = videoRect(c, W, H), vis = contentRect(W, H), base = Math.min(W, H), fc = S.frameColor;
     var fr = S.frame;
     // frame behind the picture
     if (fr === 'polaroid') {
@@ -264,8 +264,9 @@
     var radius = fr === 'rounded' ? 0.035 * base : fr === 'tv' ? 0.03 * base : fr === 'border' || fr === 'neon' ? 0.012 * base : 0;
     if (radius) { rr(x, vis.x, vis.y, vis.w, vis.h, radius); x.clip(); }
     else { x.beginPath(); x.rect(R.x, R.y, R.w, R.h); x.clip(); }
+    if (fr && fr !== 'none' && fr !== 'rounded') drawBackground(x, W, H, v, c);   // inside the frame, where the video doesn't reach
     if (ready(v)) x.drawImage(v, vr.x, vr.y, vr.w, vr.h);
-    else { x.fillStyle = '#000'; x.fillRect(vis.x, vis.y, vis.w, vis.h); }
+    else { var pv0 = visibleRect(c, W, H); x.fillStyle = '#000'; x.fillRect(pv0.x, pv0.y, pv0.w, pv0.h); }
     x.restore();
     // frame on top
     if (fr === 'border') {
@@ -781,10 +782,7 @@
       /* sound only: nothing to place on the picture */
     } else if (o.type === 'image' || o.type === 'video') {
       h += '<div class="fields">' +
-        '<div class="field fm-fitrow"><span>Size</span><div class="seg fm-fitseg" role="radiogroup" aria-label="Layer size">' +
-          '<button type="button" role="radio" data-ofit="full" aria-checked="' + (o.fit === 'full') + '" class="' + (o.fit === 'full' ? 'on' : '') + '">⛶ Full screen</button>' +
-          '<button type="button" role="radio" data-ofit="match" aria-checked="' + (o.fit === 'match') + '" class="' + (o.fit === 'match' ? 'on' : '') + '">▭ Same size as video</button>' +
-          '<button type="button" role="radio" data-ofit="" aria-checked="' + (!o.fit) + '" class="' + (!o.fit ? 'on' : '') + '">✋ Free</button></div></div>' +
+        '<label class="field"><span>Fit</span><select data-ofitsel>' + opt([['', 'Free — drag and size it'], ['full', 'Full screen'], ['match', 'Same size as the video']], o.fit || '') + '</select></label>' +
         (o.fit ? '' : '<label class="field"><span>Size <b>' + Math.round(o.w * 100) + '%</b></span><input type="range" data-o="w" min="4" max="180" step="1" value="' + Math.round(o.w * 100) + '"></label>') +
         '<label class="field"><span>Shape</span><select data-o="shape">' + opt([['square', 'As it is'], ['rounded', 'Rounded'], ['circle', 'Circle']], o.shape || 'square') + '</select></label>' +
         '<label class="field"><span>See-through <b>' + Math.round((1 - (o.opacity == null ? 1 : o.opacity)) * 100) + '%</b></span><input type="range" data-o="opacity" min="10" max="100" step="5" value="' + Math.round((o.opacity == null ? 1 : o.opacity) * 100) + '"></label>' +
@@ -800,7 +798,7 @@
     }
     h += timeRow;
     h += '<div class="row" style="gap:6px;margin-top:10px">' +
-      '<button type="button" class="btn btn-ghost btn-sm" data-ol="up">⬆ Bring forward</button><button type="button" class="btn btn-ghost btn-sm" data-ol="down">⬇ Send back</button>' +
+      '<button type="button" class="btn btn-ghost btn-sm" data-ol="up">⬆ Move up (in front)</button><button type="button" class="btn btn-ghost btn-sm" data-ol="down">⬇ Move down (behind)</button>' +
       (o.type !== 'progress' ? '<button type="button" class="btn btn-ghost btn-sm" data-ol="center">⊕ Centre</button><button type="button" class="btn btn-ghost btn-sm" data-ol="dup">⧉ Copy</button>' : '') +
       '<button type="button" class="btn btn-danger btn-sm" data-ol="del">🗑 Remove</button></div>';
     ed.innerHTML = '<div class="label">Edit · ' + YB.esc(ovLabel(o)) + '</div>' + h;
@@ -1363,6 +1361,7 @@
       saveProject(); drawPreview();
     });
     ed.addEventListener('change', function (e) {
+      if (e.target.hasAttribute('data-ofitsel')) { var fo = overlays.find(function (x) { return x.id === sel; }); if (fo) setFit(fo, e.target.value); if (window.YBFmtPro) YBFmtPro.render(); return; }
       var k = e.target.getAttribute('data-o'), o = overlays.find(function (x) { return x.id === sel; }); if (!k || !o) return;
       setOv(o, k, e.target); saveProject();
       if (k === 'style' || k === 'start' || k === 'end') renderOverlays(); else renderEditor();
@@ -1370,8 +1369,6 @@
     });
     ed.addEventListener('click', function (e) {
       var o = overlays.find(function (x) { return x.id === sel; }); if (!o) return;
-      var fb = e.target.closest('[data-ofit]');
-      if (fb) { setFit(o, fb.getAttribute('data-ofit')); return; }
       var b = e.target.closest('[data-ol],[data-ot]'); if (!b) return;
       var act = b.getAttribute('data-ol') || b.getAttribute('data-ot'), i = overlays.indexOf(o);
       if (act === 'del') { overlays.splice(i, 1); sel = ''; }
@@ -1450,7 +1447,19 @@
   // for the timeline, effects and stickers (js/formatter-pro.js)
   window.YBFmt = {
     clips: function () { return clips; }, overlays: function () { return overlays; }, S: S, pv: pv, url: blobUrl,
-    setFit: function (o, f) { setFit(o, f); }, undo: function () { return goHist(-1); }, redo: function () { return goHist(1); }, histUi: histUi, canUndo: function () { return hIdx > 0; }, canRedo: function () { return hIdx < hist.length - 1; },
+    setFit: function (o, f) { setFit(o, f); },
+    layerToClip: function (o, at) {   // a video layer dropped on the main video becomes a clip there again
+      if (!o || o.type !== 'video' || !blobs[o.blobId]) return false;
+      var sp0 = +o.speed || 1, tl = timeline(), len = Math.max(0.2, (o.end == null ? tl.total : o.end) - (o.start || 0)), inn = o.in || 0;
+      var out = Math.min(o.dur || (inn + len * sp0), inn + len * sp0), v = o._v;
+      var c = { id: YB.uid(), name: o.name || 'Clip', blobId: o.blobId, dur: o.dur || out, vw: (v && v.videoWidth) || o.vw || 0, vh: (v && v.videoHeight) || o.vh || 0, in: inn, out: out,
+        vol: o.vol == null ? 1 : o.vol, mute: !!o.mute, zoom: 1, ox: 0, oy: 0, speed: sp0, fx: [], audio: true };
+      var idx = clips.length;
+      for (var i = 0; i < clips.length; i++) if (at < tl.starts[i] + clipLen(clips[i]) / 2) { idx = i; break; }
+      if (v) v.pause();
+      clips.splice(idx, 0, c); overlays.splice(overlays.indexOf(o), 1); if (sel === o.id) sel = '';
+      saveProject(); renderAll(); seekTo(timeline().starts[idx] + 0.01); return idx;
+    }, undo: function () { return goHist(-1); }, redo: function () { return goHist(1); }, histUi: histUi, canUndo: function () { return hIdx > 0; }, canRedo: function () { return hIdx < hist.length - 1; },
     timeline: timeline, clipAt: clipAt, clipLen: clipLen, dims: dims,
     sel: function (v) { if (v !== undefined) sel = v; return sel; },
     mix: mixAudio, music: function () { return music; },

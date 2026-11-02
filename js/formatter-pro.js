@@ -125,7 +125,7 @@
   }
 
   /* ---------- Timeline ---------- */
-  var pps = 0, zoomK = 1, drag = null;
+  var pps = 0, zoomK = 1, drag = null, selClip = -1;
   function render() {
     if (window.YBFmt && adoptNew()) { YBFmt.renderOverlays(); return; }
     if (window.YBFmt && YBFmt.clips().length && currentSig() !== beatSig) analyseSoon();
@@ -141,7 +141,7 @@
     var vids = cl.map(function (c, i) {
       var w = Math.max(6, F.clipLen(c) * pps - 2), nfx = (c.fx || []).length;
       var spd = F.sp(c), bg = '';
-      return '<div class="fm-tclip' + (i === cur ? ' on' : '') + '" data-tclip="' + i + '" style="left:' + (tl.starts[i] * pps) + 'px;width:' + w + 'px' + bg + '">' +
+      return '<div class="fm-tclip' + (i === cur ? ' on' : '') + (i === selClip && !sel ? ' sel' : '') + '" data-tclip="' + i + '" style="left:' + (tl.starts[i] * pps) + 'px;width:' + w + 'px' + bg + '">' +
         '<b class="fm-tv" data-vk="c' + c.id + '"></b><i class="fm-th fm-th-l" data-cedge="l" title="Drag to trim the start"></i><span>' + (i + 1) + (c.mute ? ' 🔇' : '') + (spd !== 1 ? ' ⏩' + spd + '×' : '') + (nfx ? ' ✨' + nfx : '') + ' · ' + F.clipLen(c).toFixed(1) + ' of ' + (c.dur || 0).toFixed(1) + ' s</span><i class="fm-th fm-th-r" data-cedge="r" title="Drag to trim the end"></i></div>';
     }).join('');
     function bar(o) {
@@ -254,7 +254,7 @@
       }
       if (lay) {
         var o = F.overlays().find(function (k) { return k.id === lay.getAttribute('data-tov'); }); if (!o) return;
-        targetTrack = o.track && trackById(o.track) ? o.track : '';
+        targetTrack = o.track && trackById(o.track) ? o.track : ''; selClip = -1;
         F.sel(o.id); F.renderOverlays(); F.draw();
         if (o.type === 'progress') return;
         var total = F.timeline().total, edge = e.target.getAttribute('data-edge');
@@ -264,7 +264,8 @@
       var tc = e.target.closest('[data-tclip]');
       if (tc) {
         var ci = +tc.getAttribute('data-tclip'), cc = F.clips()[ci], ce = e.target.getAttribute('data-cedge');
-        targetTrack = '';
+        targetTrack = ''; selClip = ci;
+        inner.querySelectorAll('.fm-tclip.sel, .fm-tlayer.on').forEach(function (k) { k.classList.remove('sel', 'on'); }); tc.classList.add('sel');
         if (F.sel()) { F.sel(''); F.renderOverlays(); F.draw(); }
         drag = ce ? { clip: ci, edge: ce, x0: e.clientX, in0: cc.in, out0: cc.out } : { reorder: ci, x0: e.clientX, y0: e.clientY, moved: false, el: inner.querySelector('[data-tclip="' + ci + '"]') || tc, t: timeAt(e), st: F.timeline().starts[ci] };
         holdFirst(e); inner.setPointerCapture(e.pointerId); e.preventDefault(); return;
@@ -346,7 +347,11 @@
       if (was.hold) { if (!was.pan && e.type !== 'pointercancel' && was.hold.reorder != null) F.seek(was.hold.t); return; }
       if (was.o && was.moved && was.vert && was.tg && !was.tg.el.contains(was.el)) {
         var tg = was.tg, ov = F.overlays(), o = was.o;
-        if (tg.kind === 'track') { var tr = trackById(tg.track); if (tr && tr.id !== o.track) { placeOnTrack(o, tr); targetTrack = tr.id; YB.toast('Moved onto ' + (tr.name || 'the layer')); } }
+        if (tg.kind === 'main') {
+          if (o.type === 'video') { var at = timeAt(e); targetTrack = ''; if (F.layerToClip(o, at) !== false) { selClip = -1; YB.toast('Back in the main video'); } return; }
+          YB.toast('Only video can go in the main video — photos, text and sound stay on layers');
+        }
+        else if (tg.kind === 'track') { var tr = trackById(tg.track); if (tr && tr.id !== o.track) { placeOnTrack(o, tr); targetTrack = tr.id; YB.toast('Moved onto ' + (tr.name || 'the layer')); } }
         else if (tg.kind === 'top' || tg.kind === 'bottom') {   // its own new layer, on top of everything or right under the main video
           delete o.track; o.under = tg.kind === 'bottom'; ov.splice(ov.indexOf(o), 1);
           if (tg.kind === 'top') ov.push(o); else ov.unshift(o);   // the bottom row is the one furthest back
@@ -454,8 +459,11 @@
       if (targetTrack === o.id) targetTrack = '';
       F.sel(''); F.save(); F.renderOverlays(); F.renderFacts(); F.draw(); YB.toast(o.type === 'track' ? 'Layer deleted' : 'Deleted');
     });
-    $('lyFull').addEventListener('click', function () { var o = selLayer(); if (!o || (o.type !== 'video' && o.type !== 'image')) { YB.toast('Choose a video or photo layer first'); return; } YBFmt.setFit(o, o.fit === 'full' ? '' : 'full'); render(); YB.toast(o.fit === 'full' ? 'Fills the whole screen' : 'Free size — drag it on the preview'); });
-    $('lyMatch').addEventListener('click', function () { var o = selLayer(); if (!o || (o.type !== 'video' && o.type !== 'image')) { YB.toast('Choose a video or photo layer first'); return; } YBFmt.setFit(o, o.fit === 'match' ? '' : 'match'); render(); YB.toast(o.fit === 'match' ? 'Same size as the main video' : 'Free size — drag it on the preview'); });
+    $('lySizeSel').addEventListener('change', function () {
+      var o = selLayer(); if (!o || (o.type !== 'video' && o.type !== 'image')) return;
+      YBFmt.setFit(o, this.value); render();
+      YB.toast(this.value === 'full' ? 'Fills the whole screen' : this.value === 'match' ? 'Same size as the main video' : 'Free — drag and size it on the preview');
+    });
     $('lyHide').addEventListener('click', function () { var o = selLayer(); if (!o) return; o.hidden = !o.hidden; if (o.type === 'track') itemsOf(o).forEach(function (k) { k.hidden = o.hidden; }); YBFmt.save(); YBFmt.draw(); render(); });
     $('tlPhotoFile').addEventListener('change', function () { var f = this.files[0]; this.value = ''; if (!f || !once(f)) return; if (!YBFmt.clips().length) { YB.toast('Add your main video first'); return; } YBFmt.addImage(f); YB.toast('Photo layer added'); });
     ['layerFile', 'tlLayerFile'].forEach(function (id) { var el = $(id); if (el) el.addEventListener('change', function () { addLayerFile(this.files[0]); this.value = ''; }); });
@@ -510,8 +518,8 @@
     g.hidden = !o || o.type === 'progress';
     if (window._fmRenderSpeed) window._fmRenderSpeed();
     var pic = o && (o.type === 'video' || o.type === 'image');
-    $('lyFull').hidden = $('lyMatch').hidden = !pic;
-    if (pic) { $('lyFull').classList.toggle('on', o.fit === 'full'); $('lyMatch').classList.toggle('on', o.fit === 'match'); }
+    $('lySize').hidden = !pic;
+    if (pic) { $('lySizeSel').value = o.fit || ''; $('lySize').querySelector('span').textContent = o.fit === 'full' ? 'Full screen' : o.fit === 'match' ? 'Same size' : 'Size'; }
     if (o) { $('lyHide').querySelector('span').textContent = o.hidden ? 'Show' : 'Hide'; $('lyHide').querySelector('i').textContent = o.hidden ? '🚫' : '👁'; }
   }
   // move the selected layer one step up or down the stack — past the main video it goes under it
@@ -576,7 +584,7 @@
     if (!g) { g = document.createElement('div'); g.className = 'fm-ghost'; inner.appendChild(g); }
     g.style.top = (tg.el.offsetTop + 3) + 'px'; g.style.height = Math.max(18, tg.el.offsetHeight - 6) + 'px';
     g.style.left = Math.max(0, left) + 'px'; g.style.width = Math.max(14, width) + 'px';
-    g.textContent = tg.kind === 'top' ? 'New layer on top' : tg.kind === 'bottom' ? 'New layer underneath' : tg.kind === 'main' ? 'Main video' : tg.kind === 'track' ? 'Onto ' + ((trackById(tg.track) || {}).name || 'this layer') : 'Onto this layer';
+    g.textContent = tg.kind === 'top' ? 'New layer on top' : tg.kind === 'bottom' ? 'New layer underneath' : tg.kind === 'main' ? 'Into the main video' : tg.kind === 'track' ? 'Onto ' + ((trackById(tg.track) || {}).name || 'this layer') : 'Onto this layer';
   }
   // edges snap to the playhead, the start / end, clip joins and other layers (like CapCut)
   function snapT(t, skip) {
