@@ -937,7 +937,7 @@
   /* ---------- Export ---------- */
   function pickVideoCodec(W, H) {
     var opts = [['avc', 'avc1.640034'], ['avc', 'avc1.4d0034'], ['vp9', 'vp09.00.40.08'], ['av1', 'av01.0.08M.08']];
-    var br = W * H > 2e6 ? 10e6 : 7e6;
+    var br = W * H > 2e6 ? 16e6 : 12e6;   // high quality, so Instagram / TikTok's own squeeze still looks sharp
     return opts.reduce(function (p, o) {
       return p.then(function (found) {
         if (found) return found;
@@ -1240,7 +1240,7 @@
     }).then(function () {
       return new Promise(function (resolve, reject) {
         var chunks = [], mr;
-        try { mr = new MediaRecorder(stream, { mimeType: mime, videoBitsPerSecond: W * H > 2e6 ? 12e6 : 8e6, audioBitsPerSecond: 192000 }); }
+        try { mr = new MediaRecorder(stream, { mimeType: mime, videoBitsPerSecond: W * H > 2e6 ? 16e6 : 12e6, audioBitsPerSecond: 192000 }); }
         catch (e) { mr = new MediaRecorder(stream); }
         mr.ondataavailable = function (e) { if (e.data && e.data.size) chunks.push(e.data); };
         mr.onstop = function () {
@@ -1275,7 +1275,22 @@
       });
     });
   }
+
+  // Save to the phone's photos: phones get their own share sheet ("Save Video" on iPhone, Gallery / Photos /
+  // Instagram on Android); computers download the MP4.
+  function phoneSave() { return (navigator.maxTouchPoints || 0) > 0 && window.matchMedia && matchMedia('(pointer: coarse)').matches; }
+  function wireVideoSave(getBlob) {
+    var a = $('downloadBtn'); if (!a || a._wired) return; a._wired = true;
+    if (phoneSave()) a.innerHTML = '📲 Save to Photos';
+    a.addEventListener('click', function (e) {
+      var b = getBlob(); if (!b || !phoneSave()) return;
+      var f = new File([b], a.download || 'video.mp4', { type: b.type || 'video/mp4' });
+      if (navigator.canShare && navigator.canShare({ files: [f] })) { e.preventDefault(); navigator.share({ files: [f] }).catch(function () {}); }
+    });
+  }
+  var lastBlob = null;
   function showResult(blob, type, T, W, H) {
+    lastBlob = blob; wireVideoSave(function () { return lastBlob; });
     if (lastVideo) URL.revokeObjectURL(lastVideo);
     lastVideo = URL.createObjectURL(blob);
     var ext = /mp4/.test(type) ? 'mp4' : 'webm';

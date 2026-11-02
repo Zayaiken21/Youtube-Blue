@@ -581,7 +581,7 @@
     return t;
   }
   function drawSeg(x, g, W, H, u, alpha, extraScale, dx) {
-    var c = stillFor(g, W, H), k = S.kenBurns && !g.card ? 1 + 0.06 * clamp(u / g.dur, 0, 1) : 1;
+    var ss = S.kenBurns || g.card ? 1.08 : 1, c = stillFor(g, Math.round(W * ss), Math.round(H * ss)), k = S.kenBurns && !g.card ? 1 + 0.06 * clamp(u / g.dur, 0, 1) : 1;
     if (g.card) k = 1 + 0.03 * clamp(u / g.dur, 0, 1);
     k *= extraScale || 1;
     x.save(); x.globalAlpha = alpha == null ? 1 : alpha;
@@ -1385,12 +1385,25 @@
 
   /* ---------- Video export ---------- */
   var lastVideoBlob = null;
+  // Save to the phone's photos: phones get their own share sheet ("Save Video" on iPhone, Gallery / Photos /
+  // Instagram on Android); computers download the MP4.
+  function phoneSave() { return (navigator.maxTouchPoints || 0) > 0 && window.matchMedia && matchMedia('(pointer: coarse)').matches; }
+  function wireVideoSave(getBlob) {
+    var a = $('downloadBtn'); if (!a || a._wired) return; a._wired = true;
+    if (phoneSave()) a.innerHTML = '📲 Save to Photos';
+    a.addEventListener('click', function (e) {
+      var b = getBlob(); if (!b || !phoneSave()) return;
+      var f = new File([b], a.download || 'video.mp4', { type: b.type || 'video/mp4' });
+      if (navigator.canShare && navigator.canShare({ files: [f] })) { e.preventDefault(); navigator.share({ files: [f] }).catch(function () {}); }
+    });
+  }
+
   function pickVideoCodec(W, H) {
     var opts = [['avc', 'avc1.640034'], ['avc', 'avc1.4d0034'], ['vp9', 'vp09.00.40.08'], ['av1', 'av01.0.08M.08']];
     return opts.reduce(function (p, o) {
       return p.then(function (found) {
         if (found) return found;
-        var cfg = { codec: o[1], width: W, height: H, bitrate: W * H > 2e6 ? 12e6 : 9e6, framerate: FPS, latencyMode: 'quality' };
+        var cfg = { codec: o[1], width: W, height: H, bitrate: W * H > 2e6 ? 16e6 : 12e6, framerate: FPS, latencyMode: 'quality' };
         if (o[0] === 'avc') cfg.avc = { format: 'avc' };
         return VideoEncoder.isConfigSupported(cfg).then(function (r) { return r.supported ? { mux: o[0], cfg: cfg } : null; }, function () { return null; });
       });
@@ -1451,7 +1464,7 @@
       chain = chain.then(function () {
         if (rec.cancelled) throw new Error('cancelled');
         var ps = g.photo ? [g.photo] : g.set ? setPhotos(g.set) : [];
-        return Promise.all(ps.map(ensureImg)).then(function () { stillFor(g, W, H); $('exportText').textContent = 'Preparing ' + (i + 1) + ' of ' + tl.segs.length + '…'; return new Promise(function (r) { setTimeout(r, 0); }); });
+        return Promise.all(ps.map(ensureImg)).then(function () { var ss = S.kenBurns || g.card ? 1.08 : 1; stillFor(g, Math.round(W * ss), Math.round(H * ss)); $('exportText').textContent = 'Preparing ' + (i + 1) + ' of ' + tl.segs.length + '…'; return new Promise(function (r) { setTimeout(r, 0); }); });
       });
     });
     chain.then(function () { return mixMusic(T); }).then(function (mix) {
@@ -1523,7 +1536,7 @@
     if (mix) { var dest = ac.createMediaStreamDestination(); src = ac.createBufferSource(); src.buffer = mix; src.connect(dest); dest.stream.getAudioTracks().forEach(function (t) { stream.addTrack(t); }); }
     return (ac.state === 'suspended' ? ac.resume() : Promise.resolve()).then(function () {
       return new Promise(function (resolve, reject) {
-        var chunks = [], mr = mime ? new MediaRecorder(stream, { mimeType: mime, videoBitsPerSecond: 10e6 }) : new MediaRecorder(stream);
+        var chunks = [], mr = mime ? new MediaRecorder(stream, { mimeType: mime, videoBitsPerSecond: 16e6, audioBitsPerSecond: 192000 }) : new MediaRecorder(stream);
         mr.ondataavailable = function (e) { if (e.data && e.data.size) chunks.push(e.data); };
         mr.onstop = function () { stream.getTracks().forEach(function (t) { t.stop(); }); try { ac.close(); } catch (e) { /* closed */ } if (rec && rec.cancelled) reject(new Error('cancelled')); else resolve({ blob: new Blob(chunks, { type: (mr.mimeType || mime || 'video/webm').split(';')[0] }) }); };
         var t0 = 0, done = false;
@@ -1545,7 +1558,7 @@
     if (lastVideo) URL.revokeObjectURL(lastVideo);
     lastVideoBlob = blob; lastVideo = URL.createObjectURL(blob);
     var ext = /mp4/.test(blob.type) ? 'mp4' : 'webm';
-    $('resultVideo').src = lastVideo; $('downloadBtn').href = lastVideo;
+    $('resultVideo').src = lastVideo; $('downloadBtn').href = lastVideo; wireVideoSave(function () { return lastVideoBlob; });
     $('downloadBtn').download = 'showcase-' + (slug(brandText()) || 'slideshow') + '-' + S.format + '.' + ext;
     $('resultInfo').textContent = W + '×' + H + ' · ' + mmss(T) + ' · ' + ext.toUpperCase() + ' · ' + (blob.size / 1048576).toFixed(1) + ' MB';
     $('shareVideoBtn').hidden = !navigator.canShare;
