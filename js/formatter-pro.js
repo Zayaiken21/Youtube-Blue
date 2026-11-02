@@ -134,8 +134,8 @@
     if (!cl.length) { box.innerHTML = ''; return; }
     var avail = Math.max(240, sc.clientWidth - 4);
     pps = Math.max(avail / Math.max(1, total), 34) * zoomK;   // never squeezed: long videos run past the edge and you swipe to see the rest
-    extendToEnd(F, total);
-    var W = Math.max(avail, Math.round(total * pps) + Math.round(avail * 0.35)), cur = F.clipAt(F.pv.t);
+    extendToEnd(F);
+    var W = Math.max(avail, Math.round(total * pps) + Math.round(avail * 0.7)), cur = F.clipAt(F.pv.t);
     var ruler = '', step = [0.5, 1, 2, 5, 10, 15, 30, 60, 120].find(function (q) { return q * pps >= 56; }) || 300;
     for (var s = 0; s <= total + 0.001; s += step) ruler += '<span class="fm-tick" style="left:' + (s * pps) + 'px">' + (Math.floor(s / 60) + ':' + String(Math.floor(s % 60)).padStart(2, '0') + (step < 1 && s % 1 ? '.5' : '')) + '</span>';
     var vids = cl.map(function (c, i) {
@@ -172,7 +172,7 @@
     renderFx();
   }
   function tick(t, total) {
-    if (total != null && Math.abs(total - lastTotal) > 0.01 && window.YBFmt && YBFmt.clips().length) { render(); return; }
+    if (total != null && Math.abs(total - lastTotal) > 0.01 && !drag && window.YBFmt && YBFmt.clips().length) { render(); return; }
     var h = $('tlHead'); if (!h || !pps) return;
     h.style.left = (t * pps) + 'px';
     var F = window.YBFmt; if (!F) return;
@@ -227,8 +227,8 @@
   }
   /* a layer that ran to the end keeps running to the end when the video gets longer */
   var endTotal = -1;
-  function extendToEnd(F, total) {
-    var prev = endTotal; endTotal = total;
+  function extendToEnd(F) {
+    var total = F.timeline().main, prev = endTotal; endTotal = total;
     if (prev <= 0 || Math.abs(total - prev) < 0.05) return;
     var ch = false;
     F.overlays().forEach(function (o) {
@@ -258,7 +258,7 @@
         F.sel(o.id); F.renderOverlays(); F.draw();
         if (o.type === 'progress') return;
         var total = F.timeline().total, edge = e.target.getAttribute('data-edge');
-        drag = { y0: e.clientY, o: o, edge: edge, x0: e.clientX, st: o.start || 0, en: o.end == null ? total : o.end, total: total, moved: false, el: inner.querySelector('[data-tov="' + o.id + '"]') || e.target.closest('[data-tov]'), in0: o.in || 0 };
+        drag = { y0: e.clientY, o: o, edge: edge, x0: e.clientX, st: o.start || 0, en: o.end == null ? total : o.end, total: total, main: F.timeline().main, moved: false, el: inner.querySelector('[data-tov="' + o.id + '"]') || e.target.closest('[data-tov]'), in0: o.in || 0 };
         holdFirst(e); inner.setPointerCapture(e.pointerId); e.preventDefault(); return;
       }
       var tc = e.target.closest('[data-tclip]');
@@ -283,6 +283,10 @@
         if (!drag || drag.hold !== real || drag.pan) return;
         drag = real; if (real.el) real.el.classList.add('lifted'); if (navigator.vibrate) try { navigator.vibrate(12); } catch (er) { /* ignore */ }
       }, 260);
+    }
+    function edgeScroll(e) {   // dragging near the edge scrolls the timeline along
+      var sc = $('tlScroll'), r = sc.getBoundingClientRect();
+      if (e.clientX > r.right - 34) sc.scrollLeft += 14; else if (e.clientX < r.left + 34) sc.scrollLeft -= 14;
     }
     function panBy(e) {
       var dx = e.clientX - drag.x0, dy = e.clientY - drag.y0;
@@ -319,16 +323,19 @@
       var d = (e.clientX - drag.x0) / pps; if (Math.abs(e.clientX - drag.x0) > 3 || Math.abs(e.clientY - drag.y0) > 3) drag.moved = true;
       var o = drag.o, len = drag.en - drag.st, st = drag.st, en = drag.en, isV = o.type === 'video' || o.type === 'audio', lr = +o.speed || 1, room = isV ? Math.max(0.2, ((o.dur || 999) - (drag.in0 || 0)) / lr) : 1e9;
       if (drag.edge === 'l') { st = clamp(drag.st + d, Math.max(0, isV ? drag.st - (drag.in0 || 0) / lr : 0), drag.en - 0.2); if (isV) o.in = Math.round(((drag.in0 || 0) + (st - drag.st) * lr) * 100) / 100; }
-      else if (drag.edge === 'r') en = clamp(drag.en + d, drag.st + 0.2, Math.min(drag.total, drag.st + room));
-      else { st = clamp(drag.st + d, 0, Math.max(0, drag.total - len)); var s2 = snapT(st, o), e2 = snapT(st + len, o); st = s2 !== st ? s2 : (e2 !== st + len ? e2 - len : st); st = clamp(st, 0, Math.max(0, drag.total - len)); en = st + len; }
+      else if (drag.edge === 'r') en = clamp(drag.en + d, drag.st + 0.2, isV ? drag.st + room : 3600);
+      else { st = Math.max(0, drag.st + d); var s2 = snapT(st, o), e2 = snapT(st + len, o); st = s2 !== st ? s2 : (e2 !== st + len ? e2 - len : st); st = Math.max(0, st); en = st + len; }
       if (drag.edge === 'l') { var sl = snapT(st, o); if (sl < en - 0.2) { if (isV) o.in = Math.max(0, Math.round(((drag.in0 || 0) + (sl - drag.st) * lr) * 100) / 100); st = sl; } }
-      if (drag.edge === 'r') { var sr = snapT(en, o); if (sr > st + 0.2 && sr <= Math.min(drag.total, drag.st + room) + 1e-6) en = sr; }
+      if (drag.edge === 'r') { var sr = snapT(en, o); if (sr > st + 0.2 && (!isV || sr <= drag.st + room + 1e-6)) en = sr; }
       if (!drag.edge && (Math.abs(e.clientY - drag.y0) > 20 || drag.vert)) {   // moving to another row: show where it lands
         drag.vert = true; showZones(); var tgo = targetAt(e.clientY); drag.tg = tgo;
         if (tgo && !tgo.el.contains(drag.el)) ghostAt(tgo, st * pps, (en - st) * pps); else { var gh2 = $('tlInner').querySelector('.fm-ghost'); if (gh2) gh2.remove(); }
       }
-      o.start = Math.round(st * 10) / 10; o.end = !isV && en >= drag.total - 0.05 ? null : Math.round(en * 10) / 10;
-      drag.el.style.left = (o.start * pps) + 'px'; drag.el.style.width = Math.max(14, ((o.end == null ? drag.total : o.end) - o.start) * pps) + 'px';
+      if (o.end == null && !drag.edge && !isV) en = null;   // something that runs to the end keeps doing so while it's moved
+      o.start = Math.round(st * 10) / 10; o.end = en == null ? null : !isV && drag.edge === 'r' && Math.abs(en - drag.main) < 0.05 ? null : Math.round(en * 10) / 10;
+      edgeScroll(e);
+      drag.el.style.left = (o.start * pps) + 'px'; drag.el.style.width = Math.max(14, ((o.end == null ? Math.max(drag.total, o.start + 0.2) : o.end) - o.start) * pps) + 'px';
+      var inr = $('tlInner'), need = ((o.end == null ? 0 : o.end) * pps) + 120; if (need > inr.offsetWidth) inr.style.width = need + 'px';
       F.seek(drag.edge === 'r' ? Math.max(0, (o.end == null ? drag.total : o.end) - 0.05) : o.start);
     });
     function up(e) {
@@ -447,6 +454,8 @@
       if (targetTrack === o.id) targetTrack = '';
       F.sel(''); F.save(); F.renderOverlays(); F.renderFacts(); F.draw(); YB.toast(o.type === 'track' ? 'Layer deleted' : 'Deleted');
     });
+    $('lyFull').addEventListener('click', function () { var o = selLayer(); if (!o || (o.type !== 'video' && o.type !== 'image')) { YB.toast('Choose a video or photo layer first'); return; } YBFmt.setFit(o, o.fit === 'full' ? '' : 'full'); render(); YB.toast(o.fit === 'full' ? 'Fills the whole screen' : 'Free size — drag it on the preview'); });
+    $('lyMatch').addEventListener('click', function () { var o = selLayer(); if (!o || (o.type !== 'video' && o.type !== 'image')) { YB.toast('Choose a video or photo layer first'); return; } YBFmt.setFit(o, o.fit === 'match' ? '' : 'match'); render(); YB.toast(o.fit === 'match' ? 'Same size as the main video' : 'Free size — drag it on the preview'); });
     $('lyHide').addEventListener('click', function () { var o = selLayer(); if (!o) return; o.hidden = !o.hidden; if (o.type === 'track') itemsOf(o).forEach(function (k) { k.hidden = o.hidden; }); YBFmt.save(); YBFmt.draw(); render(); });
     $('tlPhotoFile').addEventListener('change', function () { var f = this.files[0]; this.value = ''; if (!f || !once(f)) return; if (!YBFmt.clips().length) { YB.toast('Add your main video first'); return; } YBFmt.addImage(f); YB.toast('Photo layer added'); });
     ['layerFile', 'tlLayerFile'].forEach(function (id) { var el = $(id); if (el) el.addEventListener('change', function () { addLayerFile(this.files[0]); this.value = ''; }); });
@@ -500,6 +509,9 @@
     if (hint) { hint.hidden = !tt; if (tt) hint.textContent = 'Adding to ' + (tt.name || 'Layer') + ' — tap the main video to stop'; }
     g.hidden = !o || o.type === 'progress';
     if (window._fmRenderSpeed) window._fmRenderSpeed();
+    var pic = o && (o.type === 'video' || o.type === 'image');
+    $('lyFull').hidden = $('lyMatch').hidden = !pic;
+    if (pic) { $('lyFull').classList.toggle('on', o.fit === 'full'); $('lyMatch').classList.toggle('on', o.fit === 'match'); }
     if (o) { $('lyHide').querySelector('span').textContent = o.hidden ? 'Show' : 'Hide'; $('lyHide').querySelector('i').textContent = o.hidden ? '🚫' : '👁'; }
   }
   // move the selected layer one step up or down the stack — past the main video it goes under it

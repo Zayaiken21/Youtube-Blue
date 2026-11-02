@@ -15,15 +15,15 @@
   <meta name="mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
   <meta name="apple-mobile-web-app-title" content="YT Blue">
-  <link rel="stylesheet" href="css/style.css?v=58">
+  <link rel="stylesheet" href="css/style.css?v=59">
   <script src="js/core.js" defer></script>
   <script src="js/vendor/mp4-muxer.min.js" defer></script>
   <script src="js/fullscreen.js?v=1" defer></script>
   <script src="js/fx-float.js?v=1" defer></script>
   <script src="js/showcase-fold.js?v=2" defer></script>
   <script src="js/showcase-fx.js?v=5" defer></script>
-  <script src="js/formatter.js?v=18" defer></script>
-  <script src="js/formatter-pro.js?v=16" defer></script>
+  <script src="js/formatter.js?v=19" defer></script>
+  <script src="js/formatter-pro.js?v=17" defer></script>
 </head>
 <body data-page="formatter">
   <header class="topbar">
@@ -186,6 +186,8 @@
             <label class="fm-tool fm-tool-add"><i>🖼️</i><span>Add photo</span><input type="file" id="tlPhotoFile" accept="image/*" hidden></label>
             <label class="fm-tool fm-tool-add"><i>🎵</i><span>Add sound</span><input type="file" id="tlAudioFile" accept="audio/*,.mp3,.wav,.m4a,.aac,.ogg" hidden></label>
             <span class="fm-toolgroup" id="fmLayerTools" hidden>
+              <button type="button" class="fm-tool fm-tool-ly" id="lyFull"><i>⛶</i><span>Full screen</span></button>
+              <button type="button" class="fm-tool fm-tool-ly" id="lyMatch"><i>▭</i><span>Same size</span></button>
               <button type="button" class="fm-tool fm-tool-ly" id="lyUp"><i>⬆️</i><span>Forward</span></button>
               <button type="button" class="fm-tool fm-tool-ly" id="lyDown"><i>⬇️</i><span>Back</span></button>
               <button type="button" class="fm-tool fm-tool-ly" id="lyHide"><i>👁</i><span>Hide</span></button>

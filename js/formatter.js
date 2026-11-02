@@ -168,7 +168,9 @@
   function timeline() {
     var starts = [], t = 0;
     clips.forEach(function (c) { starts.push(t); t += clipLen(c); });
-    return { starts: starts, total: t };
+    var end = t;
+    if (clips.length) overlays.forEach(function (o) { if (o.type !== 'track' && o.type !== 'progress' && o.end != null && o.end > end) end = o.end; });
+    return { starts: starts, total: Math.round(end * 1000) / 1000, main: t };
   }
   function clipAt(t, tl) {
     tl = tl || timeline();
@@ -308,7 +310,28 @@
     return v.readyState >= 2 && v.videoWidth ? v : null;
   }
   // keep a layer's video / sound in step with the timeline (its own speed, volume and mute)
+  // Full screen: the whole frame. Same size: exactly where (and how big) the main video is drawn.
+  function setFit(o, f) {
+    if (!f) { if (o.fit) { drawPreview(); unfit(o, $('preview').width, $('preview').height); } }
+    else { o.fit = f; o.x = 0.5; o.y = 0.5; }
+    o._b = null; saveProject(); renderOverlays(); drawPreview();
+  }
+  function unfit(o, W, H) {   // turn a Full screen / Same size layer into a normal one at the same place
+    var b = o._b, base = Math.min(W, H); if (!b) { delete o.fit; return; }
+    o.x = (b.x + b.w / 2) / W; o.y = (b.y + b.h / 2) / H; o.w = b.w / base; delete o.fit;
+  }
+  function layerRect(o, W, H) {
+    if (o.fit === 'full') return { x: 0, y: 0, w: W, h: H };
+    if (o.fit !== 'match') return null;
+    var el = o.type === 'video' ? o._v : o._img, lw = el && (el.videoWidth || el.naturalWidth), lh = el && (el.videoHeight || el.naturalHeight);
+    var c = clips[clipAt(Math.min(pv.t, Math.max(0, timeline().main - 0.01)))];
+    if (c && c.vw) { var v = visibleRect(c, W, H); return v; }
+    var R = contentRect(W, H); if (!lw) return R;
+    if (S.fit === 'fill') return R;
+    var s2 = Math.min(R.w / lw, R.h / lh); return { x: R.x + (R.w - lw * s2) / 2, y: R.y + (R.h - lh * s2) / 2, w: lw * s2, h: lh * s2 };
+  }
   function syncMedia(o, v, t) {
+    if (rec && rec.tail) { if (!v.paused) v.pause(); return; }   // the export seeks these itself, frame by frame
     var r = clamp(+o.speed || 1, 0.25, 4), want = clamp((o.in || 0) + (t - (o.start || 0)) * r, 0, Math.max(0, (v.duration || o.dur || 0) - 0.05)), active = pv.playing || !!rec;
     if (v.playbackRate !== r) { v.playbackRate = r; if ('preservesPitch' in v) v.preservesPitch = true; if ('webkitPreservesPitch' in v) v.webkitPreservesPitch = true; }
     var loud = !rec && !o.mute && !o.hidden && (o.vol == null ? (o.type === 'audio') : o.vol > 0);   // the finished video gets its sound from the mix
@@ -335,12 +358,14 @@
         o._b = { x: 0, y: y - 6, w: W, h: th + 12, noResize: true };
         x.restore(); return;
       }
-      var cx = o.x * W, cy = (o.y + k.dy) * H;
+      var cx = o.x * W, cy = (o.y + k.dy) * H, fitR = null;
+      if ((o.type === 'image' || o.type === 'video') && o.fit) { fitR = layerRect(o, W, H); if (fitR) { cx = fitR.x + fitR.w / 2; cy = fitR.y + fitR.h / 2 + k.dy * H; } }
       x.translate(cx, cy); x.scale(k.s, k.s);
       if (o.type === 'image' || o.type === 'video') {
         var im = o.type === 'video' ? layerFrame(o, t) : o._img, iw = im && (im.naturalWidth || im.videoWidth), ih = im && (im.naturalHeight || im.videoHeight);
         if (im && iw) {
           var w = o.w * base, h = w * ih / iw;   // sized by the short side, so it looks the same in every format
+          if (fitR) { w = fitR.w; h = fitR.h; }
           x.save();
           if (o.shape === 'circle') { x.beginPath(); x.arc(0, 0, Math.min(w, h) / 2, 0, Math.PI * 2); x.clip(); var d = Math.min(w, h), sc = Math.max(d / w, d / h); x.drawImage(im, -w * sc / 2, -h * sc / 2, w * sc, h * sc); w = h = d; }
           else { if (o.shape === 'rounded') { rr(x, -w / 2, -h / 2, w, h, Math.min(w, h) * 0.12); x.clip(); } x.drawImage(im, -w / 2, -h / 2, w, h); }
@@ -403,9 +428,10 @@
 
   // One frame of the video at time t (v = the clip's video element, already showing the right moment).
   function drawFrame(x, W, H, t, v, ci, preview) {
-    var tl = timeline(), c = clips[ci];
+    var tl = timeline(), c = t < tl.main - 1e-4 || tl.main >= tl.total ? clips[ci] : null;
     x.save();
     x.fillStyle = '#000'; x.fillRect(0, 0, W, H);
+    if (!c && clips.length) { drawBackground(x, W, H, null, {}); drawOverlays(x, W, H, t, tl.total, preview, true); }   // after the main video: what's on the layers keeps playing
     if (c) {
       drawBackground(x, W, H, v, c);
       drawOverlays(x, W, H, t, tl.total, preview, true);
@@ -497,6 +523,7 @@
   function seekTo(t) {
     var tl = timeline(); pv.t = clamp(t, 0, tl.total);
     if (!clips.length) return drawPreview();
+    if (pv.t >= tl.main) { if (pv.playing) stopPreview(); return drawPreview(); }
     var ci = clipAt(pv.t, tl), c = clips[ci], v = elFor(c), want = c.in + (pv.t - tl.starts[ci]) * sp(c);
     if (pv.playing) { stopPreview(); }
     try { if (Math.abs(v.currentTime - want) > 0.01) v.currentTime = want; } catch (e) { /* not ready */ }
@@ -505,7 +532,8 @@
   function startPreview() {
     if (!clips.length || rec) return;
     var tl = timeline(); if (pv.t >= tl.total - 0.05) pv.t = 0;
-    pv.playing = true; setPlayBtn(true);
+    pv.playing = true; setPlayBtn(true); pv.tail = null;
+    if (pv.t >= tl.main - 0.03) { startTail(pv.t); return; }
     pv.ci = clipAt(pv.t, tl);
     var c = clips[pv.ci], v = elFor(c);
     v.currentTime = c.in + (pv.t - tl.starts[pv.ci]) * sp(c);
@@ -523,12 +551,27 @@
       pv.t = tl2.starts[pv.ci] + Math.max(0, v2.currentTime - c2.in) / sp(c2);
       if (v2.currentTime >= c2.out - 0.03 || v2.ended) {
         v2.pause();
-        if (pv.ci >= clips.length - 1) { pv.t = tl2.total; drawPreview(); stopPreview(); return; }
+        if (pv.ci >= clips.length - 1) {
+          if (tl2.total > tl2.main + 0.05) { startTail(tl2.main); return; }   // layers run past the main video: keep going
+          pv.t = tl2.total; drawPreview(); stopPreview(); return;
+        }
         pv.ci++;
         var n = clips[pv.ci], nv = elFor(n);
         nv.currentTime = n.in; pv.t = tl2.starts[pv.ci];
         playEl(n, nv);
       }
+      drawPreview(); pv.raf = requestAnimationFrame(loop);
+    };
+    pv.raf = requestAnimationFrame(loop);
+  }
+  function startTail(from) {
+    clips.forEach(function (c) { if (c._el) c._el.pause(); });
+    var t0 = performance.now() - (from - timeline().main) * 1000, base = timeline().main;
+    pv.tail = true;
+    var loop = function () {
+      if (!pv.playing) return;
+      var tl = timeline(); pv.t = base + (performance.now() - t0) / 1000;
+      if (pv.t >= tl.total) { pv.t = tl.total; drawPreview(); stopPreview(); return; }
       drawPreview(); pv.raf = requestAnimationFrame(loop);
     };
     pv.raf = requestAnimationFrame(loop);
@@ -738,7 +781,11 @@
       /* sound only: nothing to place on the picture */
     } else if (o.type === 'image' || o.type === 'video') {
       h += '<div class="fields">' +
-        '<label class="field"><span>Size <b>' + Math.round(o.w * 100) + '%</b></span><input type="range" data-o="w" min="4" max="180" step="1" value="' + Math.round(o.w * 100) + '"></label>' +
+        '<div class="field fm-fitrow"><span>Size</span><div class="seg fm-fitseg" role="radiogroup" aria-label="Layer size">' +
+          '<button type="button" role="radio" data-ofit="full" aria-checked="' + (o.fit === 'full') + '" class="' + (o.fit === 'full' ? 'on' : '') + '">⛶ Full screen</button>' +
+          '<button type="button" role="radio" data-ofit="match" aria-checked="' + (o.fit === 'match') + '" class="' + (o.fit === 'match' ? 'on' : '') + '">▭ Same size as video</button>' +
+          '<button type="button" role="radio" data-ofit="" aria-checked="' + (!o.fit) + '" class="' + (!o.fit ? 'on' : '') + '">✋ Free</button></div></div>' +
+        (o.fit ? '' : '<label class="field"><span>Size <b>' + Math.round(o.w * 100) + '%</b></span><input type="range" data-o="w" min="4" max="180" step="1" value="' + Math.round(o.w * 100) + '"></label>') +
         '<label class="field"><span>Shape</span><select data-o="shape">' + opt([['square', 'As it is'], ['rounded', 'Rounded'], ['circle', 'Circle']], o.shape || 'square') + '</select></label>' +
         '<label class="field"><span>See-through <b>' + Math.round((1 - (o.opacity == null ? 1 : o.opacity)) * 100) + '%</b></span><input type="range" data-o="opacity" min="10" max="100" step="5" value="' + Math.round((o.opacity == null ? 1 : o.opacity) * 100) + '"></label>' +
         '<label class="fm-check"><input type="checkbox" data-o="border"' + (o.border ? ' checked' : '') + '> White border</label></div>';
@@ -839,12 +886,14 @@
       var p = canvasPt(e), W = c.width, H = c.height;
       var so = overlays.find(function (k) { return k.id === sel; });
       if (so && so._b && !so._b.noResize && Math.abs(p.x - (so._b.x + so._b.w)) < 16 && Math.abs(p.y - (so._b.y + so._b.h)) < 16) {
+        if (so.fit) unfit(so, W, H);
         drag = { mode: 'resize', o: so, cx: so.x * W, cy: so.y * H, d0: Math.hypot(p.x - so.x * W, p.y - so.y * H) || 1, size0: so.size, w0: so.w };
       } else {
         var hit = null;
         for (var i = overlays.length - 1; i >= 0; i--) { var b = overlays[i]._b; if (b && p.x >= b.x && p.x <= b.x + b.w && p.y >= b.y && p.y <= b.y + b.h) { hit = overlays[i]; break; } }
         if (hit && !moveVideo) {
           if (sel !== hit.id) { sel = hit.id; markSelected(); }
+          if (hit.fit) unfit(hit, W, H);
           drag = hit.type === 'progress' ? null : { mode: 'move', o: hit, dx: p.x - hit.x * W, dy: p.y - hit.y * H };
         } else if (moveVideo) {
           var ci = clipAt(pv.t), cl = clips[ci], R = contentRect(W, H);
@@ -860,7 +909,7 @@
       if (drag.mode === 'move') { drag.o.x = clamp((p.x - drag.dx) / W, 0, 1); drag.o.y = clamp((p.y - drag.dy) / H, 0, 1); }
       else if (drag.mode === 'resize') {
         var k = (Math.hypot(p.x - drag.cx, p.y - drag.cy) || 1) / drag.d0;
-        if (drag.o.type === 'image') drag.o.w = clamp(drag.w0 * k, 0.02, 1.8); else drag.o.size = clamp(drag.size0 * k, 0.005, 0.4);
+        if (drag.o.type === 'image' || drag.o.type === 'video') drag.o.w = clamp(drag.w0 * k, 0.02, 1.8); else drag.o.size = clamp(drag.size0 * k, 0.005, 0.4);
       } else if (drag.mode === 'video') {
         drag.c.ox = clamp(drag.ox + (p.x - drag.p0.x) / drag.R.w, -1.5, 1.5); drag.c.oy = clamp(drag.oy + (p.y - drag.p0.y) / drag.R.h, -1.5, 1.5);
       }
@@ -1142,6 +1191,22 @@
     var chain = Promise.resolve();
     clips.forEach(function (c, i) { chain = chain.then(function () { if (rec.cancelled) throw new Error('cancelled'); return captureClip(i); }); });
     return chain.then(function () {
+      if (T <= tl.main + 1 / FPS) return;
+      rec.tail = true;   // after the main video: step through the layers frame by frame
+      var f = Math.ceil(tl.main * FPS), tailChain = Promise.resolve();
+      function step() {
+        if (rec.cancelled) throw new Error('cancelled');
+        if (failed) throw failed;
+        var t = f / FPS; if (t >= T) return;
+        var seeks = overlays.filter(function (o) { return o.type === 'video' && o._v && !o.hidden && visibleAt(o, t); }).map(function (o) {
+          var r = clamp(+o.speed || 1, 0.25, 4), want = clamp((o.in || 0) + (t - (o.start || 0)) * r, 0, Math.max(0, (o._v.duration || o.dur || 0) - 0.05));
+          return seekEl(o._v, want).catch(function () {});
+        });
+        return Promise.all(seeks).then(function () { drawFrame(ctx, W, H, t, null, -1, false); emitUntil(t + 1 / FPS); f++; return drain(); }).then(step);
+      }
+      return tailChain.then(step);
+    }).then(function () {
+      if (rec) rec.tail = false;
       emitUntil(T + 1);
       $('exportText').textContent = 'Finishing…';
       return Promise.all([vEnc.flush(), audioDone]);
@@ -1183,6 +1248,7 @@
           if (stopped) return;
           var t = clock();
           if (rec.cancelled || t >= T) { stopped = true; try { src && src.stop(); } catch (e) { /* stopped */ } els.forEach(function (v) { v.pause(); }); setTimeout(function () { mr.stop(); }, 150); return; }
+          if (t >= tl.main) { els.forEach(function (q) { q.pause(); }); drawFrame(ctx, W, H, t, null, -1, false); $('exportBar').style.width = Math.min(100, t / T * 100).toFixed(1) + '%'; requestAnimationFrame(frame); return; }
           var i = clipAt(t, tl), c = clips[i], v = els[i], want = c.in + (t - tl.starts[i]) * sp(c); v.playbackRate = sp(c);
           if (i !== cur) { if (cur >= 0) els[cur].pause(); cur = i; try { v.currentTime = want; } catch (e) { /* ignore */ } v.play().catch(function () {}); }
           else if (Math.abs(v.currentTime - want) > 0.2) { try { v.currentTime = want; } catch (e) { /* ignore */ } }   // keep the picture on the sound's clock
@@ -1304,12 +1370,14 @@
     });
     ed.addEventListener('click', function (e) {
       var o = overlays.find(function (x) { return x.id === sel; }); if (!o) return;
+      var fb = e.target.closest('[data-ofit]');
+      if (fb) { setFit(o, fb.getAttribute('data-ofit')); return; }
       var b = e.target.closest('[data-ol],[data-ot]'); if (!b) return;
       var act = b.getAttribute('data-ol') || b.getAttribute('data-ot'), i = overlays.indexOf(o);
       if (act === 'del') { overlays.splice(i, 1); sel = ''; }
       else if (act === 'up' && i < overlays.length - 1) { overlays[i] = overlays[i + 1]; overlays[i + 1] = o; }
       else if (act === 'down' && i > 0) { overlays[i] = overlays[i - 1]; overlays[i - 1] = o; }
-      else if (act === 'center') { o.x = 0.5; o.y = 0.5; }
+      else if (act === 'center') { if (o.fit) setFit(o, ''); o.x = 0.5; o.y = 0.5; }
       else if (act === 'dup') { var c = {}; Object.keys(o).forEach(function (k) { if (k.charAt(0) !== '_' || k === '_img') c[k] = o[k]; }); c.id = YB.uid(); c.y = clamp((o.y || 0.5) + 0.06, 0, 1); overlays.push(c); sel = c.id; }
       else if (act === 'now') { o.start = Math.round(pv.t * 10) / 10; if (o.end != null && o.end <= o.start) o.end = null; }
       else if (act === 'nowend') { o.end = Math.max((o.start || 0) + 0.1, Math.round(pv.t * 10) / 10); }
@@ -1382,7 +1450,7 @@
   // for the timeline, effects and stickers (js/formatter-pro.js)
   window.YBFmt = {
     clips: function () { return clips; }, overlays: function () { return overlays; }, S: S, pv: pv, url: blobUrl,
-    undo: function () { return goHist(-1); }, redo: function () { return goHist(1); }, histUi: histUi, canUndo: function () { return hIdx > 0; }, canRedo: function () { return hIdx < hist.length - 1; },
+    setFit: function (o, f) { setFit(o, f); }, undo: function () { return goHist(-1); }, redo: function () { return goHist(1); }, histUi: histUi, canUndo: function () { return hIdx > 0; }, canRedo: function () { return hIdx < hist.length - 1; },
     timeline: timeline, clipAt: clipAt, clipLen: clipLen, dims: dims,
     sel: function (v) { if (v !== undefined) sel = v; return sel; },
     mix: mixAudio, music: function () { return music; },
@@ -1420,8 +1488,9 @@
       stopPreview();
       var len = clipLen(c);
       clips.splice(i, 1); if (c._el) { c._el.pause(); c._el.remove(); }
-      var total = timeline().total, st = Math.round(clamp(start == null ? 0 : start, 0, Math.max(0, total - Math.min(len, total))) * 10) / 10;
-      var o = { type: 'video', blobId: c.blobId, name: c.name, label: 'Clip ' + (i + 1), dur: c.dur, in: c.in, vol: c.mute ? 0 : (c.vol == null ? 1 : c.vol), speed: sp(c), w: under ? 1 : 0.5, x: 0.5, y: 0.5, shape: under ? 'square' : 'rounded', opacity: 1, anim: 'none', under: !!under, start: st, end: Math.round(Math.min(total, st + len) * 10) / 10 };
+      var total = timeline().total, st = Math.round(Math.max(0, start == null ? 0 : start) * 10) / 10;
+      var o = { type: 'video', blobId: c.blobId, name: c.name, label: 'Clip ' + (i + 1), dur: c.dur, in: c.in, vol: c.mute ? 0 : (c.vol == null ? 1 : c.vol), speed: sp(c), w: under ? 1 : 0.5, x: 0.5, y: 0.5, shape: under ? 'square' : 'rounded', opacity: 1, anim: 'none', under: !!under, start: st, end: Math.round((st + len) * 10) / 10 };
+      if (under) o.fit = 'full';   // under the main video it fills the frame behind it
       return window.YBFmt.addOverlay(o).then(function () { renderAll(); seekTo(Math.min(pv.t, timeline().total)); return true; });
     },
     addVideoLayer: function (file) {

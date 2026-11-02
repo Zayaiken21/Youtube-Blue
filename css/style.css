@@ -1532,3 +1532,9 @@ video.fm-thumb { pointer-events: none; background: #000; }
 .fm-tl-inner { touch-action: pan-x pan-y; }
 .fm-tclip.lifted, .fm-tlayer.lifted { transform: scale(1.04); box-shadow: 0 8px 20px rgba(0,0,0,.55); z-index: 6; }
 .fm-fillhint { margin: 8px 0 0; padding: 8px 10px; border-radius: 10px; font-size: .84rem; background: rgba(251,191,36,.1); border: 1px solid rgba(251,191,36,.35); color: var(--text); }
+
+/* layer size: Full screen / Same size / Free */
+.fm-fitrow { grid-column: 1 / -1; }
+.fm-fitseg { display: flex; flex-wrap: wrap; gap: 6px; }
+.fm-fitseg button { flex: 1 1 30%; min-height: 40px; }
+.fm-tool.on { border-color: var(--primary-2); box-shadow: inset 0 0 0 1px var(--primary-2); }
