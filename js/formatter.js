@@ -89,6 +89,11 @@
   }
   try { if (navigator.storage && navigator.storage.persist) navigator.storage.persist(); } catch (e) { /* not supported */ }
   function getBlob(id) { return kv('readonly', function (st, out) { var r = st.get('blob:' + id); r.onsuccess = function () { out.v = r.result; }; }); }
+  function clearIfEmpty() {
+    if (clips.length) return false;
+    overlays.forEach(function (o) { if (o._v) o._v.pause(); if (o._a) o._a.pause(); if (o.blobId) binBlob(o.blobId); });
+    overlays.length = 0; sel = ''; return true;
+  }
   function delBlob(id) { return kv('readwrite', function (st) { st.delete('blob:' + id); }); }
   var binned = {};
   function binBlob(id) { binned[id] = 1; }   // removed clip / layer: deleted only when the page closes and nothing uses it
@@ -141,6 +146,7 @@
   function histUi() {
     var u = $('tlUndo'), r = $('tlRedo');
     if (u) u.disabled = !(hIdx > 0); if (r) r.disabled = !(hIdx < hist.length - 1);
+    var eu = $('emptyUndo'); if (eu) eu.hidden = !(hIdx > 0 && !clips.length);
   }
   document.addEventListener('keydown', function (e) {
     if (!(e.ctrlKey || e.metaKey) || e.target.closest('input,textarea,select,[contenteditable]')) return;
@@ -154,7 +160,7 @@
     if (!unsaved) return;
     unsaved = false;
     var data = {
-      clips: clips.map(function (c) { return { id: c.id, name: c.name, size: c.size, blobId: c.blobId, dur: c.dur, vw: c.vw, vh: c.vh, in: c.in, out: c.out, vol: c.vol, mute: c.mute, zoom: c.zoom, ox: c.ox, oy: c.oy, audio: c.audio, fx: c.fx || [], speed: c.speed || 1 }; }),
+      clips: clips.map(function (c) { return { id: c.id, name: c.name, size: c.size, blobId: c.blobId, dur: c.dur, vw: c.vw, vh: c.vh, in: c.in, out: c.out, vol: c.vol, mute: c.mute, zoom: c.zoom, ox: c.ox, oy: c.oy, audio: c.audio, fx: c.fx || [], speed: c.speed || 1, grp: c.grp || undefined }; }),
       overlays: overlays.map(function (o) { var x = {}; Object.keys(o).forEach(function (k) { if (k.charAt(0) !== '_') x[k] = o[k]; }); return x; }),
       music: music ? { blobId: music.blobId, name: music.name } : null,
       bgImage: bgImage ? { blobId: bgImage.blobId } : null
@@ -1295,6 +1301,7 @@
         var gone = clips.splice(i, 1)[0];
         if (gone._el) { gone._el.pause(); gone._el.remove(); }
         binBlob(gone.blobId);
+        if (clearIfEmpty()) YB.toast('Video removed — its layers were cleared too (Undo brings them back)');
       } else if (e.target.closest('[data-reset]')) { clips[i].zoom = 1; clips[i].ox = 0; clips[i].oy = 0; }
       else if (!e.target.closest('input,label,button')) { stopPreview(); seekTo(timeline().starts[i] + 0.01); return; }
       else return;
@@ -1448,6 +1455,12 @@
   window.YBFmt = {
     clips: function () { return clips; }, overlays: function () { return overlays; }, S: S, pv: pv, url: blobUrl,
     setFit: function (o, f) { setFit(o, f); },
+    removeClips: function (ids) {   // several at once (a merged group or a multi-selection)
+      ids.forEach(function (id) { var i = clips.findIndex(function (c) { return c.id === id; }); if (i < 0) return; var g = clips.splice(i, 1)[0]; if (g._el) { g._el.pause(); g._el.remove(); } binBlob(g.blobId); });
+      if (clearIfEmpty()) YB.toast('Video removed — its layers were cleared too (Undo brings them back)');
+      saveProject(); renderAll(); seekTo(Math.min(pv.t, timeline().total));
+    },
+    setClips: function (list) { clips.length = 0; Array.prototype.push.apply(clips, list); saveProject(); renderAll(); seekTo(Math.min(pv.t, timeline().total)); },
     layerToClip: function (o, at) {   // a video layer dropped on the main video becomes a clip there again
       if (!o || o.type !== 'video' || !blobs[o.blobId]) return false;
       var sp0 = +o.speed || 1, tl = timeline(), len = Math.max(0.2, (o.end == null ? tl.total : o.end) - (o.start || 0)), inn = o.in || 0;
@@ -1466,7 +1479,7 @@
     save: saveProject, saveSettings: saveSettings, renderAll: renderAll, renderOverlays: renderOverlays, renderClips: renderClips, renderFacts: renderFacts, draw: drawPreview,
     seek: function (t) { stopPreview(); seekTo(clamp(t, 0, timeline().total)); }, stop: stopPreview,
     addOverlay: function (o) { o.id = YB.uid(); if (o.start == null) o.start = 0; if (o.end === undefined) o.end = null; return loadOvImage(o).then(function () { overlays.push(o); sel = o.id; saveProject(); renderOverlays(); renderSteps(); renderFacts(); drawPreview(); }); },
-    removeClip: function (i) { var gone = clips.splice(i, 1)[0]; if (!gone) return; if (gone._el) { gone._el.pause(); gone._el.remove(); } binBlob(gone.blobId); saveProject(); renderAll(); seekTo(Math.min(pv.t, timeline().total)); },
+    removeClip: function (i) { var gone = clips.splice(i, 1)[0]; if (!gone) return; if (gone._el) { gone._el.pause(); gone._el.remove(); } binBlob(gone.blobId); if (clearIfEmpty()) YB.toast('Video removed — its layers were cleared too (Undo brings them back)'); saveProject(); renderAll(); seekTo(Math.min(pv.t, timeline().total)); },
     // a small live picture for the floating preview: the frame at the playhead with its effects moving
     drawAt: function (cv, loopT) {
       if (!clips.length) return;
@@ -1521,5 +1534,6 @@
     seek: function (t) { seekTo(t); }
   };
   wire();
+  (function () { var eu = document.getElementById('emptyUndo'); if (eu) eu.addEventListener('click', function () { var r = goHist(-1); if (r && r.then) r.then(function () { YB.toast('Undone'); }); }); })();
   var restoring = restore().then(function () { renderAll(); seekTo(0); histReset(); }, function () { /* nothing saved */ });
 })();

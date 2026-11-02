@@ -15,15 +15,15 @@
   <meta name="mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
   <meta name="apple-mobile-web-app-title" content="YT Blue">
-  <link rel="stylesheet" href="css/style.css?v=60">
+  <link rel="stylesheet" href="css/style.css?v=61">
   <script src="js/core.js" defer></script>
   <script src="js/vendor/mp4-muxer.min.js" defer></script>
   <script src="js/fullscreen.js?v=1" defer></script>
   <script src="js/fx-float.js?v=1" defer></script>
   <script src="js/showcase-fold.js?v=2" defer></script>
   <script src="js/showcase-fx.js?v=5" defer></script>
-  <script src="js/formatter.js?v=20" defer></script>
-  <script src="js/formatter-pro.js?v=18" defer></script>
+  <script src="js/formatter.js?v=22" defer></script>
+  <script src="js/formatter-pro.js?v=19" defer></script>
 </head>
 <body data-page="formatter">
   <header class="topbar">
@@ -71,6 +71,7 @@
             <span class="muted small">or drop them here · MP4, MOV, WebM and more · they play in the order shown</span>
           </label>
           <p class="notice warn" id="importNote" hidden></p>
+          <button type="button" class="fm-histbtn fm-emptyundo" id="emptyUndo" hidden><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 14 4 9l5-5"/><path d="M4 9h10.5a5.5 5.5 0 0 1 0 11H11"/></svg><span>Undo — bring back what you deleted</span></button>
           <ol class="fm-clips" id="clipList" aria-label="Clips"></ol>
         </section>
 
@@ -194,6 +195,8 @@
             </span>
             <button type="button" class="fm-tool" id="tlMute"><i>🔇</i><span>Mute</span></button>
             <button type="button" class="fm-tool" id="tlSpeed"><i>⏩</i><span>Speed</span></button>
+            <button type="button" class="fm-tool fm-tool-merge" id="tlMerge" hidden><i>🔗</i><span>Merge</span></button>
+            <button type="button" class="fm-tool" id="tlUnmerge" hidden><i>⛓️‍💥</i><span>Unmerge</span></button>
             <button type="button" class="fm-tool" id="tlDup"><i>⧉</i><span>Duplicate</span></button>
             <button type="button" class="fm-tool" id="tlDel"><i>🗑️</i><span>Delete</span></button>
             <button type="button" class="fm-tool" id="moveVideoBtn" aria-pressed="false"><i>🖐</i><span>Move video</span></button>
@@ -203,6 +206,7 @@
             <button type="button" class="fm-tool" id="tlZoomIn" aria-label="Zoom in the timeline"><i>➕</i><span>Zoom in</span></button>
             <button type="button" id="splitBtn" hidden></button><button type="button" id="setInBtn" hidden></button><button type="button" id="setOutBtn" hidden></button>
           </div>
+          <p class="fm-target small" id="fmSelHint" hidden></p>
           <p class="fm-target small" id="fmTarget" hidden></p>
           <div class="fm-speedrow" id="fmSpeedRow" hidden></div>
           <div class="fm-tl-scroll" id="tlScroll"><div class="fm-tl-inner" id="tlInner"></div></div>

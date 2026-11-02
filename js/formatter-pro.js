@@ -125,7 +125,33 @@
   }
 
   /* ---------- Timeline ---------- */
-  var pps = 0, zoomK = 1, drag = null, selClip = -1;
+  var pps = 0, zoomK = 1, drag = null, selClips = [];
+  function groupOf(F, i) {   // the clips that move together with clip i (a merged group, or just itself)
+    var cl = F.clips(), c = cl[i]; if (!c) return [];
+    if (!c.grp) return [i];
+    var a = i, b = i; while (a > 0 && cl[a - 1].grp === c.grp) a--; while (b < cl.length - 1 && cl[b + 1].grp === c.grp) b++;
+    var r = []; for (var k = a; k <= b; k++) r.push(k); return r;
+  }
+  function toggleClip(F, i) {   // tap: select; tap again: unselect; tap others: add them too
+    var ids = groupOf(F, i).map(function (k) { return F.clips()[k].id; }), on = ids.every(function (id) { return selClips.indexOf(id) >= 0; });
+    if (on) selClips = selClips.filter(function (id) { return ids.indexOf(id) < 0; }); else ids.forEach(function (id) { if (selClips.indexOf(id) < 0) selClips.push(id); });
+    if (F.sel()) { F.sel(''); F.renderOverlays(); F.draw(); }
+    render();
+  }
+  function mergeSel() {
+    var F = YBFmt, cl = F.clips(), idx = cl.map(function (c, i) { return selClips.indexOf(c.id) >= 0 ? i : -1; }).filter(function (i) { return i >= 0; });
+    if (idx.length < 2) { YB.toast('Tap two or more clips to merge them'); return; }
+    var picked = idx.map(function (i) { return cl[i]; }), rest = cl.filter(function (c) { return selClips.indexOf(c.id) < 0; }), at = idx[0];
+    var g = YB.uid(); picked.forEach(function (c) { c.grp = g; });
+    var before = cl.slice(0, at).filter(function (c) { return selClips.indexOf(c.id) < 0; });
+    F.setClips(before.concat(picked, rest.slice(before.length)));
+    selClips = picked.map(function (c) { return c.id; }); render();
+    YB.toast('Merged ' + picked.length + ' clips into one video');
+  }
+  function unmergeSel() {
+    var F = YBFmt, n = 0; F.clips().forEach(function (c) { if (c.grp && selClips.indexOf(c.id) >= 0) { delete c.grp; n++; } });
+    if (n) { F.save(); render(); YB.toast('Split back into ' + n + ' clips'); }
+  }
   function render() {
     if (window.YBFmt && adoptNew()) { YBFmt.renderOverlays(); return; }
     if (window.YBFmt && YBFmt.clips().length && currentSig() !== beatSig) analyseSoon();
@@ -141,8 +167,9 @@
     var vids = cl.map(function (c, i) {
       var w = Math.max(6, F.clipLen(c) * pps - 2), nfx = (c.fx || []).length;
       var spd = F.sp(c), bg = '';
-      return '<div class="fm-tclip' + (i === cur ? ' on' : '') + (i === selClip && !sel ? ' sel' : '') + '" data-tclip="' + i + '" style="left:' + (tl.starts[i] * pps) + 'px;width:' + w + 'px' + bg + '">' +
-        '<b class="fm-tv" data-vk="c' + c.id + '"></b><i class="fm-th fm-th-l" data-cedge="l" title="Drag to trim the start"></i><span>' + (i + 1) + (c.mute ? ' 🔇' : '') + (spd !== 1 ? ' ⏩' + spd + '×' : '') + (nfx ? ' ✨' + nfx : '') + ' · ' + F.clipLen(c).toFixed(1) + ' of ' + (c.dur || 0).toFixed(1) + ' s</span><i class="fm-th fm-th-r" data-cedge="r" title="Drag to trim the end"></i></div>';
+      var gp = c.grp, gl = gp && cl[i - 1] && cl[i - 1].grp === gp, gr = gp && cl[i + 1] && cl[i + 1].grp === gp, gn = gp ? cl.filter(function (q) { return q.grp === gp; }).length : 0;
+      return '<div class="fm-tclip' + (i === cur ? ' on' : '') + (selClips.indexOf(c.id) >= 0 && !sel ? ' sel' : '') + (gp ? ' grp' : '') + (gl ? ' grp-l' : '') + (gr ? ' grp-r' : '') + '" data-tclip="' + i + '" style="left:' + (tl.starts[i] * pps) + 'px;width:' + w + 'px' + bg + '">' +
+        '<b class="fm-tv" data-vk="c' + c.id + '"></b>' + (gp && !gl ? '<em class="fm-grptag">🔗 Merged · ' + gn + ' clips</em>' : '') + '<i class="fm-th fm-th-l" data-cedge="l" title="Drag to trim the start"></i><span>' + (i + 1) + (c.mute ? ' 🔇' : '') + (spd !== 1 ? ' ⏩' + spd + '×' : '') + (nfx ? ' ✨' + nfx : '') + ' · ' + F.clipLen(c).toFixed(1) + ' of ' + (c.dur || 0).toFixed(1) + ' s</span><i class="fm-th fm-th-r" data-cedge="r" title="Drag to trim the end"></i></div>';
     }).join('');
     function bar(o) {
       var st = o.type === 'progress' ? 0 : (o.start || 0), en = o.type === 'progress' || o.end == null ? total : Math.min(o.end, total);
@@ -254,24 +281,24 @@
       }
       if (lay) {
         var o = F.overlays().find(function (k) { return k.id === lay.getAttribute('data-tov'); }); if (!o) return;
-        targetTrack = o.track && trackById(o.track) ? o.track : ''; selClip = -1;
+        targetTrack = o.track && trackById(o.track) ? o.track : ''; selClips = [];
+        var wasSel = F.sel() === o.id;
         F.sel(o.id); F.renderOverlays(); F.draw();
         if (o.type === 'progress') return;
         var total = F.timeline().total, edge = e.target.getAttribute('data-edge');
-        drag = { y0: e.clientY, o: o, edge: edge, x0: e.clientX, st: o.start || 0, en: o.end == null ? total : o.end, total: total, main: F.timeline().main, moved: false, el: inner.querySelector('[data-tov="' + o.id + '"]') || e.target.closest('[data-tov]'), in0: o.in || 0 };
+        drag = { y0: e.clientY, o: o, edge: edge, x0: e.clientX, st: o.start || 0, en: o.end == null ? total : o.end, total: total, main: F.timeline().main, moved: false, el: inner.querySelector('[data-tov="' + o.id + '"]') || e.target.closest('[data-tov]'), in0: o.in || 0, wasSel: wasSel };
         holdFirst(e); inner.setPointerCapture(e.pointerId); e.preventDefault(); return;
       }
       var tc = e.target.closest('[data-tclip]');
       if (tc) {
         var ci = +tc.getAttribute('data-tclip'), cc = F.clips()[ci], ce = e.target.getAttribute('data-cedge');
-        targetTrack = ''; selClip = ci;
-        inner.querySelectorAll('.fm-tclip.sel, .fm-tlayer.on').forEach(function (k) { k.classList.remove('sel', 'on'); }); tc.classList.add('sel');
-        if (F.sel()) { F.sel(''); F.renderOverlays(); F.draw(); }
+        targetTrack = '';
         drag = ce ? { clip: ci, edge: ce, x0: e.clientX, in0: cc.in, out0: cc.out } : { reorder: ci, x0: e.clientX, y0: e.clientY, moved: false, el: inner.querySelector('[data-tclip="' + ci + '"]') || tc, t: timeAt(e), st: F.timeline().starts[ci] };
         holdFirst(e); inner.setPointerCapture(e.pointerId); e.preventDefault(); return;
       }
       if (e.target.closest('[data-seek]') || e.target === inner) {
         if (e.pointerType === 'touch') { drag = { pan: null, x0: e.clientX, y0: e.clientY, sl0: $('tlScroll').scrollLeft, wy0: window.scrollY, tap: timeAt(e) }; inner.setPointerCapture(e.pointerId); e.preventDefault(); return; }
+        if (selClips.length) { selClips = []; render(); }
         F.seek(timeAt(e)); drag = { seek: true }; inner.setPointerCapture(e.pointerId);
       }
     });
@@ -343,12 +370,18 @@
       if (!drag) return; var was = drag, F = YBFmt; drag = null;
       clearTimeout(holdT); clearDrop();
       document.querySelectorAll('.lifted').forEach(function (k) { k.classList.remove('lifted'); });
-      if (was.tap != null) { if (!was.pan && e.type !== 'pointercancel') F.seek(was.tap); return; }
-      if (was.hold) { if (!was.pan && e.type !== 'pointercancel' && was.hold.reorder != null) F.seek(was.hold.t); return; }
+      if (was.tap != null) { if (!was.pan && e.type !== 'pointercancel') { if (selClips.length) { selClips = []; render(); } F.seek(was.tap); } return; }
+      if (was.hold) {
+        if (!was.pan && e.type !== 'pointercancel') {
+          if (was.hold.reorder != null) { toggleClip(F, was.hold.reorder); F.seek(was.hold.t); }
+          else if (was.hold.o && was.hold.wasSel) { F.sel(''); targetTrack = ''; F.renderOverlays(); F.draw(); render(); }
+        }
+        return;
+      }
       if (was.o && was.moved && was.vert && was.tg && !was.tg.el.contains(was.el)) {
         var tg = was.tg, ov = F.overlays(), o = was.o;
         if (tg.kind === 'main') {
-          if (o.type === 'video') { var at = timeAt(e); targetTrack = ''; if (F.layerToClip(o, at) !== false) { selClip = -1; YB.toast('Back in the main video'); } return; }
+          if (o.type === 'video') { var at = timeAt(e); targetTrack = ''; if (F.layerToClip(o, at) !== false) { selClips = []; YB.toast('Back in the main video'); } return; }
           YB.toast('Only video can go in the main video — photos, text and sound stay on layers');
         }
         else if (tg.kind === 'track') { var tr = trackById(tg.track); if (tr && tr.id !== o.track) { placeOnTrack(o, tr); targetTrack = tr.id; YB.toast('Moved onto ' + (tr.name || 'the layer')); } }
@@ -358,10 +391,11 @@
           targetTrack = ''; YB.toast(tg.kind === 'top' ? 'Now its own layer on top' : 'Now its own layer under the main video');
         }
       }
+      if (was.o && !was.moved && was.wasSel && !was.edge) { F.sel(''); targetTrack = ''; F.renderOverlays(); F.draw(); render(); return; }   // tapped again: unselect
       if (was.o && was.moved) { F.save(); F.renderOverlays(); }
       if (was.clip != null && was.moved) { F.save(); F.renderAll(); }
       if (was.reorder != null) {
-        if (!was.moved) { F.seek(was.t); return; }
+        if (!was.moved) { toggleClip(F, was.reorder); F.seek(was.t); return; }
         var tg2 = was.vert ? was.tg : null;
         if (tg2 && tg2.kind !== 'main') {   // off the main video: it becomes a layer where it was dropped
           var st0 = snapT(Math.max(0, was.st + (e.clientX - was.x0) / pps)), under;
@@ -374,6 +408,12 @@
         var t = timeAt(e), tl = F.timeline(), cl = F.clips(), to = 0;
         for (var i = 0; i < cl.length; i++) if (t > tl.starts[i] + F.clipLen(cl[i]) / 2) to = i + (i >= was.reorder ? 0 : 1);
         to = clamp(to, 0, cl.length - 1);
+        var grpI = groupOf(F, was.reorder);
+        if (grpI.length > 1) {
+          var all = cl.slice(), part = grpI.map(function (k) { return all[k]; }), others = all.filter(function (c, k) { return grpI.indexOf(k) < 0; });
+          var tgt = 0; for (var q = 0; q < others.length; q++) if (t > F.timeline().starts[all.indexOf(others[q])] + F.clipLen(others[q]) / 2) tgt = q + 1;
+          F.setClips(others.slice(0, tgt).concat(part, others.slice(tgt))); YB.toast('Merged video moved'); return;
+        }
         if (to !== was.reorder) { F.moveClip(was.reorder, to); YB.toast('Clip moved'); } else render();
       }
     }
@@ -384,7 +424,11 @@
       var F = YBFmt, cl = F.clips(); if (!cl.length) return;
       var sel = F.sel(), o = sel && F.overlays().find(function (k) { return k.id === sel; });
       if (o) { if (!confirm('Delete this layer?')) return; var ov = F.overlays(); ov.splice(ov.indexOf(o), 1); F.sel(''); F.save(); F.renderOverlays(); F.renderFacts(); F.draw(); return; }
-      var i = F.clipAt(F.pv.t); if (!confirm('Delete clip ' + (i + 1) + '?')) return; F.stop(); F.removeClip(i);
+      var ids = selClips.slice();
+      if (!ids.length) ids = groupOf(F, F.clipAt(F.pv.t)).map(function (k) { return cl[k].id; });
+      var last = ids.length >= cl.length;
+      if (!confirm((ids.length > 1 ? 'Delete these ' + ids.length + ' clips?' : 'Delete this clip?') + (last ? ' Its layers will be cleared too.' : ''))) return;
+      F.stop(); selClips = []; F.removeClips(ids);
     });
     $('tlZoomIn').addEventListener('click', function () { zoomK = Math.min(16, zoomK * 1.6); render(); });
     $('tlZoomOut').addEventListener('click', function () { zoomK = Math.max(1, zoomK / 1.6); render(); });
@@ -436,6 +480,8 @@
     });
     $('tlAudioFile').addEventListener('change', function () { var f = this.files[0]; this.value = ''; if (!f || !once(f)) return; if (!YBFmt.clips().length) { YB.toast('Add your main video first'); return; } YB.toast('Adding sound…'); YBFmt.addAudioLayer(f).then(function () { YB.toast('Sound added on its own row — swipe its ends to trim, tap it for volume'); }, function () { YB.toast('This browser can\'t play that sound file'); }); });
     $('tlNewTrack').addEventListener('click', newTrack);
+    $('tlMerge').addEventListener('click', mergeSel);
+    $('tlUnmerge').addEventListener('click', unmergeSel);
     $('tlUndo').addEventListener('click', function () { var r = YBFmt.undo(); if (r && r.then) r.then(function () { YB.toast('Undone'); }); });
     $('tlRedo').addEventListener('click', function () { var r = YBFmt.redo(); if (r && r.then) r.then(function () { YB.toast('Redone'); }); });
     YBFmt.histUi();
@@ -517,6 +563,11 @@
     if (hint) { hint.hidden = !tt; if (tt) hint.textContent = 'Adding to ' + (tt.name || 'Layer') + ' — tap the main video to stop'; }
     g.hidden = !o || o.type === 'progress';
     if (window._fmRenderSpeed) window._fmRenderSpeed();
+    var Fm = YBFmt, ms = Fm.clips().filter(function (c) { return selClips.indexOf(c.id) >= 0; });
+    $('tlMerge').hidden = ms.length < 2 || (ms.every(function (c) { return c.grp && c.grp === ms[0].grp; }));
+    $('tlMerge').querySelector('span').textContent = 'Merge ' + ms.length;
+    $('tlUnmerge').hidden = !ms.some(function (c) { return c.grp; });
+    var hint2 = $('fmSelHint'); if (hint2) { hint2.hidden = ms.length < 1 || !!o; hint2.textContent = ms.length > 1 ? ms.length + ' clips selected — 🔗 Merge joins them into one video · tap one again to unselect' : '1 clip selected — tap more clips to merge them · tap it again to unselect'; }
     var pic = o && (o.type === 'video' || o.type === 'image');
     $('lySize').hidden = !pic;
     if (pic) { $('lySizeSel').value = o.fit || ''; $('lySize').querySelector('span').textContent = o.fit === 'full' ? 'Full screen' : o.fit === 'match' ? 'Same size' : 'Size'; }
