@@ -127,6 +127,7 @@
   /* ---------- Timeline ---------- */
   var pps = 0, zoomK = 1, drag = null;
   function render() {
+    if (window.YBFmt && adoptNew()) { YBFmt.renderOverlays(); return; }
     if (window.YBFmt && YBFmt.clips().length && currentSig() !== beatSig) analyseSoon();
     var box = $('tlInner'), sc = $('tlScroll'); if (!box || !window.YBFmt) return;
     var F = YBFmt, tl = F.timeline(), total = tl.total, cl = F.clips(), ov = F.overlays(), sel = F.sel();
@@ -142,15 +143,23 @@
       return '<div class="fm-tclip' + (i === cur ? ' on' : '') + '" data-tclip="' + i + '" style="left:' + (tl.starts[i] * pps) + 'px;width:' + w + 'px' + bg + '">' +
         '<i class="fm-th fm-th-l" data-cedge="l" title="Drag to trim the start"></i><span>' + (i + 1) + (c.mute ? ' 🔇' : '') + (spd !== 1 ? ' ⏩' + spd + '×' : '') + (nfx ? ' ✨' + nfx : '') + ' · ' + F.clipLen(c).toFixed(1) + ' of ' + (c.dur || 0).toFixed(1) + ' s</span><i class="fm-th fm-th-r" data-cedge="r" title="Drag to trim the end"></i></div>';
     }).join('');
-    function row(o) {
+    function bar(o) {
       var st = o.type === 'progress' ? 0 : (o.start || 0), en = o.type === 'progress' || o.end == null ? total : Math.min(o.end, total);
-      var name = o.type === 'audio' ? '🎵 ' + (o.name || 'Audio') : o.type === 'video' ? '🎬 ' + (o.name || 'Video layer') : o.type === 'image' ? (o.sticker ? (STICKERS[o.sticker] || [''])[0] : '🖼️ Photo') : o.type === 'progress' ? '▬ Progress bar' : o.type === 'cta' ? '🔔 ' + (o.text || 'Button') : (o.kind === 'emoji' ? o.text : '🅣 ' + (o.text || 'Text'));
-      var bg = '';
+      var name = o.type === 'audio' ? '🎵 ' + (o.label || 'Sound') : o.type === 'video' ? '🎬 ' + (o.label || 'Video') : o.type === 'image' ? (o.sticker ? (STICKERS[o.sticker] || [''])[0] : '🖼️ Photo') : o.type === 'progress' ? '▬ Progress bar' : o.type === 'cta' ? '🔔 ' + (o.text || 'Button') : (o.kind === 'emoji' ? o.text : '🅣 ' + (o.text || 'Text'));
       var tags = (o.mute ? '🔇 ' : '') + ((+o.speed || 1) !== 1 ? '⏩' + o.speed + '× ' : '');
-      return '<div class="fm-trow' + (o.type === 'video' ? ' fm-vlayer' : o.type === 'image' ? ' fm-plater' : o.type === 'audio' ? ' fm-alayer' : '') + '"><div class="fm-tlayer' + (o.id === sel ? ' on' : '') + (o.type === 'progress' ? ' fixed' : '') + (o.hidden ? ' off' : '') + (bg ? ' pic' : '') + '" data-tov="' + o.id + '" style="left:' + (st * pps) + 'px;width:' + Math.max(14, (en - st) * pps - 2) + 'px' + bg + '">' +
-        (o.type === 'progress' ? '' : '<i class="fm-th fm-th-l" data-edge="l"></i>') + '<span>' + (o.hidden ? '🚫 ' : '') + tags + esc(name) + '</span>' + (o.type === 'progress' ? '' : '<i class="fm-th fm-th-r" data-edge="r"></i>') + '</div></div>';
+      var kind = o.type === 'video' ? ' k-video' : o.type === 'image' ? ' k-photo' : o.type === 'audio' ? ' k-audio' : '';
+      return '<div class="fm-tlayer' + kind + (o.id === sel ? ' on' : '') + (o.type === 'progress' ? ' fixed' : '') + (o.hidden ? ' off' : '') + '" data-tov="' + o.id + '" style="left:' + (st * pps) + 'px;width:' + Math.max(14, (en - st) * pps - 2) + 'px">' +
+        (o.type === 'progress' ? '' : '<i class="fm-th fm-th-l" data-edge="l"></i>') + '<span>' + (o.hidden ? '🚫 ' : '') + tags + esc(name) + '</span>' + (o.type === 'progress' ? '' : '<i class="fm-th fm-th-r" data-edge="r"></i>') + '</div>';
     }
-    var pics = ov.filter(function (o) { return o.type !== 'audio'; }), over = pics.filter(function (o) { return !o.under; }).reverse().map(row).join(''), under = pics.filter(function (o) { return o.under; }).reverse().map(row).join(''), audio = ov.filter(function (o) { return o.type === 'audio'; }).map(row).join('');
+    function unitRow(u) {
+      if (u.type !== 'track') return '<div class="fm-trow' + (u.type === 'video' ? ' fm-vlayer' : u.type === 'image' ? ' fm-plater' : u.type === 'audio' ? ' fm-alayer' : '') + '">' + bar(u) + '</div>';
+      var items = itemsOf(u), on = u.id === sel || u.id === targetTrack;
+      return '<div class="fm-trow fm-track' + (on ? ' on' : '') + (u.hidden ? ' off' : '') + '" data-track="' + u.id + '"><span class="fm-trackname">' + (u.hidden ? '🚫 ' : '') + esc(u.name || 'Layer') +
+        (items.length ? '' : ' · empty — tap here, then add a video, photo, sound or text') + '</span>' + items.map(bar).join('') + '</div>';
+    }
+    var units = ov.filter(function (o) { return o.type === 'track' || !trackOf(o); });
+    var sound = units.filter(function (u) { return u.type === 'audio'; }), pics = units.filter(function (u) { return u.type !== 'audio'; });
+    var over = pics.filter(function (u) { return !u.under; }).reverse().map(unitRow).join(''), under = pics.filter(function (u) { return u.under; }).reverse().map(unitRow).join(''), audio = sound.map(unitRow).join('');
     box.style.width = W + 'px';
     box.innerHTML = '<div class="fm-ruler" data-seek>' + ruler + '</div>' + (over ? '<div class="fm-tlabel">Layers on top (top row = in front)</div>' + over : '') +
       '<div class="fm-tlabel">Main video</div><div class="fm-trow fm-vrow" data-seek>' + vids + '</div>' +
@@ -176,19 +185,26 @@
     inner.addEventListener('pointerdown', function (e) {
       var F = YBFmt;
       var lay = e.target.closest('[data-tov]');
+      if (!lay && e.target.closest('[data-track]')) {   // a blank layer row: choose it as the place new things go
+        var tr = trackById(e.target.closest('[data-track]').getAttribute('data-track'));
+        if (tr) { targetTrack = tr.id; F.sel(tr.id); F.renderOverlays(); F.seek(timeAt(e)); YB.toast('Adding to ' + (tr.name || 'this layer') + ' — now add a video, photo, sound or text'); }
+        return;
+      }
       if (lay) {
         var o = F.overlays().find(function (k) { return k.id === lay.getAttribute('data-tov'); }); if (!o) return;
+        targetTrack = o.track && trackById(o.track) ? o.track : '';
         F.sel(o.id); F.renderOverlays(); F.draw();
         if (o.type === 'progress') return;
         var total = F.timeline().total, edge = e.target.getAttribute('data-edge');
-        drag = { o: o, edge: edge, x0: e.clientX, st: o.start || 0, en: o.end == null ? total : o.end, total: total, moved: false, el: e.target.closest('[data-tov]'), in0: o.in || 0 };
+        drag = { y0: e.clientY, o: o, edge: edge, x0: e.clientX, st: o.start || 0, en: o.end == null ? total : o.end, total: total, moved: false, el: inner.querySelector('[data-tov="' + o.id + '"]') || e.target.closest('[data-tov]'), in0: o.in || 0 };
         inner.setPointerCapture(e.pointerId); e.preventDefault(); return;
       }
       var tc = e.target.closest('[data-tclip]');
       if (tc) {
         var ci = +tc.getAttribute('data-tclip'), cc = F.clips()[ci], ce = e.target.getAttribute('data-cedge');
+        targetTrack = '';
         if (F.sel()) { F.sel(''); F.renderOverlays(); F.draw(); }
-        drag = ce ? { clip: ci, edge: ce, x0: e.clientX, in0: cc.in, out0: cc.out } : { reorder: ci, x0: e.clientX, y0: e.clientY, moved: false, el: tc, t: timeAt(e), st: F.timeline().starts[ci] };
+        drag = ce ? { clip: ci, edge: ce, x0: e.clientX, in0: cc.in, out0: cc.out } : { reorder: ci, x0: e.clientX, y0: e.clientY, moved: false, el: inner.querySelector('[data-tclip="' + ci + '"]') || tc, t: timeAt(e), st: F.timeline().starts[ci] };
         inner.setPointerCapture(e.pointerId); e.preventDefault(); return;
       }
       if (e.target.closest('[data-seek]') || e.target === inner) { F.seek(timeAt(e)); drag = { seek: true }; inner.setPointerCapture(e.pointerId); }
@@ -206,31 +222,57 @@
       if (drag.reorder != null) {   // drag a clip along the track to put it somewhere else
         var dx = e.clientX - drag.x0, dy = e.clientY - drag.y0; if (Math.abs(dx) > 6 || Math.abs(dy) > 6) drag.moved = true;
         if (drag.moved) {
-          drag.el.style.transform = 'translate(' + dx + 'px,' + dy + 'px)'; drag.el.style.zIndex = 5; drag.el.classList.add('dragging');
-          var off = Math.abs(dy) > 38; drag.el.classList.toggle('to-layer', off);
-          drag.el.setAttribute('data-hint', off ? (dy > 0 ? '⬇ Drop to make a layer under the video' : '⬆ Drop to make a layer on top') : '');
+          drag.el.classList.add('dragging'); drag.el.style.zIndex = 5;
+          if (Math.abs(dy) > 20 || drag.vert) { drag.vert = true; showZones(); }
+          var tg = drag.vert ? targetAt(e.clientY) : null; drag.tg = tg;
+          if (tg && tg.kind !== 'main') {   // leaving the main video: show the ghost on the row it will go to
+            drag.el.style.transform = ''; drag.el.classList.add('to-layer');
+            var cc0 = F.clips()[drag.reorder]; ghostAt(tg, snapT(drag.st + dx / pps) * pps, F.clipLen(cc0) * pps);
+          } else {
+            drag.el.classList.remove('to-layer'); drag.el.style.transform = 'translateX(' + dx + 'px)';
+            var gh = $('tlInner').querySelector('.fm-ghost'); if (gh) gh.remove(); $('tlInner').querySelectorAll('.fm-drop').forEach(function (k) { k.classList.remove('fm-drop'); });
+          }
         }
         return;
       }
-      var d = (e.clientX - drag.x0) / pps; if (Math.abs(e.clientX - drag.x0) > 3) drag.moved = true;
+      var d = (e.clientX - drag.x0) / pps; if (Math.abs(e.clientX - drag.x0) > 3 || Math.abs(e.clientY - drag.y0) > 3) drag.moved = true;
       var o = drag.o, len = drag.en - drag.st, st = drag.st, en = drag.en, isV = o.type === 'video' || o.type === 'audio', lr = +o.speed || 1, room = isV ? Math.max(0.2, ((o.dur || 999) - (drag.in0 || 0)) / lr) : 1e9;
       if (drag.edge === 'l') { st = clamp(drag.st + d, Math.max(0, isV ? drag.st - (drag.in0 || 0) / lr : 0), drag.en - 0.2); if (isV) o.in = Math.round(((drag.in0 || 0) + (st - drag.st) * lr) * 100) / 100; }
       else if (drag.edge === 'r') en = clamp(drag.en + d, drag.st + 0.2, Math.min(drag.total, drag.st + room));
-      else { st = clamp(drag.st + d, 0, Math.max(0, drag.total - len)); en = st + len; }
+      else { st = clamp(drag.st + d, 0, Math.max(0, drag.total - len)); var s2 = snapT(st, o), e2 = snapT(st + len, o); st = s2 !== st ? s2 : (e2 !== st + len ? e2 - len : st); st = clamp(st, 0, Math.max(0, drag.total - len)); en = st + len; }
+      if (drag.edge === 'l') { var sl = snapT(st, o); if (sl < en - 0.2) { if (isV) o.in = Math.max(0, Math.round(((drag.in0 || 0) + (sl - drag.st) * lr) * 100) / 100); st = sl; } }
+      if (drag.edge === 'r') { var sr = snapT(en, o); if (sr > st + 0.2 && sr <= Math.min(drag.total, drag.st + room) + 1e-6) en = sr; }
+      if (!drag.edge && (Math.abs(e.clientY - drag.y0) > 20 || drag.vert)) {   // moving to another row: show where it lands
+        drag.vert = true; showZones(); var tgo = targetAt(e.clientY); drag.tg = tgo;
+        if (tgo && !tgo.el.contains(drag.el)) ghostAt(tgo, st * pps, (en - st) * pps); else { var gh2 = $('tlInner').querySelector('.fm-ghost'); if (gh2) gh2.remove(); }
+      }
       o.start = Math.round(st * 10) / 10; o.end = !isV && en >= drag.total - 0.05 ? null : Math.round(en * 10) / 10;
       drag.el.style.left = (o.start * pps) + 'px'; drag.el.style.width = Math.max(14, ((o.end == null ? drag.total : o.end) - o.start) * pps) + 'px';
       F.seek(drag.edge === 'r' ? Math.max(0, (o.end == null ? drag.total : o.end) - 0.05) : o.start);
     });
     function up(e) {
       if (!drag) return; var was = drag, F = YBFmt; drag = null;
+      clearDrop();
+      if (was.o && was.moved && was.vert && was.tg && !was.tg.el.contains(was.el)) {
+        var tg = was.tg, ov = F.overlays(), o = was.o;
+        if (tg.kind === 'track') { var tr = trackById(tg.track); if (tr && tr.id !== o.track) { placeOnTrack(o, tr); targetTrack = tr.id; YB.toast('Moved onto ' + (tr.name || 'the layer')); } }
+        else if (tg.kind === 'top' || tg.kind === 'bottom') {   // its own new layer, on top of everything or right under the main video
+          delete o.track; o.under = tg.kind === 'bottom'; ov.splice(ov.indexOf(o), 1);
+          if (tg.kind === 'top') ov.push(o); else ov.unshift(o);   // the bottom row is the one furthest back
+          targetTrack = ''; YB.toast(tg.kind === 'top' ? 'Now its own layer on top' : 'Now its own layer under the main video');
+        }
+      }
       if (was.o && was.moved) { F.save(); F.renderOverlays(); }
       if (was.clip != null && was.moved) { F.save(); F.renderAll(); }
       if (was.reorder != null) {
         if (!was.moved) { F.seek(was.t); return; }
-        var dyy = e.clientY - was.y0;
-        if (Math.abs(dyy) > 38) {   // dragged off the main track: it becomes its own layer
-          var st0 = Math.max(0, was.st + (e.clientX - was.x0) / pps);
-          F.clipMoveToLayer(was.reorder, dyy > 0, st0).then(function (done) { if (done) YB.toast(dyy > 0 ? 'Now a layer under the main video' : 'Now a layer on top of the main video'); });
+        var tg2 = was.vert ? was.tg : null;
+        if (tg2 && tg2.kind !== 'main') {   // off the main video: it becomes a layer where it was dropped
+          var st0 = snapT(Math.max(0, was.st + (e.clientX - was.x0) / pps)), under;
+          if (tg2.kind === 'track') { var tr2 = trackById(tg2.track); pendingTrack = tr2 ? tr2.id : ''; under = !!(tr2 && tr2.under); }
+          else if (tg2.kind === 'row') { var rowO = F.overlays().find(function (k) { return tg2.el.querySelector('[data-tov="' + k.id + '"]'); }); under = !!(rowO && rowO.under); }
+          else under = tg2.kind === 'bottom';
+          F.clipMoveToLayer(was.reorder, under, st0).then(function (done) { if (done) { var nw = F.overlays()[F.overlays().length - 1]; YB.toast(pendingTrack ? 'Moved onto the layer' : under ? 'Now a layer under the main video' : 'Now a layer on top of the main video'); } });
           return;
         }
         var t = timeAt(e), tl = F.timeline(), cl = F.clips(), to = 0;
@@ -291,6 +333,11 @@
       F.save(); F.renderAll(); renderSpeed(); YB.toast('Speed ' + q + '×');
     });
     $('tlAudioFile').addEventListener('change', function () { var f = this.files[0]; this.value = ''; if (!f) return; if (!YBFmt.clips().length) { YB.toast('Add your main video first'); return; } YB.toast('Adding sound…'); YBFmt.addAudioLayer(f).then(function () { YB.toast('Sound added on its own row — swipe its ends to trim, tap it for volume'); }, function () { YB.toast('This browser can\'t play that sound file'); }); });
+    $('tlNewTrack').addEventListener('click', newTrack);
+    var big = false; try { big = localStorage.getItem('fmTlBig') === '1'; } catch (er) { /* no storage */ }
+    function setBig(on) { big = on; $('tlBox').classList.toggle('fm-tl-big', on); $('tlExpand').setAttribute('aria-pressed', on); $('tlExpand').querySelector('span').textContent = on ? 'Smaller' : 'Expand'; try { localStorage.setItem('fmTlBig', on ? '1' : '0'); } catch (er) { /* no storage */ } }
+    setBig(big);
+    $('tlExpand').addEventListener('click', function () { setBig(!big); });
     $('lyUp').addEventListener('click', function () { moveLayer(-1); });
     $('lyDown').addEventListener('click', function () { moveLayer(1); });
     $('tlCenter').addEventListener('click', function () {
@@ -301,10 +348,13 @@
     });
     $('lyDel').addEventListener('click', function () {
       var F = YBFmt, o = selLayer(); if (!o) return;
-      if (!confirm('Delete this layer?')) return;
-      var ov = F.overlays(); ov.splice(ov.indexOf(o), 1); F.sel(''); F.save(); F.renderOverlays(); F.renderFacts(); F.draw(); YB.toast('Layer deleted');
+      var many = o.type === 'track' ? itemsOf(o) : [];
+      if (!confirm(o.type === 'track' ? 'Delete ' + (o.name || 'this layer') + (many.length ? ' and the ' + many.length + ' thing' + (many.length === 1 ? '' : 's') + ' on it' : '') + '?' : 'Delete this?')) return;
+      var ov = F.overlays(); [o].concat(many).forEach(function (k) { var i = ov.indexOf(k); if (i !== -1) ov.splice(i, 1); });
+      if (targetTrack === o.id) targetTrack = '';
+      F.sel(''); F.save(); F.renderOverlays(); F.renderFacts(); F.draw(); YB.toast(o.type === 'track' ? 'Layer deleted' : 'Deleted');
     });
-    $('lyHide').addEventListener('click', function () { var o = selLayer(); if (!o) return; o.hidden = !o.hidden; YBFmt.save(); YBFmt.draw(); render(); });
+    $('lyHide').addEventListener('click', function () { var o = selLayer(); if (!o) return; o.hidden = !o.hidden; if (o.type === 'track') itemsOf(o).forEach(function (k) { k.hidden = o.hidden; }); YBFmt.save(); YBFmt.draw(); render(); });
     $('tlPhotoFile').addEventListener('change', function () { var f = this.files[0]; this.value = ''; if (!f) return; if (!YBFmt.clips().length) { YB.toast('Add your main video first'); return; } YBFmt.addImage(f); YB.toast('Photo layer added'); });
     ['layerFile', 'tlLayerFile'].forEach(function (id) { var el = $(id); if (el) el.addEventListener('change', function () { addLayerFile(this.files[0]); this.value = ''; }); });
     // stickers
@@ -317,8 +367,44 @@
     });
   }
   function selLayer() { var F = YBFmt, id = F.sel(); return id ? F.overlays().find(function (k) { return k.id === id; }) : null; }
+  /* ---------- Blank layers: a row you make first, then fill with videos, photos, sound or text ---------- */
+  var targetTrack = '', pendingTrack = '', known = null;
+  function trackById(id) { return id ? YBFmt.overlays().find(function (k) { return k.id === id && k.type === 'track'; }) : null; }
+  function trackOf(o) { return o && o.type !== 'track' && o.track ? trackById(o.track) : null; }
+  function unitOf(o) { return o.type === 'track' ? o : (trackOf(o) || o); }
+  function itemsOf(t) { return YBFmt.overlays().filter(function (k) { return k.type !== 'track' && k.track === t.id; }); }
+  function placeOnTrack(o, t) {   // keep a layer's items right after it, so they draw at the layer's place in the stack
+    var ov = YBFmt.overlays(); o.track = t.id; o.under = !!t.under; if (t.hidden) o.hidden = true;
+    ov.splice(ov.indexOf(o), 1);
+    var at = ov.indexOf(t); ov.forEach(function (k, i) { if (k.track === t.id && k.type !== 'track') at = Math.max(at, i); });
+    ov.splice(at + 1, 0, o);
+  }
+  function adoptNew() {   // anything just added goes onto the chosen layer
+    var F = YBFmt, ov = F.overlays();
+    if (!known) { known = {}; ov.forEach(function (o) { known[o.id] = 1; }); return false; }
+    var changed = false;
+    ov.slice().forEach(function (o) {
+      if (known[o.id]) return; known[o.id] = 1;
+      if (o.type === 'track' || o.type === 'progress' || o.track) return;
+      var t = trackById(pendingTrack) || trackById(targetTrack);
+      if (t) { placeOnTrack(o, t); changed = true; }
+    });
+    pendingTrack = '';
+    if (changed) { F.save(); F.draw(); }
+    return changed;
+  }
+  function newTrack() {
+    var F = YBFmt; if (!F.clips().length) { YB.toast('Add your main video first'); return; }
+    var n = F.overlays().filter(function (k) { return k.type === 'track'; }).length + 1;
+    F.addOverlay({ type: 'track', name: 'Layer ' + n, under: false, start: 0, end: null }).then(function () {
+      var t = F.overlays()[F.overlays().length - 1]; targetTrack = t.id; F.sel(t.id); F.renderOverlays();
+      YB.toast('Layer ' + n + ' added — now add a video, photo, sound or text to it');
+    });
+  }
   function renderLayerTools() {
     var o = selLayer(), g = $('fmLayerTools'); if (!g) return;
+    var tt = trackById(targetTrack), hint = $('fmTarget');
+    if (hint) { hint.hidden = !tt; if (tt) hint.textContent = 'Adding to ' + (tt.name || 'Layer') + ' — tap the main video to stop'; }
     g.hidden = !o || o.type === 'progress';
     if (window._fmRenderSpeed) window._fmRenderSpeed();
     if (o) { $('lyHide').querySelector('span').textContent = o.hidden ? 'Show' : 'Hide'; $('lyHide').querySelector('i').textContent = o.hidden ? '🚫' : '👁'; }
@@ -326,18 +412,24 @@
   // move the selected layer one step up or down the stack — past the main video it goes under it
   function moveLayer(dir) {
     var F = YBFmt, o = selLayer(); if (!o) return;
-    if (o.type === 'audio') { YB.toast('Sound layers aren\'t in front or behind — they just play'); return; }
-    var ov = F.overlays(), snd = ov.filter(function (k) { return k.type === 'audio'; }), pic = ov.filter(function (k) { return k.type !== 'audio'; }), vis = pic.filter(function (k) { return !k.under; }).reverse().concat(['MAIN']).concat(pic.filter(function (k) { return k.under; }).reverse());
-    var i = vis.indexOf(o), j = i + dir; if (i < 0 || j < 0 || j >= vis.length) return;
-    vis[i] = vis[j]; vis[j] = o;
+    var u = unitOf(o);
+    if (u.type === 'audio') { YB.toast('Sound isn\'t in front or behind — it just plays'); return; }
+    var ov = F.overlays(), units = ov.filter(function (k) { return k.type === 'track' || !trackOf(k); });
+    var snd = units.filter(function (k) { return k.type === 'audio'; }), pic = units.filter(function (k) { return k.type !== 'audio'; });
+    var vis = pic.filter(function (k) { return !k.under; }).reverse().concat(['MAIN']).concat(pic.filter(function (k) { return k.under; }).reverse());
+    var i = vis.indexOf(u), j = i + dir; if (i < 0 || j < 0 || j >= vis.length) return;
+    vis[i] = vis[j]; vis[j] = u;
     var m = vis.indexOf('MAIN'), overs = vis.slice(0, m).reverse(), unders = vis.slice(m + 1).reverse();
-    overs.forEach(function (k) { k.under = false; }); unders.forEach(function (k) { k.under = true; });
-    ov.length = 0; unders.concat(overs).concat(snd).forEach(function (k) { ov.push(k); });
+    function expand(k, under) { k.under = under; var out = [k]; if (k.type === 'track') itemsOf(k).forEach(function (it) { it.under = under; out.push(it); }); return out; }
+    var order = []; unders.forEach(function (k) { order = order.concat(expand(k, true)); }); overs.forEach(function (k) { order = order.concat(expand(k, false)); });
+    snd.forEach(function (k) { order = order.concat(expand(k, false)); });
+    ov.length = 0; order.forEach(function (k) { ov.push(k); });
     F.save(); F.renderOverlays(); F.draw();
-    YB.toast(o.under ? 'Layer is now under the main video' : 'Layer moved ' + (dir < 0 ? 'forward' : 'back'));
+    YB.toast(u.under ? (u.name || 'Layer') + ' is now under the main video' : (u.name || 'Layer') + ' moved ' + (dir < 0 ? 'forward' : 'back'));
   }
   function splitLayer() {
     var F = YBFmt, o = selLayer(); if (!o || o.type === 'progress') return false;
+    if (o.type === 'track') { var tt = F.pv.t; o = itemsOf(o).find(function (k) { return tt > (k.start || 0) && tt < (k.end == null ? F.timeline().total : k.end); }); if (!o) { YB.toast('Nothing on this layer at the playhead'); return true; } }
     var t = F.pv.t, total = F.timeline().total, st = o.start || 0, en = o.end == null ? total : o.end;
     if (t - st < 0.15 || en - t < 0.15) { YB.toast('Move the playhead inside the layer to cut it'); return true; }
     var b = {}; Object.keys(o).forEach(function (k) { if (k.charAt(0) !== '_') b[k] = o[k]; });
@@ -345,6 +437,50 @@
     o.end = b.start; delete b.id;
     F.addOverlay(b).then(function () { YB.toast('Layer cut in two'); });
     return true;
+  }
+  /* ---------- Dragging between rows: a gold outline shows where it will land, right on the timeline ---------- */
+  function showZones() {
+    var inner = $('tlInner'); if (inner.querySelector('.fm-dropzone')) return;
+    // nothing moves while you drag: "on top" sits over the time ruler, "underneath" is added below the last row
+    var sc = $('tlScroll'), ruler = inner.querySelector('.fm-ruler');
+    var top = document.createElement('div'); top.className = 'fm-dropzone fm-dz-top'; top.setAttribute('data-zone', 'top'); top.textContent = '＋ New layer on top';
+    top.style.left = sc.scrollLeft + 'px'; top.style.width = (sc.clientWidth - 8) + 'px'; top.style.top = '0px'; top.style.height = Math.max(26, ruler.offsetHeight) + 'px';
+    var bot = document.createElement('div'); bot.className = 'fm-dropzone'; bot.setAttribute('data-zone', 'bottom'); bot.textContent = '＋ New layer underneath';
+    bot.style.marginLeft = (sc.scrollLeft + 4) + 'px'; bot.style.width = (sc.clientWidth - 16) + 'px';
+    inner.appendChild(top); inner.appendChild(bot);
+  }
+  function clearDrop() {
+    var inner = $('tlInner'); if (!inner) return;
+    inner.querySelectorAll('.fm-dropzone, .fm-ghost').forEach(function (e) { e.remove(); });
+    inner.querySelectorAll('.fm-drop').forEach(function (e) { e.classList.remove('fm-drop'); });
+  }
+  function targetAt(y) {   // the row (or new-layer spot) under the finger, else the nearest one
+    var best = null, bd = 1e9;
+    $('tlInner').querySelectorAll('.fm-trow, .fm-dropzone').forEach(function (el) {
+      var r = el.getBoundingClientRect(), d = y < r.top ? r.top - y : y > r.bottom ? y - r.bottom : 0;
+      if (d < bd) { bd = d; best = el; }
+    });
+    if (!best) return null;
+    var kind = best.classList.contains('fm-dropzone') ? best.getAttribute('data-zone') : best.classList.contains('fm-vrow') ? 'main' : best.hasAttribute('data-track') ? 'track' : 'row';
+    return { el: best, kind: kind, track: best.getAttribute('data-track') || '' };
+  }
+  function ghostAt(tg, left, width) {
+    var inner = $('tlInner'), g = inner.querySelector('.fm-ghost');
+    inner.querySelectorAll('.fm-drop').forEach(function (e) { if (e !== tg.el) e.classList.remove('fm-drop'); });
+    tg.el.classList.add('fm-drop');
+    if (!g) { g = document.createElement('div'); g.className = 'fm-ghost'; inner.appendChild(g); }
+    g.style.top = (tg.el.offsetTop + 3) + 'px'; g.style.height = Math.max(18, tg.el.offsetHeight - 6) + 'px';
+    g.style.left = Math.max(0, left) + 'px'; g.style.width = Math.max(14, width) + 'px';
+    g.textContent = tg.kind === 'top' ? 'New layer on top' : tg.kind === 'bottom' ? 'New layer underneath' : tg.kind === 'main' ? 'Main video' : tg.kind === 'track' ? 'Onto ' + ((trackById(tg.track) || {}).name || 'this layer') : 'Onto this layer';
+  }
+  // edges snap to the playhead, the start / end, clip joins and other layers (like CapCut)
+  function snapT(t, skip) {
+    var F = YBFmt, tl = F.timeline(), c = [0, tl.total, F.pv.t];
+    F.clips().forEach(function (k, i) { c.push(tl.starts[i], tl.starts[i] + F.clipLen(k)); });
+    F.overlays().forEach(function (o) { if (o === skip || o.type === 'track') return; c.push(o.start || 0); if (o.end != null) c.push(o.end); });
+    var best = t, bd = 10 / pps;
+    c.forEach(function (x) { var d = Math.abs(x - t); if (d < bd) { bd = d; best = x; } });
+    return best;
   }
   var lastW = 0, lastTotal = -1;
   function watchSize() {

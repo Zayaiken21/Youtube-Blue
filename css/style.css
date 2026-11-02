@@ -1486,3 +1486,31 @@ body[data-page="formatter"] .page-head > p, body[data-page="formatter"] .cx-step
 .fm-tclip.to-layer { outline: 2px dashed var(--primary-2); opacity: .9; }
 .fm-tclip[data-hint]:not([data-hint=""])::after { content: attr(data-hint); position: absolute; left: 50%; top: -24px; transform: translateX(-50%); white-space: nowrap; font-size: .72rem; font-weight: 700; background: #000; color: #fff; padding: 2px 8px; border-radius: 999px; }
 .fm-tclip { overflow: visible; }
+
+video.fm-thumb { pointer-events: none; background: #000; }
+
+/* blank layers */
+.fm-track { border-top: 1px dashed rgba(255,255,255,.12); cursor: pointer; }
+.fm-track.on { background: rgba(251,191,36,.10); box-shadow: inset 3px 0 0 #fbbf24; }
+.fm-track.off .fm-tlayer { opacity: .35; }
+.fm-trackname { position: sticky; left: 6px; display: inline-block; font-size: .72rem; font-weight: 700; color: var(--muted); padding: 9px 4px 0; white-space: nowrap; pointer-events: none; z-index: 1; }
+.fm-track .fm-tlayer { z-index: 2; }
+.fm-tlayer.k-video { background-color: rgba(56,189,248,.3); border-color: rgba(125,211,252,.85); }
+.fm-tlayer.k-photo { background-color: rgba(52,211,153,.28); border-color: rgba(110,231,183,.8); }
+.fm-tlayer.k-audio { background-color: rgba(168,85,247,.28); border-color: rgba(216,180,254,.85); }
+.fm-target { margin: 2px 0 6px; padding: 6px 10px; border-radius: 10px; background: rgba(251,191,36,.12); border: 1px solid rgba(251,191,36,.5); color: var(--text); font-weight: 600; }
+
+/* dragging between rows */
+.fm-dropzone { height: 34px; margin: 4px 0; border: 2px dashed rgba(251,191,36,.7); border-radius: 8px; display: flex; align-items: center; padding-left: 10px; font-size: .78rem; font-weight: 700; color: #fbbf24; background: rgba(251,191,36,.06); box-sizing: border-box; }
+.fm-dz-top { position: absolute; z-index: 7; margin: 0; background: rgba(20,16,4,.92); }
+.fm-drop { background: rgba(251,191,36,.18) !important; box-shadow: inset 0 0 0 2px #fbbf24; }
+.fm-ghost { position: absolute; z-index: 6; border: 2px solid #fbbf24; border-radius: 7px; background: rgba(251,191,36,.28); color: #fff; font-size: .72rem; font-weight: 700; display: flex; align-items: center; padding-left: 8px; white-space: nowrap; overflow: hidden; pointer-events: none; box-shadow: 0 0 0 3px rgba(0,0,0,.35); }
+.fm-tclip.to-layer { opacity: .45; outline: 2px dashed #fbbf24; }
+.fm-tlayer.dragging { opacity: .6; }
+/* ⤢ Expand: tall rows that are easy to grab */
+.fm-tl-big .fm-trow { height: 54px; }
+.fm-tl-big .fm-vrow { height: 76px; }
+.fm-tl-big .fm-tlayer { font-size: .86rem; }
+.fm-tl-big .fm-tlayer span, .fm-tl-big .fm-tclip span { font-size: .86rem; }
+.fm-tl-big .fm-th { width: 16px; }
+.fm-tl-big .fm-dropzone { height: 46px; }

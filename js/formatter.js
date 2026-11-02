@@ -252,6 +252,7 @@
   function drawOverlays(x, W, H, t, total, forPreview, under) {
     var base = Math.min(W, H);
     overlays.forEach(function (o) {
+      if (o.type === 'track') return;   // a layer row itself shows nothing — what's on it does
       if (!!o.under !== !!under) return;   // layers under the main video are drawn first
       o._b = null;
       if (o.hidden || !visibleAt(o, t)) { if (o._v && !o._v.paused) o._v.pause(); if (o._a && !o._a.paused) o._a.pause(); return; }
@@ -544,7 +545,7 @@
     $('clipList').innerHTML = clips.map(function (c, i) {
       return '<li class="fm-clip" data-id="' + c.id + '">' +
         '<div class="fm-clip-top"><span class="cx-pnum">' + (i + 1) + '</span>' +
-        (c.thumb ? '<img class="fm-thumb" src="' + c.thumb + '" alt="">' : '<span class="fm-thumb"></span>') +
+        '<video class="fm-thumb" src="' + blobUrl(c.blobId) + '#t=' + Math.max(0.05, (c.in || 0) + 0.1).toFixed(2) + '" muted playsinline webkit-playsinline preload="metadata" disablepictureinpicture aria-label="Clip ' + (i + 1) + '"></video>' +
         '<div class="fm-clip-meta"><b class="fm-clip-name">' + YB.esc(c.name) + '</b>' +
         '<span class="muted small">' + (c.vw ? c.vw + '×' + c.vh + ' · ' : '') + 'plays ' + secs(clipLen(c)) + ' s of ' + secs(c.dur) + ' s · starts at ' + mmss(tl.starts[i]) + '</span></div>' +
         '<div class="cx-pbtns"><button type="button" class="btn btn-ghost btn-icon btn-sm" data-up aria-label="Move earlier"' + (i === 0 ? ' disabled' : '') + '>↑</button>' +
@@ -586,8 +587,9 @@
     $('musicVol').value = S.musicVol; $('musicVolVal').textContent = S.musicVol + '%';
   }
   function ovLabel(o) {
-    if (o.type === 'audio') return '🎵 ' + (o.name || 'Audio');
-    if (o.type === 'video') return '🎬 Video layer';
+    if (o.type === 'track') return '🗂️ ' + (o.name || 'Layer');
+    if (o.type === 'audio') return '🎵 ' + (o.label || 'Sound');
+    if (o.type === 'video') return '🎬 ' + (o.label || 'Video');
     if (o.type === 'image') return o.sticker ? '💈 Sticker' : '🖼️ Picture';
     if (o.type === 'cta') return '🔔 ' + (o.text || 'Subscribe');
     if (o.type === 'progress') return '▬ Progress bar';
@@ -616,7 +618,7 @@
   function renderEditor() {
     var o = overlays.find(function (k) { return k.id === sel; }), ed = $('ovEditor');
     edFor = o ? o.id : '';
-    if (!o) { ed.hidden = true; ed.innerHTML = ''; return; }
+    if (!o || o.type === 'track') { ed.hidden = true; ed.innerHTML = ''; return; }
     ed.hidden = false;
     var total = timeline().total, h = '';
     var timeRow = o.type === 'progress' ? '' :
@@ -1327,7 +1329,7 @@
       var len = clipLen(c);
       clips.splice(i, 1); if (c._el) { c._el.pause(); c._el.remove(); }
       var total = timeline().total, st = Math.round(clamp(start == null ? 0 : start, 0, Math.max(0, total - Math.min(len, total))) * 10) / 10;
-      var o = { type: 'video', blobId: c.blobId, name: c.name, dur: c.dur, in: c.in, vol: c.mute ? 0 : (c.vol == null ? 1 : c.vol), speed: sp(c), w: under ? 1 : 0.5, x: 0.5, y: 0.5, shape: under ? 'square' : 'rounded', opacity: 1, anim: 'none', under: !!under, start: st, end: Math.round(Math.min(total, st + len) * 10) / 10 };
+      var o = { type: 'video', blobId: c.blobId, name: c.name, label: 'Clip ' + (i + 1), dur: c.dur, in: c.in, vol: c.mute ? 0 : (c.vol == null ? 1 : c.vol), speed: sp(c), w: under ? 1 : 0.5, x: 0.5, y: 0.5, shape: under ? 'square' : 'rounded', opacity: 1, anim: 'none', under: !!under, start: st, end: Math.round(Math.min(total, st + len) * 10) / 10 };
       return window.YBFmt.addOverlay(o).then(function () { renderAll(); seekTo(Math.min(pv.t, timeline().total)); return true; });
     },
     addVideoLayer: function (file) {
@@ -1335,7 +1337,7 @@
         var id = YB.uid(), blobId = 'l' + id, total = timeline().total, st = Math.round(clamp(pv.t, 0, Math.max(0, total - 0.5)) * 10) / 10;
         addBlob(blobId, file);
         return putBlob(blobId, file).then(function () {
-          var len = Math.min(info.dur || 3, Math.max(0.5, total - st)), o = { type: 'video', blobId: blobId, name: file.name, dur: info.dur, in: 0, vol: 1, speed: 1, w: 0.42, x: 0.72, y: 0.28, shape: 'rounded', opacity: 1, border: true, anim: 'pop', start: st, end: Math.round((st + len) * 10) / 10 };
+          var len = Math.min(info.dur || 3, Math.max(0.5, total - st)), o = { type: 'video', blobId: blobId, name: file.name, label: 'Video', dur: info.dur, in: 0, vol: 1, speed: 1, w: 0.42, x: 0.72, y: 0.28, shape: 'rounded', opacity: 1, border: true, anim: 'pop', start: st, end: Math.round((st + len) * 10) / 10 };
           return window.YBFmt.addOverlay(o);
         });
       });
