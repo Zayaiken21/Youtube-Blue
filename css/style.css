@@ -1514,3 +1514,21 @@ video.fm-thumb { pointer-events: none; background: #000; }
 .fm-tl-big .fm-tlayer span, .fm-tl-big .fm-tclip span { font-size: .86rem; }
 .fm-tl-big .fm-th { width: 16px; }
 .fm-tl-big .fm-dropzone { height: 46px; }
+
+/* undo / redo */
+.fm-hist { display: flex; justify-content: flex-end; gap: 8px; margin: 0 0 8px; }
+.fm-histbtn { display: inline-flex; align-items: center; gap: 6px; min-height: 40px; padding: 0 14px; border-radius: 999px; border: 1px solid var(--line-soft); background: rgba(255,255,255,.05); color: var(--text); font: inherit; font-size: .86rem; font-weight: 700; cursor: pointer; }
+.fm-histbtn svg { width: 18px; height: 18px; fill: none; stroke: currentColor; stroke-width: 2.2; stroke-linecap: round; stroke-linejoin: round; }
+.fm-histbtn:not(:disabled):hover { border-color: var(--primary-2); }
+.fm-histbtn:not(:disabled):active { transform: scale(.96); }
+.fm-histbtn:disabled { opacity: .35; cursor: default; }
+/* the actual video inside the timeline bars */
+.fm-tv { position: absolute; inset: 0; z-index: 0; pointer-events: none; overflow: hidden; border-radius: inherit; }
+.fm-tv video { width: 100%; height: 100%; object-fit: cover; display: block; opacity: .9; pointer-events: none; }
+.fm-tclip span, .fm-tlayer span { z-index: 1; }
+.fm-tlayer span { position: relative; text-shadow: 0 1px 2px #000; }
+.fm-tclip .fm-th, .fm-tlayer .fm-th { z-index: 2; }
+/* swipe the timeline left / right on a phone; hold to pick something up */
+.fm-tl-inner { touch-action: pan-x pan-y; }
+.fm-tclip.lifted, .fm-tlayer.lifted { transform: scale(1.04); box-shadow: 0 8px 20px rgba(0,0,0,.55); z-index: 6; }
+.fm-fillhint { margin: 8px 0 0; padding: 8px 10px; border-radius: 10px; font-size: .84rem; background: rgba(251,191,36,.1); border: 1px solid rgba(251,191,36,.35); color: var(--text); }

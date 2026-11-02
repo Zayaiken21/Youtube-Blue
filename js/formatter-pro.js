@@ -133,15 +133,16 @@
     var F = YBFmt, tl = F.timeline(), total = tl.total, cl = F.clips(), ov = F.overlays(), sel = F.sel();
     if (!cl.length) { box.innerHTML = ''; return; }
     var avail = Math.max(240, sc.clientWidth - 4);
-    pps = Math.max(8, avail / Math.max(1, total)) * zoomK;
-    var W = Math.max(avail, Math.round(total * pps)), cur = F.clipAt(F.pv.t);
+    pps = Math.max(avail / Math.max(1, total), 34) * zoomK;   // never squeezed: long videos run past the edge and you swipe to see the rest
+    extendToEnd(F, total);
+    var W = Math.max(avail, Math.round(total * pps) + Math.round(avail * 0.35)), cur = F.clipAt(F.pv.t);
     var ruler = '', step = [0.5, 1, 2, 5, 10, 15, 30, 60, 120].find(function (q) { return q * pps >= 56; }) || 300;
     for (var s = 0; s <= total + 0.001; s += step) ruler += '<span class="fm-tick" style="left:' + (s * pps) + 'px">' + (Math.floor(s / 60) + ':' + String(Math.floor(s % 60)).padStart(2, '0') + (step < 1 && s % 1 ? '.5' : '')) + '</span>';
     var vids = cl.map(function (c, i) {
       var w = Math.max(6, F.clipLen(c) * pps - 2), nfx = (c.fx || []).length;
       var spd = F.sp(c), bg = '';
       return '<div class="fm-tclip' + (i === cur ? ' on' : '') + '" data-tclip="' + i + '" style="left:' + (tl.starts[i] * pps) + 'px;width:' + w + 'px' + bg + '">' +
-        '<i class="fm-th fm-th-l" data-cedge="l" title="Drag to trim the start"></i><span>' + (i + 1) + (c.mute ? ' 🔇' : '') + (spd !== 1 ? ' ⏩' + spd + '×' : '') + (nfx ? ' ✨' + nfx : '') + ' · ' + F.clipLen(c).toFixed(1) + ' of ' + (c.dur || 0).toFixed(1) + ' s</span><i class="fm-th fm-th-r" data-cedge="r" title="Drag to trim the end"></i></div>';
+        '<b class="fm-tv" data-vk="c' + c.id + '"></b><i class="fm-th fm-th-l" data-cedge="l" title="Drag to trim the start"></i><span>' + (i + 1) + (c.mute ? ' 🔇' : '') + (spd !== 1 ? ' ⏩' + spd + '×' : '') + (nfx ? ' ✨' + nfx : '') + ' · ' + F.clipLen(c).toFixed(1) + ' of ' + (c.dur || 0).toFixed(1) + ' s</span><i class="fm-th fm-th-r" data-cedge="r" title="Drag to trim the end"></i></div>';
     }).join('');
     function bar(o) {
       var st = o.type === 'progress' ? 0 : (o.start || 0), en = o.type === 'progress' || o.end == null ? total : Math.min(o.end, total);
@@ -149,7 +150,7 @@
       var tags = (o.mute ? '🔇 ' : '') + ((+o.speed || 1) !== 1 ? '⏩' + o.speed + '× ' : '');
       var kind = o.type === 'video' ? ' k-video' : o.type === 'image' ? ' k-photo' : o.type === 'audio' ? ' k-audio' : '';
       return '<div class="fm-tlayer' + kind + (o.id === sel ? ' on' : '') + (o.type === 'progress' ? ' fixed' : '') + (o.hidden ? ' off' : '') + '" data-tov="' + o.id + '" style="left:' + (st * pps) + 'px;width:' + Math.max(14, (en - st) * pps - 2) + 'px">' +
-        (o.type === 'progress' ? '' : '<i class="fm-th fm-th-l" data-edge="l"></i>') + '<span>' + (o.hidden ? '🚫 ' : '') + tags + esc(name) + '</span>' + (o.type === 'progress' ? '' : '<i class="fm-th fm-th-r" data-edge="r"></i>') + '</div>';
+        (o.type === 'video' && o.blobId ? '<b class="fm-tv" data-vk="o' + o.id + '"></b>' : '') + (o.type === 'progress' ? '' : '<i class="fm-th fm-th-l" data-edge="l"></i>') + '<span>' + (o.hidden ? '🚫 ' : '') + tags + esc(name) + '</span>' + (o.type === 'progress' ? '' : '<i class="fm-th fm-th-r" data-edge="r"></i>') + '</div>';
     }
     function unitRow(u) {
       if (u.type !== 'track') return '<div class="fm-trow' + (u.type === 'video' ? ' fm-vlayer' : u.type === 'image' ? ' fm-plater' : u.type === 'audio' ? ' fm-alayer' : '') + '">' + bar(u) + '</div>';
@@ -164,6 +165,7 @@
     box.innerHTML = '<div class="fm-ruler" data-seek>' + ruler + '</div>' + (over ? '<div class="fm-tlabel">Layers on top (top row = in front)</div>' + over : '') +
       '<div class="fm-tlabel">Main video</div><div class="fm-trow fm-vrow" data-seek>' + vids + '</div>' +
       (under ? '<div class="fm-tlabel">Layers under the main video</div>' + under : '') + (audio ? '<div class="fm-tlabel">Audio</div>' + audio : '') + '<div class="fm-playhead" id="tlHead"></div>';
+    fillVideos(box);
     renderLayerTools();
     lastTotal = total; lastW = sc.clientWidth;
     tick(F.pv.t, total);
@@ -179,6 +181,42 @@
     if (lastFxClip !== cur) { lastFxClip = cur; if (fxTarget === 'clip') renderFx(); if (window._fmRenderSpeed) window._fmRenderSpeed(); }
   }
   var lastFxClip = -1;
+  /* the real picture in each clip on the timeline (a muted video paused at the clip's start, not a thumbnail image) */
+  var vcache = {};
+  function fillVideos(box) {
+    var F = YBFmt, used = {};
+    box.querySelectorAll('.fm-tv[data-vk]').forEach(function (slot) {
+      var k = slot.getAttribute('data-vk'), it = k.charAt(0) === 'c' ? F.clips().find(function (c) { return 'c' + c.id === k; }) : F.overlays().find(function (o) { return 'o' + o.id === k; });
+      if (!it || !it.blobId) return;
+      var url = F.url(it.blobId); if (!url) return;
+      var at = Math.max(0.05, (it.in || 0) + 0.1), v = vcache[k];
+      if (!v || v._url !== url) {
+        v = document.createElement('video'); v.muted = true; v.defaultMuted = true; v.playsInline = true; v.setAttribute('playsinline', ''); v.setAttribute('webkit-playsinline', '');
+        v.setAttribute('disablepictureinpicture', ''); v.preload = 'auto'; v._url = url; v._at = at; v.src = url + '#t=' + at.toFixed(2);
+        v.addEventListener('loadeddata', function () { try { if (Math.abs(v.currentTime - v._at) > 0.2) v.currentTime = v._at; } catch (e) { /* not ready */ } }, { once: true });
+        try { var pr = v.play(); if (pr && pr.then) pr.then(function () { v.pause(); try { v.currentTime = v._at; } catch (e) { /* ignore */ } }, function () { /* iPhone may refuse: the #t frame still shows */ }); } catch (e) { /* ignore */ }
+        vcache[k] = v;
+      } else if (Math.abs(v._at - at) > 0.15) { v._at = at; try { v.currentTime = at; } catch (e) { /* ignore */ } }
+      used[k] = 1; slot.appendChild(v);
+    });
+    Object.keys(vcache).forEach(function (k) { if (!used[k] && !document.body.contains(vcache[k])) { var v = vcache[k]; v.removeAttribute('src'); v.load(); delete vcache[k]; } });
+  }
+  /* a layer that ran to the end keeps running to the end when the video gets longer */
+  var endTotal = -1;
+  function extendToEnd(F, total) {
+    var prev = endTotal; endTotal = total;
+    if (prev <= 0 || Math.abs(total - prev) < 0.05) return;
+    var ch = false;
+    F.overlays().forEach(function (o) {
+      if (o.type === 'track' || o.type === 'progress' || o.end == null) return;
+      if (Math.abs(o.end - prev) > 0.15 && !(o.end > total)) return;
+      if (o.type === 'video' || o.type === 'audio') {
+        var room = (o.start || 0) + Math.max(0.2, ((o.dur || 1e9) - (o.in || 0)) / (+o.speed || 1));
+        var ne = Math.round(Math.min(total, room) * 10) / 10; if (ne !== o.end) { o.end = ne; ch = true; }
+      } else { o.end = null; ch = true; }
+    });
+    if (ch) F.save();
+  }
   function timeAt(e) { var r = $('tlInner').getBoundingClientRect(); return clamp((e.clientX - r.left) / pps, 0, YBFmt.timeline().total); }
   function wire() {
     var inner = $('tlInner'); if (!inner) return;
@@ -197,7 +235,7 @@
         if (o.type === 'progress') return;
         var total = F.timeline().total, edge = e.target.getAttribute('data-edge');
         drag = { y0: e.clientY, o: o, edge: edge, x0: e.clientX, st: o.start || 0, en: o.end == null ? total : o.end, total: total, moved: false, el: inner.querySelector('[data-tov="' + o.id + '"]') || e.target.closest('[data-tov]'), in0: o.in || 0 };
-        inner.setPointerCapture(e.pointerId); e.preventDefault(); return;
+        holdFirst(e); inner.setPointerCapture(e.pointerId); e.preventDefault(); return;
       }
       var tc = e.target.closest('[data-tclip]');
       if (tc) {
@@ -205,12 +243,31 @@
         targetTrack = '';
         if (F.sel()) { F.sel(''); F.renderOverlays(); F.draw(); }
         drag = ce ? { clip: ci, edge: ce, x0: e.clientX, in0: cc.in, out0: cc.out } : { reorder: ci, x0: e.clientX, y0: e.clientY, moved: false, el: inner.querySelector('[data-tclip="' + ci + '"]') || tc, t: timeAt(e), st: F.timeline().starts[ci] };
-        inner.setPointerCapture(e.pointerId); e.preventDefault(); return;
+        holdFirst(e); inner.setPointerCapture(e.pointerId); e.preventDefault(); return;
       }
-      if (e.target.closest('[data-seek]') || e.target === inner) { F.seek(timeAt(e)); drag = { seek: true }; inner.setPointerCapture(e.pointerId); }
+      if (e.target.closest('[data-seek]') || e.target === inner) {
+        if (e.pointerType === 'touch') { drag = { pan: null, x0: e.clientX, y0: e.clientY, sl0: $('tlScroll').scrollLeft, wy0: window.scrollY, tap: timeAt(e) }; inner.setPointerCapture(e.pointerId); e.preventDefault(); return; }
+        F.seek(timeAt(e)); drag = { seek: true }; inner.setPointerCapture(e.pointerId);
+      }
     });
+    var holdT = 0;
+    function holdFirst(e) {   // on a phone a quick swipe scrolls; press and hold (or move slowly after holding) to drag
+      if (e.pointerType !== 'touch' || drag.edge || drag.clip != null) return;
+      var real = drag; drag = { hold: real, pan: null, x0: e.clientX, y0: e.clientY, sl0: $('tlScroll').scrollLeft, wy0: window.scrollY };
+      clearTimeout(holdT);
+      holdT = setTimeout(function () {
+        if (!drag || drag.hold !== real || drag.pan) return;
+        drag = real; if (real.el) real.el.classList.add('lifted'); if (navigator.vibrate) try { navigator.vibrate(12); } catch (er) { /* ignore */ }
+      }, 260);
+    }
+    function panBy(e) {
+      var dx = e.clientX - drag.x0, dy = e.clientY - drag.y0;
+      if (!drag.pan) { if (Math.abs(dx) < 7 && Math.abs(dy) < 7) return; drag.pan = Math.abs(dx) >= Math.abs(dy) ? 'x' : 'y'; clearTimeout(holdT); }
+      if (drag.pan === 'x') $('tlScroll').scrollLeft = drag.sl0 - dx; else window.scrollTo(window.scrollX, drag.wy0 - dy);
+    }
     inner.addEventListener('pointermove', function (e) {
       if (!drag) return; var F = YBFmt;
+      if (drag.hold || drag.tap != null) { panBy(e); return; }
       if (drag.seek) { F.seek(timeAt(e)); return; }
       if (drag.clip != null) {   // trim a clip: drag its ends out to its full length, or in
         var c = F.clips()[drag.clip], dd = (e.clientX - drag.x0) / pps;
@@ -252,7 +309,10 @@
     });
     function up(e) {
       if (!drag) return; var was = drag, F = YBFmt; drag = null;
-      clearDrop();
+      clearTimeout(holdT); clearDrop();
+      document.querySelectorAll('.lifted').forEach(function (k) { k.classList.remove('lifted'); });
+      if (was.tap != null) { if (!was.pan && e.type !== 'pointercancel') F.seek(was.tap); return; }
+      if (was.hold) { if (!was.pan && e.type !== 'pointercancel' && was.hold.reorder != null) F.seek(was.hold.t); return; }
       if (was.o && was.moved && was.vert && was.tg && !was.tg.el.contains(was.el)) {
         var tg = was.tg, ov = F.overlays(), o = was.o;
         if (tg.kind === 'track') { var tr = trackById(tg.track); if (tr && tr.id !== o.track) { placeOnTrack(o, tr); targetTrack = tr.id; YB.toast('Moved onto ' + (tr.name || 'the layer')); } }
@@ -310,7 +370,13 @@
       if (e.target.id === 'fmFxClear') { list.length = 0; fxSaved(); }
     });
     var fxT = 0; $('fmFxSearch').addEventListener('input', function () { clearTimeout(fxT); fxT = setTimeout(function () { fxShow = 48; renderFx(); }, 200); });
-    function addLayerFile(f) { if (!f) return; var F = YBFmt; if (!F.clips().length) { YB.toast('Add your main video first'); return; } YB.toast('Adding video layer…'); F.addVideoLayer(f).then(function () { YB.toast('Video layer added — drag it on the preview, set when it shows on the timeline'); }, function () { YB.toast('This browser can\'t play that video'); }); }
+    var lastAdd = { k: '', t: 0 };
+    function once(f) {   // one pick = one layer, even if the phone fires the pick twice
+      var k = f.name + '|' + f.size + '|' + f.lastModified, now = Date.now();
+      if (k === lastAdd.k && now - lastAdd.t < 1500) return false;
+      lastAdd = { k: k, t: now }; return true;
+    }
+    function addLayerFile(f) { if (!f || !once(f)) return; var F = YBFmt; if (!F.clips().length) { YB.toast('Add your main video first'); return; } YB.toast('Adding video layer…'); F.addVideoLayer(f).then(function () { YB.toast('Video layer added — drag it on the preview, set when it shows on the timeline'); }, function () { YB.toast('This browser can\'t play that video'); }); }
     function target() { var F = YBFmt, o = selLayer(); if (o && (o.type === 'video' || o.type === 'audio')) return { o: o }; var cl = F.clips(); return cl.length ? { c: cl[F.clipAt(F.pv.t)] } : null; }
     $('tlMute').addEventListener('click', function () {
       var F = YBFmt, tg = target(); if (!tg) return;
@@ -332,8 +398,11 @@
       else tg.c.speed = q;
       F.save(); F.renderAll(); renderSpeed(); YB.toast('Speed ' + q + '×');
     });
-    $('tlAudioFile').addEventListener('change', function () { var f = this.files[0]; this.value = ''; if (!f) return; if (!YBFmt.clips().length) { YB.toast('Add your main video first'); return; } YB.toast('Adding sound…'); YBFmt.addAudioLayer(f).then(function () { YB.toast('Sound added on its own row — swipe its ends to trim, tap it for volume'); }, function () { YB.toast('This browser can\'t play that sound file'); }); });
+    $('tlAudioFile').addEventListener('change', function () { var f = this.files[0]; this.value = ''; if (!f || !once(f)) return; if (!YBFmt.clips().length) { YB.toast('Add your main video first'); return; } YB.toast('Adding sound…'); YBFmt.addAudioLayer(f).then(function () { YB.toast('Sound added on its own row — swipe its ends to trim, tap it for volume'); }, function () { YB.toast('This browser can\'t play that sound file'); }); });
     $('tlNewTrack').addEventListener('click', newTrack);
+    $('tlUndo').addEventListener('click', function () { var r = YBFmt.undo(); if (r && r.then) r.then(function () { YB.toast('Undone'); }); });
+    $('tlRedo').addEventListener('click', function () { var r = YBFmt.redo(); if (r && r.then) r.then(function () { YB.toast('Redone'); }); });
+    YBFmt.histUi();
     var big = false; try { big = localStorage.getItem('fmTlBig') === '1'; } catch (er) { /* no storage */ }
     function setBig(on) { big = on; $('tlBox').classList.toggle('fm-tl-big', on); $('tlExpand').setAttribute('aria-pressed', on); $('tlExpand').querySelector('span').textContent = on ? 'Smaller' : 'Expand'; try { localStorage.setItem('fmTlBig', on ? '1' : '0'); } catch (er) { /* no storage */ } }
     setBig(big);
@@ -355,7 +424,7 @@
       F.sel(''); F.save(); F.renderOverlays(); F.renderFacts(); F.draw(); YB.toast(o.type === 'track' ? 'Layer deleted' : 'Deleted');
     });
     $('lyHide').addEventListener('click', function () { var o = selLayer(); if (!o) return; o.hidden = !o.hidden; if (o.type === 'track') itemsOf(o).forEach(function (k) { k.hidden = o.hidden; }); YBFmt.save(); YBFmt.draw(); render(); });
-    $('tlPhotoFile').addEventListener('change', function () { var f = this.files[0]; this.value = ''; if (!f) return; if (!YBFmt.clips().length) { YB.toast('Add your main video first'); return; } YBFmt.addImage(f); YB.toast('Photo layer added'); });
+    $('tlPhotoFile').addEventListener('change', function () { var f = this.files[0]; this.value = ''; if (!f || !once(f)) return; if (!YBFmt.clips().length) { YB.toast('Add your main video first'); return; } YBFmt.addImage(f); YB.toast('Photo layer added'); });
     ['layerFile', 'tlLayerFile'].forEach(function (id) { var el = $(id); if (el) el.addEventListener('change', function () { addLayerFile(this.files[0]); this.value = ''; }); });
     // stickers
     $('stickerRow').innerHTML = YBStickers.list.map(function (s) { return '<button type="button" class="fm-sticker" data-sticker="' + s[0] + '" aria-label="' + esc(s[1]) + '" title="' + esc(s[1]) + '"><img src="' + YBStickers.url(s[0]) + '" alt=""></button>'; }).join('');

@@ -15,15 +15,15 @@
   <meta name="mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
   <meta name="apple-mobile-web-app-title" content="YT Blue">
-  <link rel="stylesheet" href="css/style.css?v=57">
+  <link rel="stylesheet" href="css/style.css?v=58">
   <script src="js/core.js" defer></script>
   <script src="js/vendor/mp4-muxer.min.js" defer></script>
   <script src="js/fullscreen.js?v=1" defer></script>
   <script src="js/fx-float.js?v=1" defer></script>
   <script src="js/showcase-fold.js?v=2" defer></script>
   <script src="js/showcase-fx.js?v=5" defer></script>
-  <script src="js/formatter.js?v=13" defer></script>
-  <script src="js/formatter-pro.js?v=13" defer></script>
+  <script src="js/formatter.js?v=15" defer></script>
+  <script src="js/formatter-pro.js?v=15" defer></script>
 </head>
 <body data-page="formatter">
   <header class="topbar">
@@ -89,6 +89,7 @@
               <button type="button" data-fit="fit" role="radio">⬚ Fit · show everything</button>
               <button type="button" data-fit="fill" role="radio">⛶ Fill · crop to fill</button>
             </div>
+            <p class="fm-fillhint" id="fillHint" role="status" hidden></p>
             <p class="muted small" style="margin:8px 0 0">Per clip you can also zoom and move the picture (in the clip list, or turn on <b>🖐 Move video</b> and drag it on the preview).</p>
           </div>
 
@@ -174,6 +175,10 @@
           <button type="button" class="btn btn-ghost btn-icon btn-sm yb-fullbtn" id="fullBtn" aria-label="Watch full screen" title="Full screen">⛶</button>
         </div>
         <div class="fm-tl" id="tlBox">
+          <div class="fm-hist" role="group" aria-label="Undo and redo">
+            <button type="button" class="fm-histbtn" id="tlUndo" disabled aria-label="Undo" title="Undo (Ctrl+Z)"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 14 4 9l5-5"/><path d="M4 9h10.5a5.5 5.5 0 0 1 0 11H11"/></svg><span>Undo</span></button>
+            <button type="button" class="fm-histbtn" id="tlRedo" disabled aria-label="Redo" title="Redo (Ctrl+Shift+Z)"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m15 14 5-5-5-5"/><path d="M20 9H9.5a5.5 5.5 0 0 0 0 11H13"/></svg><span>Redo</span></button>
+          </div>
           <div class="fm-toolbar" role="toolbar" aria-label="Edit tools">
             <button type="button" class="fm-tool fm-tool-main" id="tlSplit"><i>✂️</i><span>Split</span></button>
             <button type="button" class="fm-tool fm-tool-add" id="tlNewTrack"><i>➕</i><span>New layer</span></button>
@@ -200,7 +205,7 @@
           <p class="fm-target small" id="fmTarget" hidden></p>
           <div class="fm-speedrow" id="fmSpeedRow" hidden></div>
           <div class="fm-tl-scroll" id="tlScroll"><div class="fm-tl-inner" id="tlInner"></div></div>
-          <p class="muted small fm-tl-tip">➕ New layer makes a blank layer — tap it, then add a video, photo, sound or text and it goes on that layer · swipe ends to trim · drag things between layers, or a clip off the main video onto a layer · ⬆ / ⬇ put a layer in front of or under the main video</p>
+          <p class="muted small fm-tl-tip">➕ New layer makes a blank layer — tap it, then add a video, photo, sound or text and it goes on that layer · swipe the timeline left / right to see every clip · press and hold a clip or layer to move it · drag ends to trim · drag things between layers, or a clip off the main video onto a layer · ⬆ / ⬇ put a layer in front of or under the main video</p>
         </div>
         <div class="cx-facts" id="facts"></div>
         <div class="notice warn" id="lenWarn" hidden></div>
