@@ -176,6 +176,7 @@
     var h = $('tlHead'); if (!h || !pps) return;
     h.style.left = (t * pps) + 'px';
     var F = window.YBFmt; if (!F) return;
+    syncBars(F, t);
     var cur = F.clipAt(t); document.querySelectorAll('.fm-tclip').forEach(function (e) { e.classList.toggle('on', +e.getAttribute('data-tclip') === cur); });
     if (F.pv.playing) { var sc = $('tlScroll'), x = t * pps; if (x < sc.scrollLeft + 20 || x > sc.scrollLeft + sc.clientWidth - 40) sc.scrollLeft = x - 40; }
     if (lastFxClip !== cur) { lastFxClip = cur; if (fxTarget === 'clip') renderFx(); if (window._fmRenderSpeed) window._fmRenderSpeed(); }
@@ -200,6 +201,29 @@
       used[k] = 1; slot.appendChild(v);
     });
     Object.keys(vcache).forEach(function (k) { if (!used[k] && !document.body.contains(vcache[k])) { var v = vcache[k]; v.removeAttribute('src'); v.load(); delete vcache[k]; } });
+  }
+  /* the video in the timeline bar under the playhead shows (and plays) exactly what the preview shows */
+  var barSync = 0;
+  function barFollow(v, want, rate, on, playing) {
+    if (!v || v.readyState < 1) return;
+    if (!on) { if (!v.paused) v.pause(); if (Math.abs(v.currentTime - v._at) > 0.3 && !v.seeking) { try { v.currentTime = v._at; } catch (e) { /* ignore */ } } return; }
+    if (v.playbackRate !== rate) v.playbackRate = rate;
+    var drift = v.currentTime - want;
+    if (Math.abs(drift) > (playing ? 0.35 : 0.08) && !v.seeking) { try { v.currentTime = want; } catch (e) { /* ignore */ } }
+    if (playing && v.paused) { v.muted = true; var pr = v.play(); if (pr && pr.catch) pr.catch(function () {}); } else if (!playing && !v.paused) v.pause();
+  }
+  function syncBars(F, t) {
+    var now = performance.now(), playing = F.pv.playing; if (!playing && now - barSync < 60) return; barSync = now;
+    var tl = F.timeline(), cur = F.clipAt(t);
+    F.clips().forEach(function (c, i) {
+      var v = vcache['c' + c.id], sp = F.sp(c);
+      barFollow(v, (c.in || 0) + (t - tl.starts[i]) * sp, sp, i === cur, playing);
+    });
+    F.overlays().forEach(function (o) {
+      if (o.type !== 'video') return; var v = vcache['o' + o.id]; if (!v) return;
+      var st = o.start || 0, en = o.end == null ? tl.total : o.end, sp = +o.speed || 1;
+      barFollow(v, (o.in || 0) + (t - st) * sp, sp, t >= st && t < en, playing);
+    });
   }
   /* a layer that ran to the end keeps running to the end when the video gets longer */
   var endTotal = -1;

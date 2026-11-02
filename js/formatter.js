@@ -303,9 +303,9 @@
   }
   // A video layer shows the part of its video that belongs at time t (its own start / end on the timeline).
   function layerFrame(o, t) {
-    var v = o._v; if (!v || v.readyState < 2 || !v.videoWidth) return null;
-    syncMedia(o, v, t);
-    return v;
+    var v = o._v; if (!v) return null;
+    if (v.readyState >= 1) syncMedia(o, v, t);   // starts it playing in step, even before its first picture has arrived
+    return v.readyState >= 2 && v.videoWidth ? v : null;
   }
   // keep a layer's video / sound in step with the timeline (its own speed, volume and mute)
   function syncMedia(o, v, t) {
@@ -448,7 +448,10 @@
     if (p && p.then) p.then(done, function () { v._woke = false; v.muted = before; }); else done();
   }
   // a tap anywhere also wakes the videos (iPhone only lets a video start after a tap)
-  ['touchend', 'click'].forEach(function (ev) { document.addEventListener(ev, function () { clips.forEach(function (c) { if (c._el && c._el.readyState < 2) { c._el._woke = false; wake(c._el); } }); }, { passive: true }); });
+  ['touchend', 'click'].forEach(function (ev) { document.addEventListener(ev, function () {
+    clips.forEach(function (c) { if (c._el && c._el.readyState < 2) { c._el._woke = false; wake(c._el); } });
+    overlays.forEach(function (o) { if (o._v && o._v.readyState < 2) { o._v._woke = false; wake(o._v); } });
+  }, { passive: true }); });
   function previewSize() {
     var d = dims(), maxW = 360, maxH = 640, s = Math.min(maxW / d.W, maxH / d.H);
     if (d.W >= d.H) s = Math.min(640 / d.W, 360 / d.H);
@@ -797,11 +800,13 @@
   }
   function loadOvImage(o) {
     return new Promise(function (res) {
-      if (o.type === 'audio') { var a = new Audio(); a.preload = 'auto'; var dn = false; function fa() { if (dn) return; dn = true; o._a = a; res(); } a.onloadedmetadata = fa; a.onerror = fa; setTimeout(fa, 6000); a.src = blobUrl(o.blobId); return; }
+      if (o.type === 'audio') { var a = new Audio(); a.preload = 'auto'; a.src = blobUrl(o.blobId); o._a = a; res(); return; }
       if (o.type === 'video') {   // a video layer: a video element kept in step with the timeline
         var v = document.createElement('video'); v.muted = true; v.playsInline = true; v.setAttribute('playsinline', ''); v.preload = 'auto';
-        var done = false; function fin() { if (done) return; done = true; o._v = v; res(); }
-        v.onloadeddata = fin; v.onerror = fin; setTimeout(fin, 8000); v.src = blobUrl(o.blobId); stash.appendChild(v); return;
+        // ready straight away: the layer shows the moment its picture arrives (no waiting before it can be moved)
+        v.addEventListener('loadeddata', function () { if (!pv.playing) drawPreview(); });
+        v.addEventListener('seeked', function () { if (!pv.playing) drawPreview(); });
+        v.src = blobUrl(o.blobId); stash.appendChild(v); o._v = v; wake(v); res(); return;
       }
       var im = new Image(); im.onload = function () { o._img = im; res(); }; im.onerror = function () { res(); };
       im.src = o.sticker && window.YBStickers ? window.YBStickers.url(o.sticker) : blobUrl(o.blobId);
