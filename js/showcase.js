@@ -385,6 +385,18 @@
     if (s.layout === 'split') ps = ps.filter(function (p) { return p.stage !== 'after'; }).concat(ps.filter(function (p) { return p.stage === 'after'; }));
     return ps;
   }
+  // Before & after two at a time: each before with its after (Grid still shows the whole client at once)
+  function usesPairs(s) { return s.layout !== 'grid' && setPhotos(s).length > 2; }
+  function pairList(s) {
+    var ps = setPhotos(s), b = ps.filter(function (p) { return p.stage !== 'after'; }), a = ps.filter(function (p) { return p.stage === 'after'; }), out = [], k;
+    if (!a.length || !b.length || !ps.some(function (p) { return p.stage; })) { for (k = 0; k < ps.length; k += 2) out.push(ps.slice(k, k + 2)); return out; }
+    var n = Math.max(b.length, a.length);
+    for (k = 0; k < n; k++) out.push([b[k % b.length], a[k % a.length]]);
+    return out;
+  }
+  function pairSet(s, k) {   // the client with just one before + one after in it
+    var pr = pairList(s)[k || 0] || []; return { id: s.id, title: s.title, layout: s.layout === 'hero' ? 'split' : s.layout, labels: s.labels, show: s.show, ids: pr.map(function (p) { return p.id; }) };
+  }
   function splitCells(s, W, H) {   // BEFORE column | AFTER column (top / bottom when the size is wide)
     var ps = setPhotos(s), nb = ps.filter(function (p) { return p.stage !== 'after'; }).length, na = ps.length - nb, g = Math.round(Math.min(W, H) * 0.012), out = [];
     if (!na) { na = Math.floor(ps.length / 2); nb = ps.length - na; }
@@ -400,6 +412,7 @@
   }
   function renderSet(s, W, H, opts) {
     opts = opts || {};
+    if (usesPairs(s)) return renderSet(pairSet(s, opts.pair), W, H, opts);
     var c = document.createElement('canvas'); c.width = W; c.height = H;
     var x = c.getContext('2d'), ps = setPhotos(s), base = Math.min(W, H);
     x.fillStyle = '#0a0a0d'; x.fillRect(0, 0, W, H);
@@ -518,6 +531,7 @@
       else {
         var s = setById(sl.ref); if (!s || !s.ids.length) return;
         if (s.show === 'each') setPhotos(s).forEach(function (p, i) { segs.push({ key: 's:' + s.id + ':' + p.id, dur: Math.max(1.2, dur * 0.75), photo: p, angle: s.labels !== false, trans: i ? 'slide' : sl.trans, sl: sl, first: i === 0 }); });
+        else if (usesPairs(s)) pairList(s).forEach(function (pr, k) { segs.push({ key: 's:' + s.id + ':pair' + k, dur: dur, set: s, pair: k, trans: k ? 'slide' : sl.trans, sl: sl, first: k === 0 }); });
         else segs.push({ key: 's:' + s.id, dur: dur + 0.8, set: s, trans: sl.trans, sl: sl, first: true });
       }
     });
@@ -539,7 +553,7 @@
   function stillFor(g, W, H) {
     var k = g.key + '|' + W + 'x' + H + '|' + (g.photo ? verOf(g.photo) : g.set ? verOfSet(g.set) : brandVer());
     if (stills[k]) return stills[k];
-    var c = g.card ? renderCard(g.card, W, H) : g.set ? renderSet(g.set, W, H) : renderPhoto(g.photo, W, H);
+    var c = g.card ? renderCard(g.card, W, H) : g.set ? renderSet(g.set, W, H, { pair: g.pair }) : renderPhoto(g.photo, W, H);
 
     stills[k] = c; return c;
   }
@@ -704,7 +718,7 @@
   }
   var fullBox = null;   // set while the slideshow is full screen
   function sizePreview() {
-    var c = $('preview'), ps = previewSize(), dpr = Math.min(2, window.devicePixelRatio || 1), d = dims();
+    var c = $('preview'), ps = previewSize(), dpr = Math.min(3, window.devicePixelRatio || 1), d = dims();
     if (fullBox) { var k = Math.min(fullBox.w / d.W, fullBox.h / d.H); ps = { w: Math.floor(d.W * k), h: Math.floor(d.H * k) }; }
     c.width = Math.min(d.W, Math.round(ps.w * dpr)); c.height = Math.round(c.width * d.H / d.W);
     c.style.width = ps.w + 'px'; c.style.height = fullBox ? ps.h + 'px' : ''; c.style.aspectRatio = ps.w + ' / ' + ps.h;
@@ -863,7 +877,7 @@
     return { w: Math.round(d.W * s), h: Math.round(d.H * s) };
   }
   function sizeEditor() {
-    var c = $('edCanvas'), es = edSize(), dpr = Math.min(2, window.devicePixelRatio || 1);
+    var c = $('edCanvas'), es = edSize(), dpr = Math.min(3, window.devicePixelRatio || 1);
     c.width = Math.round(es.w * dpr); c.height = Math.round(es.h * dpr); c.style.width = es.w + 'px'; c.style.aspectRatio = es.w + ' / ' + es.h;
   }
   function drawEditor(fast) {
@@ -993,19 +1007,19 @@
         '<div class="label" style="margin-top:10px">Layout</div><div class="seg sc-seg" role="radiogroup">' + LAYOUTS.map(function (l) { return '<button type="button" role="radio" data-layout="' + l[0] + '" class="' + (s.layout === l[0] ? 'on' : '') + '" aria-checked="' + (s.layout === l[0]) + '">' + l[1] + '</button>'; }).join('') + '</div>' +
         '<div class="row" style="gap:14px;margin-top:10px;flex-wrap:wrap">' +
         '<label class="cx-switch"><input type="checkbox" data-sf="labels"' + (s.labels ? ' checked' : '') + '> Show angles too (FRONT / SIDE / BACK)</label>' +
-        '<label class="field" style="min-width:180px"><span>In the slideshow</span><select data-sf="show"><option value="collage"' + (s.show !== 'each' ? ' selected' : '') + '>As one collage</option><option value="each"' + (s.show === 'each' ? ' selected' : '') + '>One shot after another</option></select></label></div>' +
+        '<label class="field" style="min-width:180px"><span>In the slideshow</span><select data-sf="show"><option value="collage"' + (s.show !== 'each' ? ' selected' : '') + '>' + (usesPairs(s) ? 'Before & after · 2 at a time (' + pairList(s).length + ')' : 'As one collage') + '</option><option value="each"' + (s.show === 'each' ? ' selected' : '') + '>One shot after another</option></select></label></div>' +
         '<div class="row" style="gap:6px;margin-top:10px"><button type="button" class="btn btn-sm" data-set-dl>⬇ Download collage</button><button type="button" class="btn btn-ghost btn-sm" data-set-share hidden>📤 Share</button><button type="button" class="btn btn-ghost btn-sm" data-set-ungroup>Ungroup</button><button type="button" class="btn btn-danger btn-sm" data-set-remove>Delete client</button></div></li>';
     }).join('');
     if (navigator.canShare) document.querySelectorAll('[data-set-share]').forEach(function (b) { b.hidden = false; });
     setThumbsSoon();
   }
   var setThumbsSoon = YB.debounce(function () {
-    var d = dims(), w = 300, h = Math.round(300 * d.H / d.W);
-    if (h > 380) { h = 380; w = Math.round(380 * d.W / d.H); }
+    var d = dims(), w = 720, h = Math.round(720 * d.H / d.W);
+    if (h > 960) { h = 960; w = Math.round(960 * d.W / d.H); }
     sets.forEach(function (s) {
       var im = document.querySelector('[data-setprev="' + s.id + '"]'); if (!im) return;
       if (s._thumb) { im.src = s._thumb; return; }
-      Promise.all(setPhotos(s).map(ensureImg)).then(function () { s._thumb = renderSet(s, w, h).toDataURL('image/jpeg', 0.82); im.src = s._thumb; });
+      Promise.all(setPhotos(s).map(ensureImg)).then(function () { s._thumb = renderSet(s, w, h).toDataURL('image/jpeg', 0.9); im.src = s._thumb; });
     });
   }, 200);
   function clientName(s) { return s.title || 'Client ' + (sets.indexOf(s) + 1); }
@@ -1214,7 +1228,7 @@
   function fxVisible() { var c = $('fxCard'); if (!c || c.hidden) return false; var r = c.getBoundingClientRect(); return r.bottom > 0 && r.top < window.innerHeight; }
   function drawFxPreview(t) {   // the chosen photo playing with its effects, over and over
     var c = $('fxPreview'); if (!c) return;
-    var d = dims(), w = c.clientWidth || 240, dpr = Math.min(2, window.devicePixelRatio || 1), W = Math.round(w * dpr), H = Math.round(W * d.H / d.W);
+    var d = dims(), w = c.clientWidth || 240, dpr = Math.min(3, window.devicePixelRatio || 1), W = Math.round(w * dpr), H = Math.round(W * d.H / d.W);
     if (c.width !== W || c.height !== H) { c.width = W; c.height = H; }
     var tl = segments(), g = fxSeg(tl); if (!g) return;
     var u = (t % Math.max(1, g.dur));
@@ -1287,7 +1301,12 @@
   function slug(s) { return String(s || '').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '').slice(0, 40); }
   function toBlob(c) { return new Promise(function (res) { c.toBlob(res, 'image/jpeg', 0.93); }); }
   function photoFile(p) { var d = dims(); return ensureImg(p).then(function () { return toBlob(renderPhoto(p, d.W, d.H, { brand: true, chip: true })); }); }
-  function setFile(s) { var d = dims(); return Promise.all(setPhotos(s).map(ensureImg)).then(function () { return toBlob(renderSet(s, d.W, d.H, { brand: true })); }); }
+  function setFile(s, k) { var d = dims(); return Promise.all(setPhotos(s).map(ensureImg)).then(function () { return toBlob(renderSet(s, d.W, d.H, { brand: true, pair: k })); }); }
+  function setFiles(s) {   // one picture per before & after pair (or the whole grid)
+    var n = usesPairs(s) ? pairList(s).length : 1, out = [], chain = Promise.resolve();
+    for (var k = 0; k < n; k++) (function (k) { chain = chain.then(function () { return setFile(s, k).then(function (b) { out.push({ b: b, name: setName(s).replace('.jpg', n > 1 ? '-pair' + (k + 1) + '.jpg' : '.jpg') }); }); }); })(k);
+    return chain.then(function () { return out; });
+  }
   function photoName(p) { return String(photoNo(p)).padStart(2, '0') + (chipText(p) ? '-' + slug(chipText(p)) : '') + '-' + S.format + (S.plain ? '-plain' : '') + '.jpg'; }
   function setName(s) { return 'set-' + (sets.indexOf(s) + 1) + (s.title ? '-' + slug(s.title) : '') + '-' + S.format + '.jpg'; }
   function save(blob, name) { var url = URL.createObjectURL(blob), a = document.createElement('a'); a.href = url; a.download = name; document.body.appendChild(a); a.click(); a.remove(); setTimeout(function () { URL.revokeObjectURL(url); }, 4000); }
@@ -1648,8 +1667,14 @@
       else if ((sp = e.target.closest('[data-pick]'))) { startPicking(s.id, sp.getAttribute('data-pick')); return; }
       else if (e.target.closest('[data-set-remove]')) { if (!confirm('Delete ' + clientName(s) + '? Its photos stay in your photos.')) return; ungroup(s); }
       else if ((sp = e.target.closest('[data-sp-left]'))) { var j = s.ids.indexOf(sp.getAttribute('data-sp-left')); if (j > 0) { var t = s.ids[j - 1]; s.ids[j - 1] = s.ids[j]; s.ids[j] = t; } }
-      else if (e.target.closest('[data-set-dl]')) { setFile(s).then(function (b) { save(b, setName(s)); }); return; }
-      else if (e.target.closest('[data-set-share]')) { setFile(s).then(function (b) { share(b, setName(s)); }); return; }
+      else if (e.target.closest('[data-set-dl]')) { setFiles(s).then(function (fs) { fs.forEach(function (f, i) { setTimeout(function () { save(f.b, f.name); }, i * 400); }); if (fs.length > 1) YB.toast('Saving ' + fs.length + ' before & after pictures'); }); return; }
+      else if (e.target.closest('[data-set-share]')) {
+        setFiles(s).then(function (fs) {
+          var files = fs.map(function (f) { return new File([f.b], f.name, { type: f.b.type }); });
+          if (navigator.canShare && navigator.canShare({ files: files })) navigator.share({ files: files }).catch(function () {}); else share(fs[0].b, fs[0].name);
+        });
+        return;
+      }
       else if (e.target.closest('[data-set-ungroup]')) { ungroup(s); }
       else return;
       s._thumb = null; saveProject(); renderGrid(); renderSets(); refreshShowSoon();

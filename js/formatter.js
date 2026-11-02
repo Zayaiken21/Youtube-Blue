@@ -100,6 +100,7 @@
   function emptyBin() {
     Object.keys(binned).forEach(function (id) {
       if (clips.some(function (c) { return c.blobId === id; }) || overlays.some(function (o) { return o.blobId === id; })) return;
+      if (window.YBFmtKeep && window.YBFmtKeep(id)) return;   // still used by another saved video
       delete binned[id]; delBlob(id);
     });
   }
@@ -159,13 +160,16 @@
   function saveNow() {
     if (!unsaved) return;
     unsaved = false;
-    var data = {
+    var data = projectData();
+    kv('readwrite', function (st) { st.put(data, 'project'); });
+  }
+  function projectData() {
+    return {
       clips: clips.map(function (c) { return { id: c.id, name: c.name, size: c.size, blobId: c.blobId, dur: c.dur, vw: c.vw, vh: c.vh, in: c.in, out: c.out, vol: c.vol, mute: c.mute, zoom: c.zoom, ox: c.ox, oy: c.oy, audio: c.audio, fx: c.fx || [], speed: c.speed || 1, grp: c.grp || undefined }; }),
       overlays: overlays.map(function (o) { var x = {}; Object.keys(o).forEach(function (k) { if (k.charAt(0) !== '_') x[k] = o[k]; }); return x; }),
       music: music ? { blobId: music.blobId, name: music.name } : null,
       bgImage: bgImage ? { blobId: bgImage.blobId } : null
     };
-    kv('readwrite', function (st) { st.put(data, 'project'); });
   }
 
   /* ---------- Timeline ---------- */
@@ -492,7 +496,7 @@
   }
   var fullBox = null;   // set while the preview is full screen
   function sizePreview() {
-    var c = $('preview'), ps = previewSize(), dpr = Math.min(2, window.devicePixelRatio || 1), d = dims();
+    var c = $('preview'), ps = previewSize(), dpr = Math.min(3, window.devicePixelRatio || 1), d = dims();
     if (fullBox) { var k = Math.min(fullBox.w / d.W, fullBox.h / d.H); ps = { w: Math.floor(d.W * k), h: Math.floor(d.H * k) }; }
     c.width = Math.min(d.W, Math.round(ps.w * dpr)); c.height = Math.round(c.width * d.H / d.W);
     c.style.width = ps.w + 'px'; c.style.height = fullBox ? ps.h + 'px' : ''; c.style.aspectRatio = ps.w + ' / ' + ps.h;
@@ -1426,7 +1430,10 @@
 
   /* ---------- Start ---------- */
   function restore() {
-    return kv('readonly', function (st, out) { var r = st.get('project'); r.onsuccess = function () { out.v = r.result; }; }).then(function (data) {
+    return kv('readonly', function (st, out) { var r = st.get('project'); r.onsuccess = function () { out.v = r.result; }; }).then(applyData);
+  }
+  function applyData(data) {   // put a saved project on screen (used on start, and to open another saved video)
+    return Promise.resolve().then(function () {
       if (!data) return;
       var ids = [];
       (data.clips || []).forEach(function (c) { if (ids.indexOf(c.blobId) === -1) ids.push(c.blobId); });
@@ -1455,6 +1462,20 @@
   window.YBFmt = {
     clips: function () { return clips; }, overlays: function () { return overlays; }, S: S, pv: pv, url: blobUrl,
     setFit: function (o, f) { setFit(o, f); },
+    // saved videos (used by the account page on Pro Level Cuts)
+    data: function () { return JSON.parse(JSON.stringify(projectData())); },
+    blob: function (id) { return blobs[id] ? Promise.resolve(blobs[id].blob) : getBlob(id); },
+    putBlob: function (id, b) { addBlob(id, b); return putRaw(id, b); },
+    delBlob: function (id) { if (clips.some(function (c) { return c.blobId === id; }) || overlays.some(function (o) { return o.blobId === id; })) return Promise.resolve(); return delBlob(id); },
+    open: function (data) {   // replace what's on screen with a saved video
+      stopPreview(); unsaved = false;
+      clips.forEach(function (c) { if (c._el) { c._el.pause(); c._el.remove(); } });
+      overlays.forEach(function (o) { if (o._v) { o._v.pause(); o._v.remove(); } if (o._a) o._a.pause(); });
+      clips = []; overlays = []; music = null; bgImage = null; sel = '';
+      return applyData(data || { clips: [], overlays: [] }).then(function () { unsaved = true; saveNow(); renderAll(); seekTo(0); histReset(); });
+    },
+    flush: function () { unsaved = true; saveNow(); },
+    whenReady: function () { return restoring; },
     removeClips: function (ids) {   // several at once (a merged group or a multi-selection)
       ids.forEach(function (id) { var i = clips.findIndex(function (c) { return c.id === id; }); if (i < 0) return; var g = clips.splice(i, 1)[0]; if (g._el) { g._el.pause(); g._el.remove(); } binBlob(g.blobId); });
       if (clearIfEmpty()) YB.toast('Video removed — its layers were cleared too (Undo brings them back)');
