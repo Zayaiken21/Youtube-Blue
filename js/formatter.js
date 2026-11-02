@@ -41,8 +41,6 @@
   var S = Object.assign({ format: 'short', fit: 'fit', bg: 'black', bgColor: '#0b1530', frame: 'none', frameColor: '#ffffff', transition: 'cut', pad: 0, musicVol: 25 },
     (window.YB && YB.store.get('fmSettings', {})) || {});
   // the blurred copy of the video behind it used to be on by default and looked like an extra layer: turn it off once
-  // the whole video stays inside the frame: Fit for everyone once (Fill only when picked again)
-  if (window.YB && !YB.store.get('fmFitKeep', false)) { S.fit = 'fit'; YB.store.set('fmFitKeep', true); YB.store.set('fmSettings', S); }
   if (window.YB && !YB.store.get('fmBgPlain', false)) { if (S.bg === 'blur') S.bg = 'black'; YB.store.set('fmBgPlain', true); YB.store.set('fmSettings', S); }
   var clips = [], overlays = [], blobs = {}, music = null, bgImage = null;
   var sel = '', moveVideo = false, rec = null, lastVideo = null;
@@ -190,8 +188,9 @@
   // The rectangle the clip's picture is drawn into (may be larger than the content area when zoomed or filling).
   function videoRect(c, W, H) {
     var R = contentRect(W, H), vw = c.vw || 16, vh = c.vh || 9;
-    var s = (S.fit === 'fill' ? Math.max(R.w / vw, R.h / vh) : Math.min(R.w / vw, R.h / vh)) * (c.zoom || 1);
-    var w = vw * s, h = vh * s;
+    var z = c.zoom || 1, w, h;
+    if (S.fit === 'fill') { w = R.w * z; h = R.h * z; }   // Fill stretches the whole picture to the frame: nothing is cut off
+    else { var s = Math.min(R.w / vw, R.h / vh) * z; w = vw * s; h = vh * s; }
     return { x: R.x + (R.w - w) / 2 + (c.ox || 0) * R.w, y: R.y + (R.h - h) / 2 + (c.oy || 0) * R.h, w: w, h: h, R: R };
   }
   function visibleRect(c, W, H) {   // the part of the picture actually on screen
@@ -651,9 +650,8 @@
     if (fh) {
       var c0 = clips[clipAt(pv.t)], msg = '';
       if (S.fit === 'fill' && c0 && c0.vw && c0.vh) {
-        var d = dims(), R = contentRect(d.W, d.H), sc = Math.max(R.w / c0.vw, R.h / c0.vh) * (c0.zoom || 1);
-        var cutW = Math.max(0, 1 - R.w / (c0.vw * sc)), cutH = Math.max(0, 1 - R.h / (c0.vh * sc)), cut = Math.max(cutW, cutH);
-        if (cut > 0.04) msg = '✂ Fill cuts about ' + Math.round(cut * 50) + '% off each ' + (cutW > cutH ? 'side' : 'end (top and bottom)') + ' of this clip because it’s a different shape from the frame. Tap 🖐 Move video and drag the picture to choose what shows — or use Fit to keep everything.';
+        var d = dims(), R = contentRect(d.W, d.H), k = (R.w / R.h) / (c0.vw / c0.vh);
+        if (Math.abs(k - 1) > 0.04) msg = 'Fill stretches this clip about ' + Math.round(Math.abs(k - 1) * 100) + '% ' + (k > 1 ? 'wider' : 'taller') + ' so it covers the whole frame — nothing is cut off. Use Fit to keep its exact shape.';
       }
       fh.textContent = msg; fh.hidden = !msg;
     }
